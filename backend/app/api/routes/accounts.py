@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from decimal import Decimal
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
