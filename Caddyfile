@@ -1,0 +1,16 @@
+{
+	# For local dev, use HTTP
+	auto_https off
+}
+
+:80 {
+	# API routes go to FastAPI
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else goes to Next.js
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
