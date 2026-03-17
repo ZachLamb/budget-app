@@ -8,12 +8,31 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-budget}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-budget} -d ${POSTGRES_DB:-budget_app}"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # Local LLM — all AI processing stays on your machine.
+  # On first start, run: docker compose exec ollama ollama pull qwen2.5:7b
+  # GPU acceleration is enabled automatically if your system supports it.
+  # To disable, remove the 'ollama' service and set OLLAMA_URL="" in .env
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Uncomment the following for NVIDIA GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
 
   backend:
     build: ./backend
@@ -23,6 +42,8 @@ services:
       SIMPLEFIN_ACCESS_URL: ${SIMPLEFIN_ACCESS_URL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
     ports:
       - "8000:8000"
     depends_on:
@@ -35,9 +56,14 @@ services:
   frontend:
     build: ./frontend
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      # Backend URL for Next.js rewrites (proxy /api to backend)
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://backend:8000}
+      # Tell next.config to use backend:8000 (not localhost) for rewrites when in Docker
+      NEXT_PUBLIC_API_DOCKER: "1"
+      # App URL for server-side API calls (frontend container calls itself on port 3000)
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://frontend:3000}
     ports:
-      - "3000:3000"
+      - "3001:3000"
     depends_on:
       - backend
     volumes:
@@ -61,5 +87,6 @@ services:
 
 volumes:
   pgdata:
+  ollama_data:
   caddy_data:
   caddy_config:

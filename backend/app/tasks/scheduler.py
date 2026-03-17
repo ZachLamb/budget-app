@@ -1,11 +1,9 @@
-import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select
+from sqlalchemy import select, desc
 
-from app.config import get_settings
 from app.database import async_session
 from app.models import Household, SyncLog
 from app.services.sync.manager import run_sync
@@ -14,18 +12,55 @@ logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
 
+# 0 = manual only (never auto-sync)
+SYNC_INTERVAL_MANUAL = 0
+
 
 async def scheduled_sync():
-    """Sync all active households."""
-    settings = get_settings()
-    if not settings.simplefin_access_url:
-        return
-
+    """Check all households and sync those whose interval has elapsed."""
     async with async_session() as db:
-        result = await db.execute(select(Household))
+        result = await db.execute(
+            select(Household).where(Household.simplefin_access_url.isnot(None))
+        )
         households = result.scalars().all()
 
-        for household in households:
+    if not households:
+        logger.debug("Scheduled sync: no households with SimpleFIN configured")
+        return
+
+    now = datetime.now(timezone.utc)
+
+    for household in households:
+        if household.sync_interval_hours == SYNC_INTERVAL_MANUAL:
+            continue
+
+        async with async_session() as db:
+            # Check if enough time has elapsed since last completed sync
+            last_result = await db.execute(
+                select(SyncLog)
+                .where(
+                    SyncLog.household_id == household.id,
+                    SyncLog.completed_at.isnot(None),
+                )
+                .order_by(desc(SyncLog.completed_at))
+                .limit(1)
+            )
+            last_log = last_result.scalar_one_or_none()
+            if last_log and last_log.completed_at:
+                elapsed = now - last_log.completed_at
+                if elapsed < timedelta(hours=household.sync_interval_hours):
+                    continue
+
+            in_progress = await db.execute(
+                select(SyncLog).where(
+                    SyncLog.household_id == household.id,
+                    SyncLog.status == "in_progress",
+                )
+            )
+            if in_progress.scalar_one_or_none():
+                logger.info("Scheduled sync: skipping household %s (sync already in progress)", household.id)
+                continue
+
             sync_log = SyncLog(
                 household_id=household.id,
                 provider="simplefin",
@@ -34,25 +69,25 @@ async def scheduled_sync():
             db.add(sync_log)
             await db.flush()
             await db.commit()
+            sync_log_id = sync_log.id
 
-            try:
-                await run_sync(household.id, sync_log.id)
-                logger.info(f"Scheduled sync completed for household {household.id}")
-            except Exception as e:
-                logger.error(f"Scheduled sync failed for household {household.id}: {e}")
+        try:
+            await run_sync(household.id, sync_log_id)
+            logger.info("Scheduled sync completed for household %s", household.id)
+        except Exception as e:
+            logger.error("Scheduled sync failed for household %s: %s", household.id, e)
 
 
 def start_scheduler():
-    settings = get_settings()
     scheduler.add_job(
         scheduled_sync,
         "interval",
-        hours=settings.sync_interval_hours,
+        hours=1,
         id="periodic_sync",
         replace_existing=True,
     )
     scheduler.start()
-    logger.info(f"Scheduler started: syncing every {settings.sync_interval_hours} hours")
+    logger.info("Scheduler started: checking for due syncs every hour")
 
 
 def stop_scheduler():

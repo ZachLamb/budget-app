@@ -15,10 +15,63 @@ export interface TokenResponse {
   user: User;
 }
 
+/** Encode ArrayBuffer as base64url (no padding). */
+function bufferToBase64url(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Serialize PublicKeyCredential to JSON for the server (base64url-encoded binary fields). */
+export function credentialToJSON(credential: PublicKeyCredential): Record<string, unknown> {
+  const response = credential.response as AuthenticatorAttestationResponse | AuthenticatorAssertionResponse;
+  const r: Record<string, unknown> = {
+    id: credential.id,
+    rawId: bufferToBase64url(credential.rawId),
+    type: credential.type,
+    response: {
+      clientDataJSON: bufferToBase64url(response.clientDataJSON),
+    },
+  };
+  if ("attestationObject" in response) {
+    (r.response as Record<string, unknown>).attestationObject = bufferToBase64url(response.attestationObject);
+  }
+  if ("authenticatorData" in response) {
+    (r.response as Record<string, unknown>).authenticatorData = bufferToBase64url(response.authenticatorData);
+    (r.response as Record<string, unknown>).signature = bufferToBase64url(response.signature);
+    if (response.userHandle) (r.response as Record<string, unknown>).userHandle = bufferToBase64url(response.userHandle);
+  }
+  return r;
+}
+
 export const authApi = {
   register: (data: { email: string; name: string; password: string; household_name?: string }) =>
     api.post<TokenResponse>("/auth/register", data).then((r) => r.data),
   login: (data: { email: string; password: string }) =>
     api.post<TokenResponse>("/auth/login", data).then((r) => r.data),
   me: () => api.get<User>("/auth/me").then((r) => r.data),
+  // Passkey (WebAuthn)
+  passkeyRegisterOptions: (data: { email: string; name: string; household_name?: string }) =>
+    api.post<{ options: string }>("/auth/passkey/register/options", data).then((r) => r.data),
+  passkeyRegisterVerify: (credential: Record<string, unknown>) =>
+    api.post<TokenResponse>("/auth/passkey/register/verify", { credential }).then((r) => r.data),
+  passkeyAuthenticateOptions: (data: { email?: string }) =>
+    api.post<{ options: string }>("/auth/passkey/authenticate/options", data).then((r) => r.data),
+  passkeyAuthenticateVerify: (credential: Record<string, unknown>) =>
+    api.post<TokenResponse>("/auth/passkey/authenticate/verify", { credential }).then((r) => r.data),
+  // Passkey management (authenticated)
+  passkeyListCredentials: () =>
+    api.get<PasskeyCredentialItem[]>("/auth/passkey/credentials").then((r) => r.data),
+  passkeyDeleteCredential: (id: string) =>
+    api.delete(`/auth/passkey/credentials/${id}`).then((r) => r.data),
+  passkeyAddOptions: () =>
+    api.post<{ options: string }>("/auth/passkey/add/options").then((r) => r.data),
+  passkeyAddVerify: (credential: Record<string, unknown>) =>
+    api.post<{ ok: boolean }>("/auth/passkey/add/verify", { credential }).then((r) => r.data),
 };
+
+export interface PasskeyCredentialItem {
+  id: string;
+  created_at: string;
+}

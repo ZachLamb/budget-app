@@ -1,5 +1,6 @@
 from app.models.household import Household
 from app.models.user import User
+from app.models.webauthn import WebAuthnCredential
 from app.models.account import Account, AccountSnapshot
 from app.models.payee import Payee
 from app.models.category import CategoryGroup, Category
@@ -9,10 +10,12 @@ from app.models.rule import AutoCategorizationRule
 from app.models.recurring import RecurringTransaction
 from app.models.imports import ImportBatch
 from app.models.sync import SyncLog
+from app.models.goal import FinancialGoal
 
 __all__ = [
     "Household",
     "User",
+    "WebAuthnCredential",
     "Account",
     "AccountSnapshot",
     "Payee",
@@ -24,4 +27,5 @@ __all__ = [
     "RecurringTransaction",
     "ImportBatch",
     "SyncLog",
+    "FinancialGoal",
 ]

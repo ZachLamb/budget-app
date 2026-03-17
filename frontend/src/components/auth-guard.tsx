@@ -3,7 +3,9 @@
 import { useAuth } from "@/lib/providers";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { Navigation } from "./navigation";
+import { Navigation, MobileHeader } from "./navigation";
+import { ErrorBoundary } from "./error-boundary";
+import { AiAdvisor } from "./ai-advisor";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -29,8 +31,12 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen">
       <Navigation />
       <main className="flex-1 overflow-auto bg-background">
-        <div className="mx-auto max-w-6xl p-6">{children}</div>
+        <MobileHeader />
+        <div className="mx-auto max-w-6xl p-4 md:p-6">
+          <ErrorBoundary>{children}</ErrorBoundary>
+        </div>
       </main>
+      <AiAdvisor />
     </div>
   );
 }

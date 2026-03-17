@@ -75,7 +75,7 @@ async def delete_category_group(
     await db.delete(group)
 
 
-@router.post("/", response_model=CategoryResponse, status_code=201)
+@router.post("", response_model=CategoryResponse, status_code=201)
 async def create_category(
     data: CategoryCreate,
     household_id: str = Depends(get_household_id),
@@ -100,11 +100,25 @@ async def update_category(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Category).where(Category.id == category_id))
+    result = await db.execute(
+        select(Category)
+        .join(CategoryGroup, Category.group_id == CategoryGroup.id)
+        .where(Category.id == category_id, CategoryGroup.household_id == household_id)
+    )
     category = result.scalar_one_or_none()
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
-    for field, value in data.model_dump(exclude_unset=True).items():
+    updates = data.model_dump(exclude_unset=True)
+    if "group_id" in updates and updates["group_id"]:
+        grp_result = await db.execute(
+            select(CategoryGroup).where(
+                CategoryGroup.id == updates["group_id"],
+                CategoryGroup.household_id == household_id,
+            )
+        )
+        if not grp_result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Category group not found")
+    for field, value in updates.items():
         setattr(category, field, value)
     return CategoryResponse.model_validate(category)
 
@@ -115,7 +129,11 @@ async def delete_category(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Category).where(Category.id == category_id))
+    result = await db.execute(
+        select(Category)
+        .join(CategoryGroup, Category.group_id == CategoryGroup.id)
+        .where(Category.id == category_id, CategoryGroup.household_id == household_id)
+    )
     category = result.scalar_one_or_none()
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")

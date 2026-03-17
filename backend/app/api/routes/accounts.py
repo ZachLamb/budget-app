@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 
 from app.database import get_db
 from app.api.deps import get_household_id
@@ -12,6 +13,7 @@ from app.models import Account, AccountSnapshot, Transaction
 from app.schemas.account import AccountCreate, AccountUpdate, AccountResponse
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 async def _compute_balance(db: AsyncSession, account: Account) -> Decimal:
@@ -33,29 +35,72 @@ async def _compute_balance(db: AsyncSession, account: Account) -> Decimal:
         return row if row is not None else Decimal("0.00")
 
 
-@router.get("/", response_model=list[AccountResponse])
+async def _compute_balances(db: AsyncSession, accounts: list) -> dict[str, Decimal]:
+    budget_ids = [a.id for a in accounts if a.is_budget_account]
+    tracking_ids = [a.id for a in accounts if not a.is_budget_account]
+    balances: dict[str, Decimal] = {}
+
+    if budget_ids:
+        result = await db.execute(
+            select(Transaction.account_id, func.coalesce(func.sum(Transaction.amount), 0))
+            .where(Transaction.account_id.in_(budget_ids))
+            .where(Transaction.parent_transaction_id.is_(None))
+            .group_by(Transaction.account_id)
+        )
+        for acct_id, total in result.all():
+            balances[acct_id] = total
+
+    if tracking_ids:
+        subq = (
+            select(
+                AccountSnapshot.account_id,
+                func.max(AccountSnapshot.date).label("max_date")
+            )
+            .where(AccountSnapshot.account_id.in_(tracking_ids))
+            .group_by(AccountSnapshot.account_id)
+            .subquery()
+        )
+        result = await db.execute(
+            select(AccountSnapshot.account_id, AccountSnapshot.balance)
+            .select_from(AccountSnapshot)
+            .join(subq, and_(
+                AccountSnapshot.account_id == subq.c.account_id,
+                AccountSnapshot.date == subq.c.max_date,
+            ))
+        )
+        for acct_id, balance in result.all():
+            balances[acct_id] = balance
+
+    return balances
+
+
+@router.get("", response_model=list[AccountResponse])
 async def list_accounts(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Account)
-        .where(Account.household_id == household_id)
-        .where(Account.closed_at.is_(None))
-        .order_by(Account.account_type, Account.name)
-    )
-    accounts = result.scalars().all()
+    try:
+        result = await db.execute(
+            select(Account)
+            .where(Account.household_id == household_id)
+            .where(Account.closed_at.is_(None))
+            .order_by(Account.account_type, Account.name)
+        )
+        accounts = result.scalars().all()
 
-    responses = []
-    for acct in accounts:
-        balance = await _compute_balance(db, acct)
-        resp = AccountResponse.model_validate(acct)
-        resp.balance = balance
-        responses.append(resp)
-    return responses
+        balances = await _compute_balances(db, accounts)
+        responses = []
+        for acct in accounts:
+            resp = AccountResponse.model_validate(acct)
+            resp.balance = balances.get(acct.id, Decimal("0.00"))
+            responses.append(resp)
+        return responses
+    except Exception as e:
+        logger.exception("list_accounts failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to load accounts") from e
 
 
-@router.post("/", response_model=AccountResponse, status_code=201)
+@router.post("", response_model=AccountResponse, status_code=201)
 async def create_account(
     data: AccountCreate,
     household_id: str = Depends(get_household_id),
@@ -68,6 +113,8 @@ async def create_account(
         institution=data.institution,
         currency=data.currency,
         is_budget_account=data.is_budget_account,
+        interest_rate=data.interest_rate,
+        minimum_payment=data.minimum_payment,
     )
     db.add(account)
     await db.flush()

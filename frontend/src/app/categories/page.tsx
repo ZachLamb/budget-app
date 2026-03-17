@@ -10,14 +10,23 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
+import { useIsClient } from "@/lib/hooks";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 function CategoriesContent() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
+  const [deleteCatId, setDeleteCatId] = useState<string | null>(null);
   const [newGroup, setNewGroup] = useState("");
   const [newCats, setNewCats] = useState<Record<string, string>>({});
 
   const queryClient = useQueryClient();
-  const { data: groups = [], isLoading } = useQuery({ queryKey: ["categoryGroups"], queryFn: categoriesApi.listGroups });
+  const isClient = useIsClient();
+  const { data: groups = [], isLoading } = useQuery({
+    queryKey: ["categoryGroups"],
+    queryFn: categoriesApi.listGroups,
+    enabled: isClient,
+  });
 
   const createGroupMutation = useMutation({
     mutationFn: categoriesApi.createGroup,
@@ -104,7 +113,7 @@ function CategoriesContent() {
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                    onClick={(e) => { e.stopPropagation(); deleteGroupMutation.mutate(group.id); }}
+                    onClick={(e) => { e.stopPropagation(); setDeleteGroupId(group.id); }}
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -118,7 +127,7 @@ function CategoriesContent() {
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                          onClick={() => deleteCatMutation.mutate(cat.id)}
+                          onClick={() => setDeleteCatId(cat.id)}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -157,6 +166,20 @@ function CategoriesContent() {
           )}
         </CardContent>
       </Card>
+      <ConfirmDialog
+        open={!!deleteGroupId}
+        onOpenChange={(open) => { if (!open) setDeleteGroupId(null); }}
+        title="Delete Category Group"
+        description="This will permanently delete this group and all its categories."
+        onConfirm={() => { if (deleteGroupId) deleteGroupMutation.mutate(deleteGroupId); }}
+      />
+      <ConfirmDialog
+        open={!!deleteCatId}
+        onOpenChange={(open) => { if (!open) setDeleteCatId(null); }}
+        title="Delete Category"
+        description="This will permanently delete this category."
+        onConfirm={() => { if (deleteCatId) deleteCatMutation.mutate(deleteCatId); }}
+      />
     </div>
   );
 }

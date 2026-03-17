@@ -15,6 +15,7 @@ class SyncedAccount:
     account_type: str
     balance: Decimal
     currency: str = "USD"
+    available_balance: Optional[Decimal] = None
 
 
 @dataclass

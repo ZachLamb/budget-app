@@ -1,22 +1,44 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import select
+logger = logging.getLogger(__name__)
+
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
-from app.config import get_settings
-from app.models import Account, AccountSnapshot, Transaction, Payee, SyncLog, ImportBatch
+from app.models import Account, AccountSnapshot, Transaction, Payee, SyncLog, ImportBatch, Household
 from app.services.sync.simplefin import SimpleFINProvider
 from app.services.categorization.rules import apply_rules
 
 
+async def _get_simplefin_url(db: AsyncSession, household_id: str) -> str | None:
+    """Return the SimpleFIN access URL for the household (DB is sole source of truth)."""
+    result = await db.execute(select(Household).where(Household.id == household_id))
+    household = result.scalar_one_or_none()
+    if household and household.simplefin_access_url:
+        return household.simplefin_access_url
+    return None
+
+
+async def _persist_access_url(db: AsyncSession, household_id: str, access_url: str):
+    """Save the claimed SimpleFIN access URL so we never re-claim the setup token."""
+    result = await db.execute(select(Household).where(Household.id == household_id))
+    household = result.scalar_one_or_none()
+    if household:
+        household.simplefin_access_url = access_url
+        await db.commit()
+
+
 async def run_sync(household_id: str, sync_log_id: str):
     """Run a full sync for a household. Called as a background task."""
-    settings = get_settings()
-    if not settings.simplefin_access_url:
+    async with async_session() as db:
+        access_url = await _get_simplefin_url(db, household_id)
+
+    if not access_url:
         async with async_session() as db:
             result = await db.execute(select(SyncLog).where(SyncLog.id == sync_log_id))
             log = result.scalar_one()
@@ -26,16 +48,41 @@ async def run_sync(household_id: str, sync_log_id: str):
             await db.commit()
         return
 
-    provider = SimpleFINProvider(settings.simplefin_access_url)
+    provider = SimpleFINProvider(access_url)
     accounts_synced = 0
     transactions_imported = 0
     error_msg = None
 
     try:
         end_date = date.today()
-        start_date = end_date - timedelta(days=30)
+        default_start = end_date - timedelta(days=30)
+
+        # Incremental sync: use the earliest last_synced_at across all
+        # household accounts minus a 3-day overlap to catch back-dated
+        # transactions. Deduplication by simplefin_transaction_id is safe.
+        async with async_session() as db:
+            accts_result = await db.execute(
+                select(Account.last_synced_at).where(
+                    Account.household_id == household_id,
+                    Account.simplefin_id.isnot(None),
+                    Account.last_synced_at.isnot(None),
+                )
+            )
+            synced_dates = [r[0] for r in accts_result.all()]
+
+        if synced_dates:
+            earliest = min(synced_dates)
+            incremental_start = (earliest - timedelta(days=3)).date()
+            start_date = max(incremental_start, default_start)
+        else:
+            start_date = default_start
 
         sync_result = await provider.sync_all(start_date, end_date)
+
+        resolved = provider.resolved_access_url
+        if resolved and resolved != access_url:
+            async with async_session() as db:
+                await _persist_access_url(db, household_id, resolved)
 
         async with async_session() as db:
             for synced_acct in sync_result.accounts:
@@ -44,7 +91,7 @@ async def run_sync(household_id: str, sync_log_id: str):
                 )
                 account = result.scalar_one_or_none()
 
-                if not account:
+                if account is None:
                     is_budget = synced_acct.account_type in ("checking", "savings", "credit")
                     account = Account(
                         household_id=household_id,
@@ -57,6 +104,15 @@ async def run_sync(household_id: str, sync_log_id: str):
                     )
                     db.add(account)
                     await db.flush()
+                else:
+                    account.name = synced_acct.name
+                    account.institution = synced_acct.institution
+
+                account.available_balance = synced_acct.available_balance
+                account.last_synced_at = datetime.now(timezone.utc)
+
+                if not account.sync_enabled:
+                    continue
 
                 if not account.is_budget_account:
                     snapshot = AccountSnapshot(
@@ -76,54 +132,106 @@ async def run_sync(household_id: str, sync_log_id: str):
                 accounts_synced += 1
 
                 acct_txns = sync_result.transactions.get(synced_acct.provider_id, [])
-                if not acct_txns:
-                    continue
 
-                batch = ImportBatch(
-                    account_id=account.id, source="simplefin", transaction_count=0
+                # Count pre-existing transactions for this account (before this sync run).
+                # Used to determine whether an opening balance is needed.
+                prior_txn_count_result = await db.execute(
+                    select(func.count()).where(Transaction.account_id == account.id)
                 )
-                db.add(batch)
-                await db.flush()
+                prior_txn_count = prior_txn_count_result.scalar() or 0
 
-                for synced_txn in acct_txns:
-                    existing = await db.execute(
-                        select(Transaction).where(
-                            Transaction.simplefin_transaction_id == synced_txn.provider_id
-                        )
-                    )
-                    if existing.scalar_one_or_none():
-                        continue
+                # Track the sum of amounts actually imported in this run (skips deduped rows).
+                imported_total = Decimal("0")
 
-                    payee_result = await db.execute(
-                        select(Payee).where(
-                            Payee.household_id == household_id,
-                            Payee.name == synced_txn.payee_name,
-                        )
+                if acct_txns:
+                    batch = ImportBatch(
+                        account_id=account.id, source="simplefin", transaction_count=0
                     )
-                    payee = payee_result.scalar_one_or_none()
-                    if not payee:
-                        payee = Payee(household_id=household_id, name=synced_txn.payee_name)
-                        db.add(payee)
+                    db.add(batch)
+                    await db.flush()
+
+                    seen_ids: set[str] = set()
+                    for synced_txn in acct_txns:
+                        if not synced_txn.provider_id:
+                            continue
+                        if synced_txn.provider_id in seen_ids:
+                            logger.warning("Duplicate transaction id in sync response: %s", synced_txn.provider_id)
+                            continue
+                        seen_ids.add(synced_txn.provider_id)
+
+                        existing = await db.execute(
+                            select(Transaction).where(
+                                Transaction.simplefin_transaction_id == synced_txn.provider_id
+                            )
+                        )
+                        if existing.scalar_one_or_none():
+                            continue
+
+                        payee_result = await db.execute(
+                            select(Payee).where(
+                                Payee.household_id == household_id,
+                                Payee.name == synced_txn.payee_name,
+                            )
+                        )
+                        payee = payee_result.scalar_one_or_none()
+                        if not payee:
+                            payee = Payee(household_id=household_id, name=synced_txn.payee_name)
+                            db.add(payee)
+                            await db.flush()
+
+                        category_id = payee.default_category_id
+
+                        txn = Transaction(
+                            account_id=account.id,
+                            date=synced_txn.date,
+                            payee_id=payee.id,
+                            amount=synced_txn.amount,
+                            notes=synced_txn.memo,
+                            cleared=True,
+                            category_id=category_id,
+                            import_id=batch.id,
+                            simplefin_transaction_id=synced_txn.provider_id,
+                        )
+                        db.add(txn)
+                        transactions_imported += 1
+                        batch.transaction_count += 1
+                        imported_total += synced_txn.amount
+
+                    await db.flush()
+
+                # Create an opening balance transaction when a budget account has no prior
+                # transactions (newly created OR all transactions were manually deleted).
+                # This makes the sum-of-transactions balance match SimpleFIN's reported
+                # balance, since SimpleFIN only returns 30 days of history.
+                if account.is_budget_account and prior_txn_count == 0:
+                    opening_amount = synced_acct.balance - imported_total
+                    if abs(opening_amount) > Decimal("0.01"):
+                        ob_payee_result = await db.execute(
+                            select(Payee).where(
+                                Payee.household_id == household_id,
+                                Payee.name == "Opening Balance",
+                            )
+                        )
+                        ob_payee = ob_payee_result.scalar_one_or_none()
+                        if not ob_payee:
+                            ob_payee = Payee(household_id=household_id, name="Opening Balance")
+                            db.add(ob_payee)
+                            await db.flush()
+                        ob_txn = Transaction(
+                            account_id=account.id,
+                            date=start_date - timedelta(days=1),
+                            payee_id=ob_payee.id,
+                            amount=opening_amount,
+                            notes="Opening balance from SimpleFIN import",
+                            cleared=True,
+                        )
+                        db.add(ob_txn)
+                        transactions_imported += 1
                         await db.flush()
-
-                    category_id = payee.default_category_id
-
-                    txn = Transaction(
-                        account_id=account.id,
-                        date=synced_txn.date,
-                        payee_id=payee.id,
-                        amount=synced_txn.amount,
-                        notes=synced_txn.memo,
-                        cleared=True,
-                        category_id=category_id,
-                        import_id=batch.id,
-                        simplefin_transaction_id=synced_txn.provider_id,
-                    )
-                    db.add(txn)
-                    transactions_imported += 1
-                    batch.transaction_count += 1
-
-                await db.flush()
+                        logger.info(
+                            "Created opening balance of %s for account %s (%s)",
+                            opening_amount, account.name, account.id,
+                        )
 
             if transactions_imported > 0:
                 await apply_rules(db, household_id)

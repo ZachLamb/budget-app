@@ -22,6 +22,13 @@ class Account(Base):
     simplefin_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
     closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    # Debt tracking (credit/loan accounts)
+    interest_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 4), nullable=True)   # APR e.g. 0.2499
+    minimum_payment: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2), nullable=True)
+    # Sync control
+    sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    available_balance: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2), nullable=True)
 
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="account")
     snapshots: Mapped[list["AccountSnapshot"]] = relationship(back_populates="account", order_by="AccountSnapshot.date.desc()")

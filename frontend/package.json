@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/check-ui-imports.mjs && next build",
     "start": "next start",
     "lint": "eslint"
   },

@@ -43,4 +43,6 @@ class Transaction(Base):
         Index("ix_transactions_account_date", "account_id", "date"),
         Index("ix_transactions_category", "category_id"),
         Index("ix_transactions_simplefin_id", "simplefin_transaction_id", unique=True),
+        Index("ix_transactions_parent", "parent_transaction_id"),
+        Index("ix_transactions_transfer_pair", "transfer_pair_id"),
     )

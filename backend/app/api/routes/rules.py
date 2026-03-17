@@ -6,11 +6,12 @@ from app.database import get_db
 from app.api.deps import get_household_id
 from app.models import AutoCategorizationRule
 from app.schemas.rule import RuleCreate, RuleUpdate, RuleResponse
+from app.utils import validate_category_ownership
 
 router = APIRouter()
 
 
-@router.get("/", response_model=list[RuleResponse])
+@router.get("", response_model=list[RuleResponse])
 async def list_rules(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
@@ -23,12 +24,13 @@ async def list_rules(
     return [RuleResponse.model_validate(r) for r in result.scalars().all()]
 
 
-@router.post("/", response_model=RuleResponse, status_code=201)
+@router.post("", response_model=RuleResponse, status_code=201)
 async def create_rule(
     data: RuleCreate,
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):
+    await validate_category_ownership(db, data.category_id, household_id)
     rule = AutoCategorizationRule(household_id=household_id, **data.model_dump())
     db.add(rule)
     await db.flush()
@@ -49,7 +51,10 @@ async def update_rule(
     rule = result.scalar_one_or_none()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
-    for field, value in data.model_dump(exclude_unset=True).items():
+    updates = data.model_dump(exclude_unset=True)
+    if "category_id" in updates:
+        await validate_category_ownership(db, updates["category_id"], household_id)
+    for field, value in updates.items():
         setattr(rule, field, value)
     return RuleResponse.model_validate(rule)
 

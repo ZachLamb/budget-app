@@ -6,7 +6,9 @@
 :80 {
 	# API routes go to FastAPI
 	handle /api/* {
-		reverse_proxy backend:8000
+		reverse_proxy backend:8000 {
+			header_up Host {http.request.host}
+		}
 	}
 
 	# Everything else goes to Next.js

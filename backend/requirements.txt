@@ -13,3 +13,6 @@ apscheduler>=3.10.4
 ofxparse>=0.21
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
+webauthn>=2.2.0
+pytest>=8.4.0
+pytest-asyncio>=0.24.0

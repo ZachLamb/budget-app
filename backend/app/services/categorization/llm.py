@@ -1,28 +1,21 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
-
-import anthropic
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.models import Transaction, Payee, Account, CategoryGroup, Category
+from app.services.ai import llm_client
 
 
 async def suggest_categories_batch(
     db: AsyncSession, household_id: str
 ) -> list[dict]:
-    """Send uncategorized transactions to Claude for category suggestions.
+    """Send uncategorized transactions to an LLM for category suggestions.
 
-    Returns a list of {transaction_id, suggested_category_id, payee_name, category_name}
-    for the user to confirm.
+    Uses local Ollama if available, falls back to Claude API.
+    Returns a list of {transaction_id, suggested_category_id, payee_name, category_name}.
     """
-    settings = get_settings()
-    if not settings.anthropic_api_key:
-        return []
-
     # Gather uncategorized transactions
     txn_result = await db.execute(
         select(Transaction)
@@ -45,21 +38,11 @@ async def suggest_categories_batch(
             payee_names[p.id] = p.name
 
     # Build category list
-    groups_result = await db.execute(
-        select(CategoryGroup)
-        .where(CategoryGroup.household_id == household_id)
-        .order_by(CategoryGroup.sort_order)
-    )
     categories_result = await db.execute(
         select(Category).join(CategoryGroup).where(CategoryGroup.household_id == household_id)
     )
     all_categories = categories_result.scalars().all()
-
-    cat_list = []
-    cat_map: dict[str, str] = {}
-    for cat in all_categories:
-        cat_list.append({"id": cat.id, "name": cat.name})
-        cat_map[cat.name.lower()] = cat.id
+    cat_list = [{"id": cat.id, "name": cat.name} for cat in all_categories]
 
     txn_list = []
     for t in transactions:
@@ -72,7 +55,8 @@ async def suggest_categories_batch(
             "notes": t.notes or "",
         })
 
-    prompt = f"""Categorize these transactions. For each, return the most appropriate category_id.
+    system = "You are a personal finance assistant. Categorize transactions accurately and concisely."
+    prompt = f"""Categorize these transactions. For each, return the most appropriate category_id from the list.
 
 Categories:
 {json.dumps(cat_list, indent=2)}
@@ -80,20 +64,16 @@ Categories:
 Transactions:
 {json.dumps(txn_list, indent=2)}
 
-Return a JSON array of objects with "transaction_id" and "category_id" fields. Only return the JSON array, no other text."""
+Return ONLY a JSON array of objects with "transaction_id" and "category_id" fields. No other text."""
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    response_text = await llm_client.complete(prompt, system=system)
+    if not response_text:
+        return []
 
     try:
-        response_text = message.content[0].text.strip()
-        if response_text.startswith("```"):
-            response_text = response_text.split("\n", 1)[1].rsplit("```", 1)[0]
-        suggestions = json.loads(response_text)
+        if response_text.strip().startswith("```"):
+            response_text = response_text.strip().split("\n", 1)[1].rsplit("```", 1)[0]
+        suggestions = json.loads(response_text.strip())
     except (json.JSONDecodeError, IndexError, KeyError):
         return []
 

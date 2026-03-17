@@ -8,6 +8,8 @@ from app.schemas.transaction import TransactionCreate, TransactionUpdate, Transa
 from app.schemas.user import UserCreate, UserResponse, TokenResponse
 from app.schemas.sync import SyncLogResponse, SyncStatusResponse
 from app.schemas.rule import RuleCreate, RuleUpdate, RuleResponse
+from app.schemas.budget import BudgetAssignmentUpsert, BudgetAssignmentResponse, BudgetMonthResponse
+from app.schemas.recurring import RecurringCreate, RecurringUpdate, RecurringResponse
 
 __all__ = [
     "AccountCreate", "AccountUpdate", "AccountResponse",
@@ -18,4 +20,6 @@ __all__ = [
     "UserCreate", "UserResponse", "TokenResponse",
     "SyncLogResponse", "SyncStatusResponse",
     "RuleCreate", "RuleUpdate", "RuleResponse",
+    "BudgetAssignmentUpsert", "BudgetAssignmentResponse", "BudgetMonthResponse",
+    "RecurringCreate", "RecurringUpdate", "RecurringResponse",
 ]
