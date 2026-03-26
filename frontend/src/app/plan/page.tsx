@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/auth-guard";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -50,7 +50,8 @@ function useDebounced<T>(value: T, delay: number): T {
 
 // ── Shared constants ──────────────────────────────────────────────────────────
 
-const DEBT_TYPES = ["credit", "loan"];
+const PLAN_TABS = ["debt", "goals"] as const;
+type PlanTab = (typeof PLAN_TABS)[number];
 
 const GOAL_TYPES = [
   { value: "debt_payoff", label: "Debt Payoff", icon: TrendingDown, color: "text-red-500" },
@@ -88,6 +89,7 @@ const EMPTY_GOAL: GoalCreate = {
   target_date: undefined,
   account_id: undefined,
 };
+const NONE_ACCOUNT_VALUE = "__none__";
 
 function GoalCard({ goal, onDelete, onToggle, onEdit }: {
   goal: FinancialGoal;
@@ -192,10 +194,13 @@ function GoalForm({ accounts, initial, onSave, onCancel, saving }: {
         </div>
         <div className="space-y-2">
           <Label>Linked Account (optional)</Label>
-          <Select value={form.account_id ?? ""} onValueChange={(v) => f({ account_id: v || undefined })}>
+          <Select
+            value={form.account_id ?? NONE_ACCOUNT_VALUE}
+            onValueChange={(v) => f({ account_id: v === NONE_ACCOUNT_VALUE ? undefined : v })}
+          >
             <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="">None</SelectItem>
+              <SelectItem value={NONE_ACCOUNT_VALUE}>None</SelectItem>
               {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -277,10 +282,16 @@ function GoalsTab() {
   const createMutation = useMutation({
     mutationFn: goalsApi.create,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["goals"] }); toast.success("Goal created"); setOpen(false); },
+    onError: (err) => {
+      toast.error(getApiErrorMessage(err, "Failed to create goal"));
+    },
   });
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: object }) => goalsApi.update(id, data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["goals"] }); toast.success("Goal updated"); setEditGoal(null); },
+    onError: (err) => {
+      toast.error(getApiErrorMessage(err, "Failed to update goal"));
+    },
   });
   const deleteMutation = useMutation({
     mutationFn: goalsApi.delete,
@@ -317,6 +328,7 @@ function GoalsTab() {
           <DialogContent className="max-w-xl">
             <DialogHeader><DialogTitle>Create a Financial Goal</DialogTitle></DialogHeader>
             <GoalForm
+              key={open ? "create-goal" : "create-closed"}
               accounts={accounts}
               initial={EMPTY_GOAL}
               onSave={(data) => createMutation.mutate(data)}
@@ -342,7 +354,7 @@ function GoalsTab() {
           {activeGoals.map((g) => (
             <GoalCard key={g.id} goal={g}
               onDelete={() => setDeleteId(g.id)}
-              onToggle={() => updateMutation.mutate({ id: g.id, data: { is_completed: true, current_amount: g.target_amount } })}
+              onToggle={() => updateMutation.mutate({ id: g.id, data: { is_completed: true } })}
               onEdit={() => setEditGoal(g)}
             />
           ))}
@@ -369,6 +381,7 @@ function GoalsTab() {
           <DialogHeader><DialogTitle>Edit Goal</DialogTitle></DialogHeader>
           {editGoal && (
             <GoalForm
+              key={editGoal.id}
               accounts={accounts}
               initial={{
                 name: editGoal.name,
@@ -427,9 +440,13 @@ function DebtTab() {
   // Persistence: track whether user has interacted to avoid overwriting with stale fetch
   const hasUserInteracted = useRef(false);
   const prefsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+  const aiRequestIdRef = useRef(0);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       if (prefsSaveTimer.current) clearTimeout(prefsSaveTimer.current);
     };
   }, []);
@@ -467,7 +484,9 @@ function DebtTab() {
     settingsApi.updatePlanPreferences({
       debt_strategy: s,
       debt_extra_monthly: extra,
-    }).catch(() => {});
+    }).catch((err: unknown) => {
+      toast.error(getApiErrorMessage(err, "Could not save plan preferences"));
+    });
   }, []);
 
   const debouncedPersist = useCallback((s: string, extra: number) => {
@@ -505,13 +524,15 @@ function DebtTab() {
   });
 
   const totalDebt = debtAccounts.reduce((s, a) => s + Math.abs(a.balance), 0);
-  const allHaveRates = debtAccounts.length > 0 && debtAccounts.every((a) => a.interest_rate && a.minimum_payment);
+  const allHaveRates = debtAccounts.length > 0 && debtAccounts.every(
+    (a) => a.interest_rate != null && a.minimum_payment != null,
+  );
 
   const openEdit = (acct: DebtAccount) => {
     setEditAccount(acct);
     setEditForm({
-      interest_rate: acct.interest_rate ? (Number(acct.interest_rate) * 100).toFixed(2) : "",
-      minimum_payment: acct.minimum_payment ? String(acct.minimum_payment) : "",
+      interest_rate: acct.interest_rate != null ? (Number(acct.interest_rate) * 100).toFixed(2) : "",
+      minimum_payment: acct.minimum_payment != null ? String(acct.minimum_payment) : "",
     });
   };
 
@@ -557,44 +578,67 @@ function DebtTab() {
 
   const handleAcceptAll = async () => {
     const toApply = visibleRateSuggestions.filter((s) => !acceptedRateIds.has(s.account_id));
-    if (toApply.length === 0) return;
+    if (toApply.length === 0 || isAcceptingAll) return;
     setIsAcceptingAll(true);
     let succeeded = 0;
     let failed = 0;
     for (const s of toApply) {
+      if (!mountedRef.current) break;
       try {
         await accountsApi.update(s.account_id, {
           interest_rate: s.suggested_apr,
           minimum_payment: s.suggested_min_payment,
         });
-        setAcceptedRateIds((prev) => new Set([...prev, s.account_id]));
+        if (mountedRef.current) {
+          setAcceptedRateIds((prev) => new Set([...prev, s.account_id]));
+        }
         succeeded++;
       } catch {
         failed++;
       }
     }
-    queryClient.invalidateQueries({ queryKey: ["debtAccounts"] });
-    queryClient.invalidateQueries({ queryKey: ["payoffPlan"] });
-    queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    if (failed === 0) {
-      toast.success(`Applied ${succeeded} rate suggestion${succeeded !== 1 ? "s" : ""}`);
-    } else {
-      toast.error(`Applied ${succeeded} of ${succeeded + failed} (${failed} failed)`);
+    if (mountedRef.current) {
+      queryClient.invalidateQueries({ queryKey: ["debtAccounts"] });
+      queryClient.invalidateQueries({ queryKey: ["payoffPlan"] });
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      if (failed === 0) {
+        toast.success(`Applied ${succeeded} rate suggestion${succeeded !== 1 ? "s" : ""}`);
+      } else {
+        toast.error(`Applied ${succeeded} of ${succeeded + failed} (${failed} failed)`);
+      }
     }
-    setIsAcceptingAll(false);
+    if (mountedRef.current) {
+      setIsAcceptingAll(false);
+    }
   };
 
   const handleGetAiRecommendation = async () => {
+    const requestId = ++aiRequestIdRef.current;
     setAiLoading(true);
     setAiError(null);
     try {
       const result = await aiApi.getDebtPlanSuggestion();
+      if (requestId !== aiRequestIdRef.current) return;
       setAiSuggestion(result);
       setAiDismissed(false);
     } catch (err: unknown) {
-      setAiError(getApiErrorMessage(err, "Failed to get AI recommendation"));
+      const status = (
+        err &&
+        typeof err === "object" &&
+        "response" in err &&
+        (err as { response?: { status?: number } }).response?.status
+      ) ?? undefined;
+      if (status === 403) {
+        setAiError("AI features are disabled. Enable AI Financial Advisor in Settings.");
+      } else if (status === 503) {
+        setAiError("AI backend unavailable. Start Ollama or add ANTHROPIC_API_KEY, then try again.");
+      } else {
+        setAiError(getApiErrorMessage(err, "Failed to get AI recommendation. Please try again."));
+      }
     } finally {
-      setAiLoading(false);
+      if (requestId === aiRequestIdRef.current) {
+        setAiLoading(false);
+      }
     }
   };
 
@@ -854,8 +898,8 @@ function DebtTab() {
                     </div>
                     <p className="text-xl font-bold text-red-600">{formatCurrencyNegative(acct.balance)}</p>
                     <div className="flex gap-4 text-sm text-muted-foreground flex-wrap">
-                      <span>APR: {acct.interest_rate ? `${(Number(acct.interest_rate) * 100).toFixed(2)}%` : <span className="text-amber-500">not set</span>}</span>
-                      <span>Min: {acct.minimum_payment ? formatCurrency(Number(acct.minimum_payment)) : <span className="text-amber-500">not set</span>}</span>
+                      <span>APR: {acct.interest_rate != null ? `${(Number(acct.interest_rate) * 100).toFixed(2)}%` : <span className="text-amber-500">not set</span>}</span>
+                      <span>Min: {acct.minimum_payment != null ? formatCurrency(Number(acct.minimum_payment)) : <span className="text-amber-500">not set</span>}</span>
                     </div>
                   </div>
                   <Button variant="ghost" size="icon" onClick={() => openEdit(acct)}>
@@ -907,38 +951,40 @@ function DebtTab() {
       )}
 
       {/* Per-debt results */}
-      {planLoading && <p className="text-muted-foreground text-sm">Calculating...</p>}
-      {plan && plan.debts.map((debt) => (
-        <Card key={debt.account_id}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              {debt.account_name}
-              {!debt.interest_rate && (
-                <Badge variant="outline" className="text-xs font-normal border-amber-400 text-amber-600">
-                  <AlertCircle className="h-3 w-3 mr-1" /> No APR set
-                </Badge>
+      <div className={cn(planLoading && plan && "opacity-60 transition-opacity")}>
+        {planLoading && <p className="text-muted-foreground text-sm">Calculating...</p>}
+        {plan && plan.debts.map((debt) => (
+          <Card key={debt.account_id}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                {debt.account_name}
+                {debt.interest_rate == null && (
+                  <Badge variant="outline" className="text-xs font-normal border-amber-400 text-amber-600">
+                    <AlertCircle className="h-3 w-3 mr-1" /> No APR set
+                  </Badge>
+                )}
+              </CardTitle>
+              <CardDescription>
+                {debt.payoff_date
+                  ? `Paid off by ${debt.payoff_date} · ${debt.months_to_payoff} months`
+                  : "Cannot pay off — minimum payment too low to cover interest"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {debt.interest_rate == null && (
+                <p className="text-xs text-amber-600 mb-3">
+                  Interest shown as $0 — add an APR to this account for accurate projections.
+                </p>
               )}
-            </CardTitle>
-            <CardDescription>
-              {debt.payoff_date
-                ? `Paid off by ${debt.payoff_date} · ${debt.months_to_payoff} months`
-                : "Cannot pay off — minimum payment too low to cover interest"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {!debt.interest_rate && (
-              <p className="text-xs text-amber-600 mb-3">
-                Interest shown as $0 — add an APR to this account for accurate projections.
-              </p>
-            )}
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div><p className="text-muted-foreground">Balance</p><p className="font-semibold text-red-600">{formatCurrencyNegative(debt.starting_balance)}</p></div>
-              <div><p className="text-muted-foreground">Interest</p><p className="font-semibold text-amber-600">{formatCurrencyNegative(debt.total_interest)}</p></div>
-              <div><p className="text-muted-foreground">Total paid</p><p className="font-semibold">{formatCurrency(debt.total_paid)}</p></div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div><p className="text-muted-foreground">Balance</p><p className="font-semibold text-red-600">{formatCurrencyNegative(debt.starting_balance)}</p></div>
+                <div><p className="text-muted-foreground">Interest</p><p className="font-semibold text-amber-600">{formatCurrencyNegative(debt.total_interest)}</p></div>
+                <div><p className="text-muted-foreground">Total paid</p><p className="font-semibold">{formatCurrency(debt.total_paid)}</p></div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
       {/* Chart */}
       {chartData.length > 0 && (
@@ -950,7 +996,12 @@ function DebtTab() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                 <YAxis tickFormatter={(v: number) => v < 1000 ? `$${v}` : `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                <Tooltip
+                  formatter={(v: unknown) => {
+                    const n = typeof v === "number" ? v : Number(v);
+                    return formatCurrency(Number.isFinite(n) ? n : 0);
+                  }}
+                />
                 <Legend />
                 <Bar dataKey="Balance" fill="#ef4444" />
                 <Bar dataKey="Total Interest" fill="#f59e0b" />
@@ -992,8 +1043,24 @@ function DebtTab() {
               <Button
                 onClick={() => {
                   if (!editAccount) return;
-                  const rate = editForm.interest_rate ? parseFloat(editForm.interest_rate) / 100 : null;
-                  const minPay = editForm.minimum_payment ? parseFloat(editForm.minimum_payment) : null;
+                  let rate: number | null = null;
+                  let minPay: number | null = null;
+                  if (editForm.interest_rate.trim() !== "") {
+                    const r = parseFloat(editForm.interest_rate);
+                    if (!Number.isFinite(r)) {
+                      toast.error("Enter a valid interest rate.");
+                      return;
+                    }
+                    rate = r / 100;
+                  }
+                  if (editForm.minimum_payment.trim() !== "") {
+                    const m = parseFloat(editForm.minimum_payment);
+                    if (!Number.isFinite(m)) {
+                      toast.error("Enter a valid minimum payment.");
+                      return;
+                    }
+                    minPay = m;
+                  }
                   updateMutation.mutate(
                     { id: editAccount.id, data: { interest_rate: rate, minimum_payment: minPay } },
                     { onSuccess: () => { toast.success("Account updated"); setEditAccount(null); } },
@@ -1013,16 +1080,49 @@ function DebtTab() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+const PLAN_HUB_INTRO_KEY = "budget_plan_hub_intro_seen";
+
+function PlanHubIntro() {
+  const [dismissed, setDismissed] = useState(() =>
+    typeof window !== "undefined" ? localStorage.getItem(PLAN_HUB_INTRO_KEY) === "1" : false,
+  );
+
+  if (dismissed) return null;
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-muted-foreground">
+        <span className="font-medium text-foreground">Plan hub.</span>{" "}
+        Use <strong>Debt</strong> for payoff strategies and <strong>Goals</strong> for savings targets—they share this page but stay separate tabs.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="shrink-0"
+        onClick={() => {
+          localStorage.setItem(PLAN_HUB_INTRO_KEY, "1");
+          setDismissed(true);
+        }}
+      >
+        Got it
+      </Button>
+    </div>
+  );
+}
+
 function PlanContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const tab = searchParams.get("tab");
-  const validTabs = ["debt", "goals"];
-  const initialTab = validTabs.includes(tab ?? "") ? tab! : "debt";
-  const [activeTab, setActiveTab] = useState(initialTab);
+  const activeTab: PlanTab = PLAN_TABS.includes((tab ?? "") as PlanTab) ? (tab as PlanTab) : "debt";
+
+  useEffect(() => {
+    if (tab && !PLAN_TABS.includes(tab as PlanTab)) {
+      router.replace("/plan?tab=debt", { scroll: false });
+    }
+  }, [tab, router]);
 
   const handleTabChange = (value: string) => {
-    setActiveTab(value);
     router.replace(`/plan?tab=${value}`, { scroll: false });
   };
 
@@ -1036,6 +1136,8 @@ function PlanContent() {
           Manage your debt payoff and track financial goals.
         </p>
       </div>
+
+      <PlanHubIntro />
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="grid w-full grid-cols-2 max-w-xs">
@@ -1059,5 +1161,18 @@ function PlanContent() {
 }
 
 export default function PlanPage() {
-  return <AuthGuard><PlanContent /></AuthGuard>;
+  return (
+    <AuthGuard>
+      <Suspense
+        fallback={
+          <div className="space-y-6 p-4">
+            <div className="h-10 w-64 animate-pulse rounded bg-muted" />
+            <div className="h-40 rounded-lg bg-muted animate-pulse" />
+          </div>
+        }
+      >
+        <PlanContent />
+      </Suspense>
+    </AuthGuard>
+  );
 }

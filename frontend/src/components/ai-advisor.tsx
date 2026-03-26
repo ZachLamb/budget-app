@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsClient } from "@/lib/hooks";
+import Link from "next/link";
 
 const SUGGESTIONS = [
   "How can I pay off my debt faster?",
@@ -62,6 +63,8 @@ export function AiAdvisor() {
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const fabRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const { data: aiSettings } = useQuery({
     queryKey: ["aiSettings"],
@@ -82,6 +85,24 @@ export function AiAdvisor() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
+
+  const closePanel = useCallback(() => {
+    setOpen(false);
+    requestAnimationFrame(() => fabRef.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    panelRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closePanel();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, closePanel]);
 
   const executeAction = useCallback(async (msgIdx: number, actionType: string, data: Record<string, unknown>) => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -282,13 +303,18 @@ export function AiAdvisor() {
     <>
       {/* Floating button */}
       <button
+        ref={fabRef}
+        type="button"
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-all duration-200",
+          "fixed z-50 flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-all duration-200",
           "bg-primary text-primary-foreground hover:scale-105 hover:shadow-xl",
+          "right-6 bottom-[max(1.5rem,env(safe-area-inset-bottom))]",
           open && "scale-90 opacity-0 pointer-events-none",
         )}
         aria-label="Open AI advisor"
+        aria-expanded={open}
+        aria-haspopup="dialog"
       >
         <MessageSquare className="h-6 w-6" />
         {!open && streaming && (
@@ -298,10 +324,16 @@ export function AiAdvisor() {
 
       {/* Panel */}
       <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ai-advisor-title"
         className={cn(
-          "fixed bottom-0 right-0 z-50 flex flex-col bg-background border-l border-t shadow-2xl transition-all duration-300 ease-in-out",
+          "fixed bottom-0 right-0 z-50 flex flex-col bg-background border-l border-t shadow-2xl transition-all duration-300 ease-in-out outline-none",
           "w-full sm:w-[440px] sm:rounded-tl-2xl",
-          open ? "h-[600px] translate-y-0 opacity-100" : "h-0 translate-y-4 opacity-0 pointer-events-none",
+          "pb-[env(safe-area-inset-bottom)]",
+          open ? "h-[min(600px,calc(100dvh-env(safe-area-inset-bottom)))] translate-y-0 opacity-100" : "h-0 translate-y-4 opacity-0 pointer-events-none",
         )}
       >
         {/* Header */}
@@ -311,7 +343,7 @@ export function AiAdvisor() {
               <Bot className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <p className="text-sm font-semibold leading-none">AI Financial Advisor</p>
+              <p id="ai-advisor-title" className="text-sm font-semibold leading-none">AI Financial Advisor</p>
               <div className="flex items-center gap-1 mt-0.5">
                 {modelSource ? (
                   <SourceBadge source={modelSource} />
@@ -343,7 +375,8 @@ export function AiAdvisor() {
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-muted-foreground hover:text-foreground"
-              onClick={() => setOpen(false)}
+              onClick={closePanel}
+              aria-label="Close AI advisor"
             >
               <ChevronDown className="h-4 w-4" />
             </Button>
@@ -360,8 +393,12 @@ export function AiAdvisor() {
               <div className="text-center space-y-1">
                 <p className="font-medium text-sm">Your personal finance advisor</p>
                 <p className="text-xs text-muted-foreground max-w-[280px]">
-                  I have access to your accounts, transactions, and goals. Ask me anything.
+                  Answers use summaries we already store in the app (categories, balances, goals)—never your bank passwords.
+                  Cloud AI only sees what you send in chat plus those summaries when enabled.
                 </p>
+                <Link href="/settings" className="text-xs text-primary hover:underline">
+                  What the AI uses (Settings)
+                </Link>
               </div>
               {aiAvailable ? (
                 <div className="grid grid-cols-1 gap-2 w-full max-w-[320px]">
@@ -407,6 +444,27 @@ export function AiAdvisor() {
                 )}
                 {m.pendingAction && m.actionStatus === "pending" && (
                   <div className="mt-3 space-y-2 border-t border-border/50 pt-2">
+                    {m.pendingAction && (
+                      <div className="rounded-md bg-background/80 border px-2 py-2 space-y-1 text-sm">
+                        <p className="text-xs font-medium text-muted-foreground">You&apos;re about to apply:</p>
+                        <ul className="font-medium text-foreground space-y-0.5">
+                          {Object.entries({
+                            ...Object.fromEntries(
+                              Object.entries(m.pendingAction.data as Record<string, unknown>).map(([k, v]) => [
+                                k,
+                                String(v ?? ""),
+                              ]),
+                            ),
+                            ...(m.editData ?? {}),
+                          }).map(([key, val]) => (
+                            <li key={key}>
+                              <span className="text-muted-foreground capitalize">{key.replace(/_/g, " ")}: </span>
+                              {val || "—"}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Review details</p>
                     {m.editData && Object.entries(m.editData).map(([key, val]) => (
                       <div key={key} className="flex items-center gap-2">

@@ -74,6 +74,33 @@ async def _run_plan_preferences_migration(conn):
     await conn.execute(text("ALTER TABLE households ADD COLUMN IF NOT EXISTS debt_extra_monthly NUMERIC(14,2)"))
 
 
+async def _run_fsa_review_items_migration(conn):
+    """Create fsa_review_items table for tracking FSA claim status."""
+    r = await conn.execute(
+        text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_name = 'fsa_review_items'"
+        )
+    )
+    if r.scalar() is not None:
+        return
+    await conn.execute(text("""
+        CREATE TABLE fsa_review_items (
+            id VARCHAR(36) PRIMARY KEY,
+            household_id VARCHAR(36) NOT NULL REFERENCES households(id),
+            transaction_id VARCHAR(36) NOT NULL REFERENCES transactions(id),
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            fsa_category VARCHAR(50),
+            confidence VARCHAR(10),
+            reason TEXT,
+            updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+            CONSTRAINT uq_fsa_household_txn UNIQUE (household_id, transaction_id)
+        )
+    """))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fsa_review_items_household_id ON fsa_review_items (household_id)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fsa_review_items_transaction_id ON fsa_review_items (transaction_id)"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Ensure all models are registered before create_all
@@ -91,6 +118,7 @@ async def lifespan(app: FastAPI):
         ("Account sync fields migration", _run_account_sync_fields_migration),
         ("AI enabled migration", _run_ai_enabled_migration),
         ("Plan preferences migration", _run_plan_preferences_migration),
+        ("FSA review items migration", _run_fsa_review_items_migration),
     ]:
         try:
             async with engine.begin() as conn:
@@ -117,6 +145,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         _log.warning("Failed to clean up orphaned sync logs: %s", e)
 
+    # Seed demo data if DEMO_MODE is enabled
+    if get_settings().demo_mode:
+        from app.demo_seed import seed_demo_data
+        try:
+            await seed_demo_data(async_session)
+        except Exception as e:
+            _log.warning("Demo seed failed: %s", e)
+
     start_scheduler()
     yield
     stop_scheduler()
@@ -140,6 +176,10 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+if get_settings().demo_mode:
+    from app.middleware.demo_guard import DemoGuardMiddleware
+    app.add_middleware(DemoGuardMiddleware)
 
 app.include_router(api_router, prefix="/api")
 app.include_router(upload_router, prefix="/api/upload", tags=["upload"])

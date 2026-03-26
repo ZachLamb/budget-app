@@ -51,14 +51,14 @@ function WelcomeStep({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
         <Wallet className="h-10 w-10 text-primary" />
       </div>
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold">Welcome to Budget!</h1>
-        <p className="text-muted-foreground text-lg">Let&apos;s get you set up in 2 minutes.</p>
+        <h1 className="text-3xl font-bold">Welcome to Clarity</h1>
+        <p className="text-muted-foreground text-lg">Private budgeting and debt planning in a few minutes.</p>
       </div>
       <div className="text-left space-y-3 max-w-sm mx-auto">
         {[
-          { icon: Banknote, text: "Connect your bank accounts" },
-          { icon: ArrowRight, text: "Import your transactions automatically" },
-          { icon: TrendingUp, text: "See where your money goes" },
+          { icon: Banknote, text: "Optional: connect banks read-only (SimpleFIN) or stay manual" },
+          { icon: ArrowRight, text: "Import or sync transactions" },
+          { icon: TrendingUp, text: "Budget, goals, and debt payoff in one place" },
         ].map(({ icon: Icon, text }) => (
           <div key={text} className="flex items-center gap-3 text-sm">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 shrink-0">

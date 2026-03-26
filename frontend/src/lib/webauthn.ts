@@ -21,13 +21,16 @@ export function parseCreationOptions(
     typeof options === "string"
       ? (JSON.parse(options) as CredentialCreationOptions)
       : { ...options };
-  const pk = obj.publicKey ?? (obj as Record<string, unknown>);
+  const pk = (obj.publicKey ?? (obj as Record<string, unknown>)) as {
+    challenge?: unknown;
+    user?: { id?: unknown };
+  };
   if (typeof pk.challenge === "string") {
     pk.challenge = decodeBase64url(pk.challenge);
   }
-  const user = pk.user ?? (obj as { user?: { id: unknown } }).user;
-  if (user?.id && typeof (user as { id: unknown }).id === "string") {
-    (user as { id: ArrayBuffer }).id = decodeBase64url((user as { id: string }).id);
+  const user = pk.user ?? (obj as { user?: { id?: unknown } }).user;
+  if (user && typeof user.id === "string") {
+    user.id = decodeBase64url(user.id);
   }
   return obj;
 }
@@ -40,13 +43,17 @@ export function parseRequestOptions(
     typeof options === "string"
       ? (JSON.parse(options) as CredentialRequestOptions)
       : { ...options };
-  const pk = obj.publicKey ?? (obj as Record<string, unknown>);
+  const pk = (obj.publicKey ?? (obj as Record<string, unknown>)) as {
+    challenge?: unknown;
+    allowCredentials?: Array<{ id?: unknown } & PublicKeyCredentialDescriptor>;
+  };
   if (typeof pk.challenge === "string") {
     pk.challenge = decodeBase64url(pk.challenge);
   }
-  const allowCredentials = pk.allowCredentials ?? (obj as { allowCredentials?: unknown[] }).allowCredentials;
+  const allowCredentials =
+    pk.allowCredentials ?? (obj as { allowCredentials?: typeof pk.allowCredentials }).allowCredentials;
   if (allowCredentials?.length) {
-    const decoded = allowCredentials.map((c: { id: string } & PublicKeyCredentialDescriptor) => ({
+    const decoded = allowCredentials.map((c) => ({
       ...c,
       id: typeof c.id === "string" ? decodeBase64url(c.id) : c.id,
     }));

@@ -20,6 +20,7 @@ import { KeyRound, Trash2, Link2, ExternalLink, Loader2, CheckCircle2, AlertCirc
 import { useIsClient, getApiErrorMessage } from "@/lib/hooks";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/format";
+import { SetupChecklist } from "@/components/setup-checklist";
 
 const SIMPLEFIN_CREATE_URL = "https://beta-bridge.simplefin.org/simplefin/create";
 const SIMPLEFIN_BRIDGE_URL = "https://beta-bridge.simplefin.org/";
@@ -380,10 +381,14 @@ function SettingsContent() {
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">Settings</h1>
 
+      <SetupChecklist variant="settings" />
+
       <Card>
         <CardHeader>
           <CardTitle>Account</CardTitle>
-          <CardDescription>Your account information</CardDescription>
+          <CardDescription>
+            Your profile. Households are single-user today—shared access is not available yet.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           <div className="flex justify-between">

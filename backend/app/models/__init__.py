@@ -11,6 +11,7 @@ from app.models.recurring import RecurringTransaction
 from app.models.imports import ImportBatch
 from app.models.sync import SyncLog
 from app.models.goal import FinancialGoal
+from app.models.fsa_review import FsaReviewItem
 
 __all__ = [
     "Household",
@@ -28,4 +29,5 @@ __all__ = [
     "ImportBatch",
     "SyncLog",
     "FinancialGoal",
+    "FsaReviewItem",
 ]

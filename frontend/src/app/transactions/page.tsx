@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/auth-guard";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { transactionsApi, type Transaction, type TransactionCreate, type TransactionFilters } from "@/lib/api/transactions";
@@ -14,15 +15,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Upload, Search, ChevronLeft, ChevronRight, Trash2, Pencil, Download, ArrowLeftRight, SplitSquareHorizontal, CheckCircle, Circle, FileText, MoreHorizontal } from "lucide-react";
+import { Plus, Upload, Search, ChevronLeft, ChevronRight, Trash2, Pencil, Download, ArrowLeftRight, SplitSquareHorizontal, CheckCircle, Circle, FileText, MoreHorizontal, Stethoscope, ChevronDown, ChevronUp, Loader2, ArrowUpDown, Check, X, Undo2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import api from "@/lib/api/client";
+import { aiApi, type FsaReviewResponse } from "@/lib/api/ai";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import { useFlatCategories, getApiErrorMessage, useIsClient } from "@/lib/hooks";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
+
+type TransactionSplitLinePayload = {
+  amount: number;
+  category_id: string | null;
+  notes: string | null;
+};
 
 function TransactionsContent() {
   const [addOpen, setAddOpen] = useState(false);
@@ -36,16 +44,82 @@ function TransactionsContent() {
   const [editForm, setEditForm] = useState<Partial<TransactionCreate & { cleared: boolean; reconciled: boolean; notes: string }>>({});
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [transferForm, setTransferForm] = useState({ from_account_id: "", to_account_id: "", amount: 0, date: new Date().toISOString().split("T")[0], notes: "" });
+  const [importGateOpen, setImportGateOpen] = useState(false);
+  const [importPickAccountId, setImportPickAccountId] = useState("");
+  const [fsaOpen, setFsaOpen] = useState(false);
+  const [fsaDateFrom, setFsaDateFrom] = useState(() => `${new Date().getFullYear()}-01-01`);
+  const [fsaDateTo, setFsaDateTo] = useState(() => new Date().toISOString().split("T")[0]);
+  const [fsaConfFilter, setFsaConfFilter] = useState<"all" | "high" | "medium" | "low">("all");
+  const [fsaSortCol, setFsaSortCol] = useState<"date" | "amount" | "confidence">("date");
+  const [fsaSortDir, setFsaSortDir] = useState<"asc" | "desc">("desc");
+  const [fsaShowDismissed, setFsaShowDismissed] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const queryClient = useQueryClient();
   const isClient = useIsClient();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const raw = searchParams.get("uncategorized");
+    if (raw !== "1" && raw !== "true") return;
+    setFilters((f) => ({ ...f, uncategorized: true, page: 1 }));
+  }, [searchParams]);
+
   const { data: accounts = [] } = useQuery({
     queryKey: ["accounts"],
     queryFn: accountsApi.list,
     enabled: isClient,
   });
   const { allCategories } = useFlatCategories();
+  const { data: fsaData, isLoading: fsaLoading, isFetching: fsaFetching, isError: fsaError, refetch: fsaRefetch } = useQuery({
+    queryKey: ["fsa-review", fsaDateFrom, fsaDateTo],
+    queryFn: () => aiApi.getFsaReview({ date_from: fsaDateFrom, date_to: fsaDateTo }),
+    enabled: false,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const confOrder = { high: 3, medium: 2, low: 1 } as const;
+  const filteredFsa = useMemo(() => {
+    if (!fsaData?.eligible_transactions) return [];
+    let items = fsaData.eligible_transactions;
+    if (!fsaShowDismissed) items = items.filter((t) => t.status !== "dismissed");
+    if (fsaConfFilter !== "all") items = items.filter((t) => t.confidence === fsaConfFilter);
+    return [...items].sort((a, b) => {
+      let cmp = 0;
+      if (fsaSortCol === "date") cmp = a.date.localeCompare(b.date);
+      else if (fsaSortCol === "amount") cmp = a.amount - b.amount;
+      else cmp = confOrder[a.confidence] - confOrder[b.confidence];
+      return fsaSortDir === "asc" ? cmp : -cmp;
+    });
+  }, [fsaData, fsaConfFilter, fsaSortCol, fsaSortDir, fsaShowDismissed]);
+
+  const handleFsaExportCsv = () => {
+    if (!filteredFsa.length) return;
+    const header = "Date,Payee,Amount,FSA Category,Confidence,Reason";
+    const rows = filteredFsa.map((t) =>
+      [t.date, `"${t.payee_name.replace(/"/g, '""')}"`, t.amount.toFixed(2), `"${t.fsa_category}"`, t.confidence, `"${t.reason.replace(/"/g, '""')}"`].join(",")
+    );
+    const csv = [header, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `fsa-review-${fsaDateFrom}-to-${fsaDateTo}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const toggleFsaSort = (col: "date" | "amount" | "confidence") => {
+    if (fsaSortCol === col) setFsaSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setFsaSortCol(col); setFsaSortDir("desc"); }
+  };
+
+  const fsaStatusMutation = useMutation({
+    mutationFn: ({ txnId, status }: { txnId: string; status: "pending" | "claimed" | "dismissed" }) =>
+      aiApi.updateFsaItemStatus(txnId, status),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["fsa-review"] }),
+  });
+
   const { data: txnData, isLoading, isError, error } = useQuery({
     queryKey: ["transactions", filters],
     queryFn: () => transactionsApi.list(filters),
@@ -97,7 +171,7 @@ function TransactionsContent() {
   });
 
   const splitMutation = useMutation({
-    mutationFn: ({ id, splits }: { id: string; splits: typeof splitItems }) =>
+    mutationFn: ({ id, splits }: { id: string; splits: TransactionSplitLinePayload[] }) =>
       api.post(`/transactions/${id}/split`, { splits }).then((r) => r.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
@@ -133,6 +207,29 @@ function TransactionsContent() {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
     },
   });
+
+  const openImportFlow = () => {
+    if (accounts.length === 0) {
+      toast.error("Add an account before importing a CSV.");
+      return;
+    }
+    if (!filters.account_id) {
+      setImportPickAccountId(accounts[0]?.id ?? "");
+      setImportGateOpen(true);
+      return;
+    }
+    fileRef.current?.click();
+  };
+
+  const confirmImportAccountAndPickFile = () => {
+    if (!importPickAccountId) {
+      toast.error("Choose an account to import into.");
+      return;
+    }
+    setFilters((f) => ({ ...f, account_id: importPickAccountId, page: 1 }));
+    setImportGateOpen(false);
+    requestAnimationFrame(() => fileRef.current?.click());
+  };
 
   const handleCSVUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -197,19 +294,37 @@ function TransactionsContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <h1 className="text-3xl font-bold">Transactions</h1>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleExport}>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <input ref={fileRef} type="file" accept=".csv" onChange={handleCSVUpload} className="hidden" />
+          <Button variant="outline" size="sm" onClick={handleExport} className="hidden md:inline-flex">
             <Download className="mr-2 h-4 w-4" /> Export
           </Button>
-          <input ref={fileRef} type="file" accept=".csv" onChange={handleCSVUpload} className="hidden" />
-          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+          <Button variant="outline" size="sm" onClick={openImportFlow} className="hidden md:inline-flex">
             <Upload className="mr-2 h-4 w-4" /> Import
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setTransferOpen(true)}>
+          <Button variant="outline" size="sm" onClick={() => setTransferOpen(true)} className="hidden md:inline-flex">
             <ArrowLeftRight className="mr-2 h-4 w-4" /> Transfer
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="md:hidden">
+                <MoreHorizontal className="mr-2 h-4 w-4" /> More
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleExport}>
+                <Download className="mr-2 h-4 w-4" /> Export
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={openImportFlow}>
+                <Upload className="mr-2 h-4 w-4" /> Import CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setTransferOpen(true)}>
+                <ArrowLeftRight className="mr-2 h-4 w-4" /> Transfer
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
               <Button size="sm"><Plus className="mr-2 h-4 w-4" /> Add</Button>
@@ -264,6 +379,34 @@ function TransactionsContent() {
           </Dialog>
         </div>
       </div>
+
+      <Dialog open={importGateOpen} onOpenChange={setImportGateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Import CSV</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Choose which account these transactions belong to. The list below will filter to that account after you continue.
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="import-account">Account</Label>
+            <Select value={importPickAccountId} onValueChange={setImportPickAccountId}>
+              <SelectTrigger id="import-account">
+                <SelectValue placeholder="Select account" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((a: Account) => (
+                  <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setImportGateOpen(false)}>Cancel</Button>
+            <Button onClick={confirmImportAccountAndPickFile}>Choose file</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={!!editTxn} onOpenChange={(open) => { if (!open) setEditTxn(null); }}>
@@ -467,6 +610,172 @@ function TransactionsContent() {
         onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId); }}
       />
 
+      {/* FSA Reimbursement Review */}
+      <Card>
+        <CardHeader>
+          <button
+            className="flex w-full items-center justify-between text-left"
+            onClick={() => setFsaOpen(!fsaOpen)}
+          >
+            <div className="flex items-center gap-2">
+              <Stethoscope className="h-5 w-5 text-purple-500" />
+              <span className="font-semibold">FSA Reimbursement Review</span>
+            </div>
+            <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", fsaOpen && "rotate-180")} />
+          </button>
+        </CardHeader>
+        {fsaOpen && (
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Scan your transactions to find purchases that may be eligible for FSA reimbursement.
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">From</Label>
+                <Input type="date" className="w-40" value={fsaDateFrom} onChange={(e) => setFsaDateFrom(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">To</Label>
+                <Input type="date" className="w-40" value={fsaDateTo} onChange={(e) => setFsaDateTo(e.target.value)} />
+              </div>
+              <Button
+                size="sm"
+                onClick={() => fsaRefetch()}
+                disabled={fsaFetching}
+              >
+                {fsaFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Stethoscope className="mr-2 h-4 w-4" />}
+                Scan Transactions
+              </Button>
+            </div>
+
+            {fsaError && (
+              <p className="text-sm text-destructive">Failed to scan transactions. Check that AI is enabled in Settings.</p>
+            )}
+
+            {fsaData && !fsaFetching && (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-muted/50 p-3">
+                  <p className="text-sm">
+                    {fsaConfFilter !== "all" ? (
+                      <>Showing <span className="font-semibold">{filteredFsa.length}</span> of{" "}</>
+                    ) : null}
+                    <span className="font-semibold">{fsaData.eligible_transactions.length}</span> potentially eligible
+                    {fsaData.eligible_transactions.length === 1 ? " transaction" : " transactions"} totaling{" "}
+                    <span className="font-semibold font-mono">{formatCurrency(fsaData.total_potential_amount)}</span>
+                    {" "}across {fsaData.scan_count} scanned.
+                    {fsaData.parse_errors > 0 && (
+                      <span className="text-yellow-600 ml-2">({fsaData.parse_errors} batch{fsaData.parse_errors > 1 ? "es" : ""} failed to parse)</span>
+                    )}
+                  </p>
+                  {fsaData.eligible_transactions.length > 0 && (
+                    <Button size="sm" variant="outline" onClick={handleFsaExportCsv}>
+                      <Download className="mr-2 h-4 w-4" />Export CSV
+                    </Button>
+                  )}
+                </div>
+
+                {fsaData.eligible_transactions.length > 0 && (
+                  <>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Label className="text-xs whitespace-nowrap">Confidence:</Label>
+                      <Select value={fsaConfFilter} onValueChange={(v) => setFsaConfFilter(v as typeof fsaConfFilter)}>
+                        <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
+                          <SelectItem value="medium">Medium</SelectItem>
+                          <SelectItem value="low">Low</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer ml-auto">
+                        <input type="checkbox" checked={fsaShowDismissed} onChange={(e) => setFsaShowDismissed(e.target.checked)} className="rounded" />
+                        Show dismissed
+                      </label>
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="cursor-pointer select-none" onClick={() => toggleFsaSort("date")}>
+                            <span className="inline-flex items-center gap-1">Date {fsaSortCol === "date" ? (fsaSortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground" />}</span>
+                          </TableHead>
+                          <TableHead>Payee</TableHead>
+                          <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleFsaSort("amount")}>
+                            <span className="inline-flex items-center gap-1 justify-end">Amount {fsaSortCol === "amount" ? (fsaSortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground" />}</span>
+                          </TableHead>
+                          <TableHead>FSA Category</TableHead>
+                          <TableHead className="cursor-pointer select-none" onClick={() => toggleFsaSort("confidence")}>
+                            <span className="inline-flex items-center gap-1">Confidence {fsaSortCol === "confidence" ? (fsaSortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground" />}</span>
+                          </TableHead>
+                          <TableHead>Reason</TableHead>
+                          <TableHead className="w-24">Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredFsa.map((t) => (
+                          <TableRow key={t.transaction_id} className={cn(t.status === "dismissed" && "opacity-50")}>
+                            <TableCell className="text-sm">{new Date(t.date).toLocaleDateString()}</TableCell>
+                            <TableCell className="font-medium">{t.payee_name}</TableCell>
+                            <TableCell className="text-right font-mono">{formatCurrency(t.amount)}</TableCell>
+                            <TableCell><Badge variant="outline">{t.fsa_category}</Badge></TableCell>
+                            <TableCell>
+                              <Badge className={cn(
+                                t.confidence === "high" && "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+                                t.confidence === "medium" && "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+                                t.confidence === "low" && "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+                              )}>
+                                {t.confidence}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground max-w-xs">{t.reason}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                {t.status === "claimed" ? (
+                                  <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 gap-1">
+                                    <Check className="h-3 w-3" />Claimed
+                                  </Badge>
+                                ) : t.status === "dismissed" ? (
+                                  <button
+                                    title="Undo dismiss"
+                                    className="text-muted-foreground hover:text-foreground"
+                                    onClick={() => fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "pending" })}
+                                  >
+                                    <Undo2 className="h-4 w-4" />
+                                  </button>
+                                ) : (
+                                  <>
+                                    <button
+                                      title="Mark as claimed"
+                                      className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-200"
+                                      onClick={() => fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "claimed" })}
+                                    >
+                                      <Check className="h-4 w-4" />
+                                    </button>
+                                    <button
+                                      title="Dismiss"
+                                      className="text-muted-foreground hover:text-destructive"
+                                      onClick={() => fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "dismissed" })}
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </>
+                )}
+                <p className="text-xs text-muted-foreground mt-3">
+                  These are estimates based on payee names. Verify eligibility with your FSA plan administrator before submitting claims.
+                </p>
+              </>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center gap-3">
@@ -590,5 +899,17 @@ function TransactionsContent() {
 }
 
 export default function TransactionsPage() {
-  return <AuthGuard><TransactionsContent /></AuthGuard>;
+  return (
+    <AuthGuard>
+      <Suspense
+        fallback={
+          <div className="flex justify-center py-16">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          </div>
+        }
+      >
+        <TransactionsContent />
+      </Suspense>
+    </AuthGuard>
+  );
 }

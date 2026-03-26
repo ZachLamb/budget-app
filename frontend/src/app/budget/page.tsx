@@ -391,9 +391,9 @@ function SpendingPatternsPanel({ month }: { month: string }) {
         onClick={() => setOpen(!open)}
         className="flex w-full items-center justify-between px-6 py-4 text-left"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Sparkles className="h-5 w-5 text-purple-500" />
-          <span className="font-semibold">Spending Patterns & AI Insights</span>
+          <span className="font-semibold">Spending patterns (optional AI)</span>
           {data?.model_source && (
             <Badge variant="outline" className="text-xs gap-1 ml-1">
               {data.model_source === "ollama"
@@ -407,6 +407,9 @@ function SpendingPatternsPanel({ month }: { month: string }) {
 
       {open && (
         <CardContent className="pt-0 space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Category trends compare this month to your recent average. Narrative bullets load only when AI is enabled—everything else is plain math.
+          </p>
           <div className="flex justify-end">
             <Button
               variant="ghost"
@@ -525,9 +528,9 @@ function BudgetContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-3xl font-bold">Budget</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -552,7 +555,7 @@ function BudgetContent() {
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="w-44 text-center font-semibold">
+          <span className="min-w-[10rem] flex-1 text-center font-semibold sm:flex-none sm:w-44">
             {formatMonthDisplay(month)}
           </span>
           <Button
@@ -598,42 +601,47 @@ function BudgetContent() {
         </Card>
       </div>
 
-      <Card>
-        <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 border-b px-4 py-3">
-          <span className="text-xs font-medium uppercase text-muted-foreground tracking-wider">
-            Category
-          </span>
-          <span className="w-28 text-right text-xs font-medium uppercase text-muted-foreground tracking-wider">
-            Assigned
-          </span>
-          <span className="w-28 text-right text-xs font-medium uppercase text-muted-foreground tracking-wider">
-            Activity
-          </span>
-          <span className="w-28 text-right text-xs font-medium uppercase text-muted-foreground tracking-wider">
-            Available
-          </span>
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <div className="min-w-[34rem]">
+            <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 border-b px-4 py-3">
+              <span className="text-xs font-medium uppercase text-muted-foreground tracking-wider">
+                Category
+              </span>
+              <span className="w-28 text-right text-xs font-medium uppercase text-muted-foreground tracking-wider">
+                Assigned
+              </span>
+              <span className="w-28 text-right text-xs font-medium uppercase text-muted-foreground tracking-wider">
+                Activity
+              </span>
+              <span className="w-28 text-right text-xs font-medium uppercase text-muted-foreground tracking-wider">
+                Available
+              </span>
+            </div>
+
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            ) : data?.groups.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground">
+                <p>No categories yet.</p>
+                <p className="text-sm mt-1">
+                  Create category groups and categories first.
+                </p>
+              </div>
+            ) : (
+              data?.groups.map((group) => (
+                <GroupSection
+                  key={group.group_id}
+                  group={group}
+                  month={month}
+                />
+              ))
+            )}
+          </div>
         </div>
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          </div>
-        ) : data?.groups.length === 0 ? (
-          <div className="py-12 text-center text-muted-foreground">
-            <p>No categories yet.</p>
-            <p className="text-sm mt-1">
-              Create category groups and categories first.
-            </p>
-          </div>
-        ) : (
-          data?.groups.map((group) => (
-            <GroupSection
-              key={group.group_id}
-              group={group}
-              month={month}
-            />
-          ))
-        )}
       </Card>
 
       {showSuggestions && suggestions.length > 0 && (

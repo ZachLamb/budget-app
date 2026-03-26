@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     ollama_url: str = "http://ollama:11434"
     ollama_model: str = "qwen2.5:7b"
 
+    # Demo mode: seeds fake data, mocks AI, enables read-only guard
+    demo_mode: bool = False
+
     model_config = {"env_file": ".env"}
 
 

@@ -58,3 +58,33 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
   }
   return fallback;
 }
+
+const CHART_FALLBACK = [
+  "oklch(0.646 0.222 41.116)",
+  "oklch(0.6 0.118 184.704)",
+  "oklch(0.398 0.07 227.392)",
+  "oklch(0.828 0.189 84.429)",
+  "oklch(0.769 0.188 70.08)",
+];
+
+/** Resolved theme --chart-* colors for Recharts (client-only; falls back until mounted). */
+export function useChartColors(max = 8): string[] {
+  const isClient = useIsClient();
+  const [colors, setColors] = useState<string[]>(() =>
+    Array.from({ length: max }, (_, i) => CHART_FALLBACK[i % CHART_FALLBACK.length]),
+  );
+
+  useEffect(() => {
+    if (!isClient) return;
+    const root = document.documentElement;
+    const next: string[] = [];
+    for (let i = 0; i < max; i++) {
+      const n = (i % 5) + 1;
+      const raw = getComputedStyle(root).getPropertyValue(`--chart-${n}`).trim();
+      next.push(raw || CHART_FALLBACK[i % CHART_FALLBACK.length]);
+    }
+    setColors(next);
+  }, [isClient, max]);
+
+  return colors;
+}

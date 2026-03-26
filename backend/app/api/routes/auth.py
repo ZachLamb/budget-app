@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from typing import Optional
 import logging
@@ -39,13 +40,13 @@ from app.schemas.user import (
     PasskeyRegisterVerifyRequest,
     PasskeyAuthenticateVerifyRequest,
     PasskeyCredentialListItem,
+    GoogleOAuthExchangeRequest,
 )
 from app.api.deps import ALGORITHM, get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-_DUMMY_HASH = pwd_context.hash("dummy-timing-equalization")
 
 DEFAULT_CATEGORIES = {
     "Income": {"is_income": True, "cats": ["Salary", "Freelance", "Interest", "Other Income"]},
@@ -63,6 +64,22 @@ DEFAULT_CATEGORIES = {
 def _create_token(user_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=30)
     return jwt.encode({"sub": user_id, "exp": expire}, get_settings().secret_key, algorithm=ALGORITHM)
+
+
+@router.post("/demo-login", response_model=TokenResponse)
+async def demo_login(db: AsyncSession = Depends(get_db)):
+    """One-click login as the demo user. Only available when DEMO_MODE=true."""
+    if not get_settings().demo_mode:
+        raise HTTPException(status_code=404, detail="Not found")
+    result = await db.execute(select(User).where(User.email == "demo@claritybudget.app"))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=503, detail="Demo data not ready")
+    token = _create_token(user.id)
+    return TokenResponse(
+        access_token=token,
+        user=UserResponse.model_validate(user),
+    )
 
 
 @router.post("/register", response_model=TokenResponse)
@@ -109,7 +126,9 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == data.email.strip().lower()))
     user = result.scalar_one_or_none()
     if not user or user.password_hash is None:
-        pwd_context.verify(data.password, _DUMMY_HASH)
+        # Run a cheap deterministic hash to reduce obvious timing differences without
+        # requiring bcrypt initialization during module import.
+        hashlib.sha256((data.password or "").encode("utf-8")).hexdigest()
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not pwd_context.verify(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -132,6 +151,16 @@ async def get_me(user: User = Depends(get_current_user)):
 _passkey_registration_challenges: dict[str, tuple[dict, float]] = {}
 _passkey_auth_challenges: dict[str, float] = {}
 _passkey_add_challenges: dict[str, tuple[str, float]] = {}  # challenge_b64 -> (user_id, timestamp)
+
+_OAUTH_LOGIN_CODE_TTL = 600.0
+_oauth_login_codes: dict[str, tuple[str, float]] = {}  # code -> (user_id, issued_ts)
+
+
+def _clean_oauth_login_codes() -> None:
+    now = time.time()
+    for k in list(_oauth_login_codes):
+        if now - _oauth_login_codes[k][1] > _OAUTH_LOGIN_CODE_TTL:
+            del _oauth_login_codes[k]
 _CHALLENGE_TTL = 300
 
 
@@ -156,8 +185,8 @@ def _get_origin(request: Request) -> str:
 
 
 def _get_allowed_origins() -> list[str]:
-    """Return the list of allowed origins (cors_origins or frontend_url fallback)."""
-    allowed = [o.strip() for o in get_settings().cors_origins.split(",") if o.strip()]
+    """Return the list of allowed origins (cors_origins or frontend_url fallback), normalized (no trailing slash)."""
+    allowed = [o.strip().rstrip("/") for o in get_settings().cors_origins.split(",") if o.strip()]
     if not allowed:
         allowed = [get_settings().frontend_url.rstrip("/")]
     return allowed
@@ -173,7 +202,7 @@ def _validate_origin(request: Request) -> str:
 
 def _validate_origin_from_credential(origin_from_credential: str) -> str:
     """Validate that the origin (e.g. from clientDataJSON) is in the allowlist. Returns it or raises 400."""
-    candidate = (origin_from_credential or "").rstrip("/").split("?")[0]
+    candidate = (origin_from_credential or "").split("?")[0].rstrip("/")
     if not candidate:
         raise HTTPException(status_code=400, detail="Invalid origin")
     if candidate not in _get_allowed_origins():
@@ -242,10 +271,8 @@ async def passkey_register_options(
 ):
     """Return WebAuthn options for creating a new account with a passkey."""
     try:
-        email = (data.email or "").strip()
-        name = (data.name or "").strip()
-        if not email or not name:
-            raise HTTPException(status_code=400, detail="Email and name are required")
+        email = data.email
+        name = data.name
         existing = await db.execute(select(User).where(User.email == email))
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Email already registered")
@@ -296,6 +323,8 @@ async def passkey_register_verify(
         credential = parse_registration_credential_json(credential_json)
         client_data = _decode_client_data_json(credential.response.client_data_json)
         challenge_b64 = client_data.get("challenge", "")
+        if not isinstance(challenge_b64, str):
+            raise HTTPException(status_code=400, detail="Invalid passkey credential")
         _clean_challenges()
         if challenge_b64 not in _passkey_registration_challenges:
             raise HTTPException(status_code=400, detail="Invalid or expired challenge")
@@ -369,8 +398,8 @@ async def passkey_authenticate_options(
         settings = get_settings()
         rp_id = (settings.webauthn_rp_id or "localhost").strip() or "localhost"
         allow_credentials: list[PublicKeyCredentialDescriptor] = []
-        if data.email and data.email.strip():
-            result = await db.execute(select(User).where(User.email == data.email.strip()))
+        if data.email:
+            result = await db.execute(select(User).where(User.email == data.email))
             user = result.scalar_one_or_none()
             if user:
                 try:
@@ -407,7 +436,10 @@ async def passkey_authenticate_verify(
 ):
     """Verify passkey assertion and return token. Body: { credential: <JSON from navigator.credentials.get> }."""
     credential_json = data.credential
-    credential = parse_authentication_credential_json(credential_json)
+    try:
+        credential = parse_authentication_credential_json(credential_json)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid passkey credential")
     raw_id = getattr(credential, "raw_id", None) or credential_json.get("rawId") or credential_json.get("id", "")
     if isinstance(raw_id, str):
         pad = (4 - len(raw_id) % 4) % 4
@@ -420,8 +452,13 @@ async def passkey_authenticate_verify(
     webauthn_cred = result.scalar_one_or_none()
     if not webauthn_cred:
         raise HTTPException(status_code=401, detail="Unknown passkey")
-    client_data = _decode_client_data_json(credential.response.client_data_json)
+    try:
+        client_data = _decode_client_data_json(credential.response.client_data_json)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid passkey credential")
     challenge_b64 = client_data.get("challenge", "")
+    if not isinstance(challenge_b64, str):
+        raise HTTPException(status_code=400, detail="Invalid passkey credential")
     _clean_challenges()
     if challenge_b64 not in _passkey_auth_challenges:
         raise HTTPException(status_code=400, detail="Invalid or expired challenge")
@@ -533,9 +570,14 @@ async def passkey_add_verify(
 ):
     """Verify passkey registration and add credential to current user. Returns 200 with { ok: true }."""
     credential_json = data.credential
-    credential = parse_registration_credential_json(credential_json)
-    client_data = _decode_client_data_json(credential.response.client_data_json)
+    try:
+        credential = parse_registration_credential_json(credential_json)
+        client_data = _decode_client_data_json(credential.response.client_data_json)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid passkey credential")
     challenge_b64 = client_data.get("challenge", "")
+    if not isinstance(challenge_b64, str):
+        raise HTTPException(status_code=400, detail="Invalid passkey credential")
     _clean_challenges()
     if challenge_b64 not in _passkey_add_challenges:
         raise HTTPException(status_code=400, detail="Invalid or expired challenge")
@@ -669,6 +711,7 @@ async def google_callback(
     name = (profile.get("name") or profile.get("given_name") or email or "User").strip()
     if not google_id or not email:
         return RedirectResponse(url=f"{frontend_url}/login?error=invalid_profile", status_code=302)
+    email = (email or "").strip().lower()
 
     try:
         # Find existing user by google_id or email
@@ -711,11 +754,35 @@ async def google_callback(
             await db.commit()
             await db.refresh(user)
 
-        token = _create_token(user.id)
-        return RedirectResponse(url=f"{frontend_url}/auth/callback?token={token}", status_code=302)
-    except Exception as e:
+        _clean_oauth_login_codes()
+        login_code = secrets.token_urlsafe(32)
+        _oauth_login_codes[login_code] = (user.id, time.time())
+        return RedirectResponse(
+            url=f"{frontend_url}/auth/callback?code={login_code}",
+            status_code=302,
+        )
+    except Exception:
         logger.exception("Google OAuth callback failed")
         return RedirectResponse(
             url=f"{frontend_url}/login?error=server_error",
             status_code=302,
         )
+
+
+@router.post("/google/exchange", response_model=TokenResponse)
+async def google_oauth_exchange(data: GoogleOAuthExchangeRequest, db: AsyncSession = Depends(get_db)):
+    """Exchange a one-time code from Google OAuth redirect for a JWT (avoids long-lived tokens in URLs)."""
+    _clean_oauth_login_codes()
+    code = (data.code or "").strip()
+    rec = _oauth_login_codes.pop(code, None)
+    if not rec:
+        raise HTTPException(status_code=400, detail="Invalid or expired login code")
+    user_id, ts = rec
+    if time.time() - ts > _OAUTH_LOGIN_CODE_TTL:
+        raise HTTPException(status_code=400, detail="Invalid or expired login code")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired login code")
+    token = _create_token(user.id)
+    return TokenResponse(access_token=token, user=UserResponse.model_validate(user))

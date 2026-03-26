@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/providers";
 import { authApi, credentialToJSON } from "@/lib/api/auth";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Wallet, KeyRound } from "lucide-react";
+import { Wallet, KeyRound, Play } from "lucide-react";
 import { toast } from "sonner";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -23,13 +23,15 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Something went wrong on the server. If you just added Google sign-in, run the database migration (see backend/migrations/001_google_oauth.sql) and restart.",
 };
 
-export default function LoginPage() {
+function LoginPageContent() {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [canUsePasskey, setCanUsePasskey] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
+  const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
   const { login } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -45,6 +47,19 @@ export default function LoginPage() {
       router.replace("/login", { scroll: false });
     }
   }, [searchParams, router]);
+
+  const handleDemoLogin = async () => {
+    setDemoLoading(true);
+    try {
+      const result = await authApi.demoLogin();
+      login(result.access_token, result.user);
+      router.push("/");
+    } catch {
+      toast.error("Demo login failed. Is the backend running in demo mode?");
+    } finally {
+      setDemoLoading(false);
+    }
+  };
 
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,12 +143,43 @@ export default function LoginPage() {
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Wallet className="h-6 w-6 text-primary" />
           </div>
-          <CardTitle className="text-2xl">Budget App</CardTitle>
+          <CardTitle className="text-2xl">Clarity</CardTitle>
           <CardDescription>
-            {isRegister ? "Create your account" : "Sign in to your account"}
+            {isRegister
+              ? "Private budgeting and goals — AI stays off until you enable it."
+              : "Sign in to your household budget"}
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {isDemo && (
+            <div className="mb-4 space-y-3">
+              <Button
+                type="button"
+                className="w-full"
+                size="lg"
+                disabled={demoLoading}
+                onClick={handleDemoLogin}
+              >
+                {demoLoading ? "Loading demo…" : (
+                  <>
+                    <Play className="mr-2 h-4 w-4" />
+                    Try the Demo
+                  </>
+                )}
+              </Button>
+              <p className="text-center text-xs text-muted-foreground">
+                Explore with sample data — no account needed
+              </p>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">Or sign in</span>
+                </div>
+              </div>
+            </div>
+          )}
           <form
             onSubmit={handlePasswordSubmit}
             className="space-y-4"
@@ -234,5 +280,19 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        </div>
+      }
+    >
+      <LoginPageContent />
+    </Suspense>
   );
 }

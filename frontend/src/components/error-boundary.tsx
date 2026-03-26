@@ -38,11 +38,19 @@ export class ErrorBoundary extends Component<Props, State> {
               <p className="text-sm text-muted-foreground">
                 {this.state.error?.message || "An unexpected error occurred."}
               </p>
-              <Button
-                onClick={() => this.setState({ hasError: false, error: null })}
-              >
-                Try again
-              </Button>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button
+                  onClick={() => this.setState({ hasError: false, error: null })}
+                >
+                  Try again
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => typeof window !== "undefined" && window.location.reload()}
+                >
+                  Reload page
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>

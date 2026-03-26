@@ -50,6 +50,10 @@ export const authApi = {
     api.post<TokenResponse>("/auth/register", data).then((r) => r.data),
   login: (data: { email: string; password: string }) =>
     api.post<TokenResponse>("/auth/login", data).then((r) => r.data),
+  demoLogin: () =>
+    api.post<TokenResponse>("/auth/demo-login").then((r) => r.data),
+  googleExchange: (code: string) =>
+    api.post<TokenResponse>("/auth/google/exchange", { code }).then((r) => r.data),
   me: () => api.get<User>("/auth/me").then((r) => r.data),
   // Passkey (WebAuthn)
   passkeyRegisterOptions: (data: { email: string; name: string; household_name?: string }) =>

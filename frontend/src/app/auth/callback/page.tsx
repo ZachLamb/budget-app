@@ -1,40 +1,72 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/providers";
 import { authApi } from "@/lib/api/auth";
 import { toast } from "sonner";
 
-export default function AuthCallbackPage() {
+function AuthCallbackInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login } = useAuth();
   const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
 
   useEffect(() => {
-    const token = searchParams.get("token");
-    if (!token) {
-      setStatus("error");
-      toast.error("No token received. Please sign in again.");
-      router.replace("/login");
-      return;
-    }
+    let cancelled = false;
 
-    localStorage.setItem("token", token);
-    authApi
-      .me()
-      .then((user) => {
-        login(token, user);
-        setStatus("done");
-        router.replace("/");
-      })
-      .catch(() => {
-        localStorage.removeItem("token");
+    const finishWithToken = (token: string) => {
+      localStorage.setItem("token", token);
+      authApi
+        .me()
+        .then((user) => {
+          if (cancelled) return;
+          login(token, user);
+          setStatus("done");
+          router.replace("/");
+        })
+        .catch(() => {
+          if (cancelled) return;
+          localStorage.removeItem("token");
+          setStatus("error");
+          toast.error("Sign-in failed. Please try again.");
+          router.replace("/login");
+        });
+    };
+
+    const run = async () => {
+      const code = searchParams.get("code");
+      const tokenLegacy = searchParams.get("token");
+
+      if (code) {
+        try {
+          const res = await authApi.googleExchange(code);
+          if (cancelled) return;
+          finishWithToken(res.access_token);
+        } catch {
+          if (cancelled) return;
+          setStatus("error");
+          toast.error("Sign-in failed. Please try again.");
+          router.replace("/login");
+        }
+        return;
+      }
+
+      if (!tokenLegacy) {
+        if (cancelled) return;
         setStatus("error");
-        toast.error("Sign-in failed. Please try again.");
+        toast.error("No token received. Please sign in again.");
         router.replace("/login");
-      });
+        return;
+      }
+
+      finishWithToken(tokenLegacy);
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams, login, router]);
 
   return (
@@ -51,5 +83,19 @@ export default function AuthCallbackPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function AuthCallbackPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-background">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        </div>
+      }
+    >
+      <AuthCallbackInner />
+    </Suspense>
   );
 }

@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Budget App",
-  description: "Personal finance and budgeting",
+  title: "Clarity — private budgeting & debt planning",
+  description:
+    "Envelope-style budgeting, debt and savings goals, optional bank sync (SimpleFIN), and AI only when you turn it on—including local models via Ollama.",
 };
 
 export default function RootLayout({

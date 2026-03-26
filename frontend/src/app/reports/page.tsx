@@ -94,13 +94,19 @@ function SpendingTab() {
                     outerRadius={100}
                     paddingAngle={2}
                     dataKey="value"
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    label={({ name, percent }) =>
+                      `${name ?? ""} ${((percent ?? 0) * 100).toFixed(0)}%`}
                   >
                     {pieData.map((entry, i) => (
                       <Cell key={i} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Tooltip
+                    formatter={(v: number | undefined) => {
+                      const n = typeof v === "number" ? v : Number(v);
+                      return [formatCurrency(Number.isFinite(n) ? n : 0), ""];
+                    }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             )}
@@ -187,7 +193,12 @@ function TrendsTab() {
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis dataKey="month" className="text-xs" />
                 <YAxis className="text-xs" tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                <Tooltip
+                  formatter={(v: number | undefined) => {
+                    const n = typeof v === "number" ? v : Number(v);
+                    return [formatCurrency(Number.isFinite(n) ? n : 0), ""];
+                  }}
+                />
                 <Legend />
                 <Bar dataKey="Income" fill="#10b981" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="Expenses" fill="#ef4444" radius={[4, 4, 0, 0]} />
@@ -208,7 +219,12 @@ function TrendsTab() {
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis dataKey="month" className="text-xs" />
                 <YAxis className="text-xs" tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                <Tooltip
+                  formatter={(v: number | undefined) => {
+                    const n = typeof v === "number" ? v : Number(v);
+                    return [formatCurrency(Number.isFinite(n) ? n : 0), ""];
+                  }}
+                />
                 <Line type="monotone" dataKey="Net" stroke="#3b82f6" strokeWidth={2} dot={{ r: 4 }} />
               </LineChart>
             </ResponsiveContainer>
@@ -265,7 +281,12 @@ function BalanceHistoryTab() {
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis dataKey="date" className="text-xs" />
                 <YAxis className="text-xs" tickFormatter={(v) => formatCurrency(v)} />
-                <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                <Tooltip
+                  formatter={(v: number | undefined) => {
+                    const n = typeof v === "number" ? v : Number(v);
+                    return [formatCurrency(Number.isFinite(n) ? n : 0), ""];
+                  }}
+                />
                 <Line type="monotone" dataKey="Balance" stroke="#3b82f6" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>

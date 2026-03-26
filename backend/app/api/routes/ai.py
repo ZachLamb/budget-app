@@ -4,9 +4,16 @@ from __future__ import annotations
 
 All data is processed locally via Ollama (or falls back to Claude).
 No financial data is sent to third parties when Ollama is running.
+
+New AI surface checklist (avoid \"AI for AI's sake\"):
+- Grounded: output must cite user data (amounts, categories, goals) or ask for missing input.
+- Actionable: each suggestion maps to one next step the UI can complete (budget, rule, plan).
+- Fallback: the same job must remain doable without AI (manual edit, rules, imports).
+- Failure: honor household.ai_enabled; return clear errors when no backend—no fake filler tips.
 """
 
 import json
+import logging
 import httpx
 from datetime import date, timedelta
 from decimal import Decimal
@@ -23,22 +30,30 @@ from app.database import get_db
 from app.api.deps import get_household_id
 from app.models import (
     Transaction, Account, Payee, Category, CategoryGroup,
-    BudgetAssignment, FinancialGoal, Household,
+    BudgetAssignment, FinancialGoal, Household, FsaReviewItem,
 )
 from app.services.ai import llm_client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 _NO_AI_MSG = "No AI backend available. Start Ollama or set ANTHROPIC_API_KEY in settings."
+
+# Returned when there is no categorized spending to analyze (not the same as LLM unavailable).
+MODEL_SOURCE_NO_BUDGET_CATEGORY_DATA = "no_data"
 
 
 async def _require_ai_enabled(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ) -> str:
-    """Dependency: checks household exists, household.ai_enabled, and that a backend is configured."""
-    if not llm_client.has_any_backend():
-        raise HTTPException(503, _NO_AI_MSG)
+    """Dependency: checks household exists and AI is enabled for that household.
+
+    We intentionally do not preflight the LLM backend here because short-lived
+    connectivity blips can cause false 503s. Endpoints that actually call the LLM
+    still return 503 with _NO_AI_MSG if no completion is available.
+    """
     result = await db.execute(select(Household).where(Household.id == household_id))
     household = result.scalar_one_or_none()
     if not household:
@@ -79,6 +94,35 @@ class BudgetInsightsResponse(BaseModel):
     insights: list[str]
     patterns: list[SpendingTrend]
     model_source: str
+
+
+class FsaEligibleTransaction(BaseModel):
+    transaction_id: str
+    date: str
+    payee_name: str
+    category_name: Optional[str]
+    amount: float
+    confidence: Literal["high", "medium", "low"]
+    fsa_category: str
+    reason: str
+    status: Literal["pending", "claimed", "dismissed"] = "pending"
+
+
+class FsaReviewRequest(BaseModel):
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+
+
+class FsaItemUpdateRequest(BaseModel):
+    status: Literal["pending", "claimed", "dismissed"]
+
+
+class FsaReviewResponse(BaseModel):
+    eligible_transactions: list[FsaEligibleTransaction]
+    total_potential_amount: float
+    scan_count: int
+    model_source: str
+    parse_errors: int = 0
 
 
 # ── Context builder ────────────────────────────────────────────────────────────
@@ -236,9 +280,7 @@ Return a JSON object with an "insights" key containing an array of strings (one 
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0]
         data = json.loads(text)
-        insights = data.get("insights", [])
-        if not isinstance(insights, list):
-            insights = [str(insights)]
+        insights = normalize_insights_list(data.get("insights"))
     except Exception:
         # If the LLM didn't return JSON, split by newlines as fallback
         insights = [line.lstrip("•-* ").strip() for line in response.split("\n") if line.strip()]
@@ -499,7 +541,10 @@ async def get_budget_suggestions(
             cat_ids[cat_name] = cat_id
 
     if not cat_ids:
-        return BudgetSuggestionsResponse(suggestions=[], model_source="unavailable")
+        return BudgetSuggestionsResponse(
+            suggestions=[],
+            model_source=MODEL_SOURCE_NO_BUDGET_CATEGORY_DATA,
+        )
 
     # Build context lines
     lines = []
@@ -553,6 +598,75 @@ class DebtPlanSuggestion(BaseModel):
     model_source: str
 
 
+def normalize_priority_order_from_llm(raw: object) -> list[str]:
+    """Coerce LLM `priority_order` to a list of strings; non-lists become []."""
+    if not isinstance(raw, list):
+        return []
+    return [str(x) for x in raw]
+
+
+def normalize_insights_list(raw: object) -> list[str]:
+    """Normalize `insights` from LLM JSON to a list of strings."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    return [str(raw)]
+
+
+def parse_debt_plan_suggestion_from_llm_response(response_text: str, model_source: str) -> DebtPlanSuggestion:
+    """Parse model JSON (optional markdown fence) into DebtPlanSuggestion."""
+    text = response_text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+    data = json.loads(text)
+    raw_extra = data.get("monthly_extra", 0)
+    try:
+        monthly_extra = float(raw_extra)
+    except (TypeError, ValueError):
+        monthly_extra = 0.0
+    return DebtPlanSuggestion(
+        strategy=str(data.get("strategy", "avalanche")),
+        rationale=str(data.get("rationale", "")),
+        priority_order=normalize_priority_order_from_llm(data.get("priority_order", [])),
+        monthly_extra=monthly_extra,
+        model_source=model_source,
+    )
+
+
+async def _find_account_for_execute_transaction(
+    db: AsyncSession,
+    household_id: str,
+    account_name: str,
+) -> Optional[Account]:
+    """Resolve account by name: exact (case-insensitive), then shortest prefix, then shortest substring."""
+    from app.utils import escape_like
+
+    norm = account_name.strip()
+    if not norm:
+        return None
+    esc = escape_like(norm)
+    q_base = (
+        select(Account)
+        .where(Account.household_id == household_id)
+        .where(Account.closed_at.is_(None))
+    )
+    r = await db.execute(q_base.where(func.lower(Account.name) == norm.lower()).limit(1))
+    acct = r.scalar_one_or_none()
+    if acct:
+        return acct
+    r = await db.execute(
+        q_base.where(Account.name.ilike(f"{esc}%")).order_by(func.length(Account.name)).limit(1)
+    )
+    acct = r.scalar_one_or_none()
+    if acct:
+        return acct
+    r = await db.execute(
+        q_base.where(Account.name.ilike(f"%{esc}%")).order_by(func.length(Account.name)).limit(1)
+    )
+    return r.scalar_one_or_none()
+
+
 @router.post("/debt-plan-suggestion", response_model=DebtPlanSuggestion)
 async def get_debt_plan_suggestion(
     household_id: str = Depends(_require_ai_enabled),
@@ -577,8 +691,16 @@ async def get_debt_plan_suggestion(
     debt_lines = []
     for a in debt_accounts:
         bal = abs(balances.get(a.id, Decimal("0")))
-        apr = f"{float(a.interest_rate) * 100:.2f}%" if a.interest_rate else "unknown"
-        min_pay = f"${float(a.minimum_payment):,.2f}" if a.minimum_payment else "unknown"
+        apr = (
+            f"{float(a.interest_rate) * 100:.2f}%"
+            if a.interest_rate is not None
+            else "unknown"
+        )
+        min_pay = (
+            f"${float(a.minimum_payment):,.2f}"
+            if a.minimum_payment is not None
+            else "unknown"
+        )
         debt_lines.append(f"  - {a.name}: balance ${bal:,.2f}, APR {apr}, min payment {min_pay}")
 
     context = "Debt accounts:\n" + "\n".join(debt_lines)
@@ -593,20 +715,13 @@ No other text."""
 
     response, source = await llm_client.complete_with_source(prompt)
     if not response:
+        # One retry helps with transient startup/network blips to local Ollama.
+        response, source = await llm_client.complete_with_source(prompt)
+    if not response:
         raise HTTPException(503, _NO_AI_MSG)
 
     try:
-        text = response.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
-        data = json.loads(text)
-        return DebtPlanSuggestion(
-            strategy=str(data.get("strategy", "avalanche")),
-            rationale=str(data.get("rationale", "")),
-            priority_order=[str(x) for x in data.get("priority_order", [])],
-            monthly_extra=float(data.get("monthly_extra", 0)),
-            model_source=source,
-        )
+        return parse_debt_plan_suggestion_from_llm_response(response, source)
     except Exception:
         raise HTTPException(500, "Failed to parse AI response.")
 
@@ -726,16 +841,7 @@ async def execute_action(
         txn_date = data.get("date") or date.today().isoformat()
         memo = str(data.get("memo", "")).strip()[:500]
 
-        from app.utils import escape_like
-        # Look up account by name
-        acct_result = await db.execute(
-            select(Account)
-            .where(Account.household_id == household_id)
-            .where(Account.name.ilike(f"%{escape_like(account_name)}%"))
-            .where(Account.closed_at.is_(None))
-            .limit(1)
-        )
-        account = acct_result.scalar_one_or_none()
+        account = await _find_account_for_execute_transaction(db, household_id, account_name)
         if not account:
             # Try to use first budget account as fallback
             acct_result = await db.execute(
@@ -923,3 +1029,269 @@ No other text."""
         model_source=source,
         note="These are estimates based on typical rates for your card types. Please verify and correct them.",
     )
+
+
+# ── FSA reimbursement review ─────────────────────────────────────────────────
+
+_FSA_SYSTEM_PROMPT = """\
+You are an FSA (Flexible Spending Account) reimbursement specialist. Review \
+financial transactions and identify purchases that may be eligible for FSA \
+reimbursement.
+
+FSA-eligible expenses typically include:
+- Doctor visits, specialist copays, hospital charges
+- Dental work: cleanings, fillings, orthodontics, oral surgery
+- Vision: eye exams, glasses, contact lenses, LASIK
+- Prescriptions and OTC medicines (with prescription)
+- Mental health: therapy, counseling, psychiatry
+- Physical therapy, chiropractic care, acupuncture
+- Medical equipment: crutches, blood pressure monitors, CPAP
+- Lab work and diagnostic tests
+- Ambulance services
+- Hearing aids and exams
+
+Common FSA-eligible merchant patterns:
+- Pharmacies (CVS, Walgreens, Rite Aid) — could be eligible if for medical items
+- Payees with "medical", "health", "dental", "vision", "eye", "pharmacy", "rx", \
+"therapy", "chiro", "ortho", "derma", "clinic", "hospital", "urgent care", \
+"doctor", "dr.", "dds", "md", "optom", "psych" in the name
+- Lab/diagnostic companies (Quest, LabCorp)
+
+NOT FSA-eligible (do not flag these):
+- Cosmetic procedures, teeth whitening
+- Gym memberships (unless prescribed)
+- General groceries, even from pharmacies
+- Vitamins/supplements (unless prescribed)
+
+Assign confidence levels:
+- high: clearly medical (doctor, dentist, pharmacy prescription, hospital)
+- medium: likely medical but could be non-medical (CVS, Walgreens — could be snacks)
+- low: possible but uncertain (ambiguous payee names)
+"""
+
+
+_FSA_HINT_KEYWORDS = (
+    "pharmacy", "cvs", "walgreens", "rite aid", "medical", "dental",
+    "vision", "optom", "optical", "eye", "doctor", "dr.", "clinic",
+    "hospital", "health", "therapy", "chiro", "ortho", "derma", "lab",
+    "urgent care", "mental", "psych", "counsel", "rx", "prescription",
+    "quest", "labcorp", "lenscrafters", "pearle", "contacts",
+    "copay", "insurance", "dds", "md ", "pediatr", "obgyn",
+    "acupuncture", "ambulance", "hearing", "dentist",
+    # Insurers & health systems
+    "kaiser", "aetna", "cigna", "united health", "bluecross", "anthem",
+    # Online & retail vision/health
+    "1800contacts", "warby", "zenni", "costco optical",
+    # Telehealth & clinics
+    "minute clinic", "teladoc", "mdlive", "nurx", "hims", "hers",
+    "planned parenthood",
+    # Specific treatments & equipment
+    "physical therapy", "speech therapy", "occupational therapy",
+    "invisalign", "cpap", "braces", "dme",
+)
+
+
+def _matches_fsa_hint(row) -> bool:
+    """Check if a transaction row's payee, category, or notes contain FSA-related keywords."""
+    text = " ".join(filter(None, [row.payee_name, row.category_name, row.notes])).lower()
+    return any(kw in text for kw in _FSA_HINT_KEYWORDS)
+
+
+@router.post("/fsa-review", response_model=FsaReviewResponse)
+async def fsa_review(
+    req: FsaReviewRequest = FsaReviewRequest(),
+    household_id: str = Depends(_require_ai_enabled),
+    db: AsyncSession = Depends(get_db),
+):
+    """Review transactions for potential FSA-eligible purchases."""
+    today = date.today()
+    date_from = req.date_from or today.replace(month=1, day=1)
+    date_to = req.date_to or today
+
+    if date_from > date_to:
+        raise HTTPException(400, "date_from must be on or before date_to.")
+    if (date_to - date_from).days > 366:
+        raise HTTPException(400, "Date range cannot exceed 366 days.")
+
+    result = await db.execute(
+        select(
+            Transaction.id,
+            Transaction.date,
+            Transaction.amount,
+            Transaction.notes,
+            Payee.name.label("payee_name"),
+            Category.name.label("category_name"),
+        )
+        .join(Account, Transaction.account_id == Account.id)
+        .outerjoin(Payee, Transaction.payee_id == Payee.id)
+        .outerjoin(Category, Transaction.category_id == Category.id)
+        .where(Account.household_id == household_id)
+        .where(Transaction.amount < 0)
+        .where(Transaction.date >= date_from)
+        .where(Transaction.date <= date_to)
+        .where(Transaction.parent_transaction_id.is_(None))
+        .order_by(Transaction.date.desc())
+        .limit(500)
+    )
+    rows = result.all()
+    total_scanned = len(rows)
+
+    # Pre-filter: only send transactions with health-related keywords to the LLM
+    candidates = [r for r in rows if _matches_fsa_hint(r)]
+
+    if not candidates:
+        return FsaReviewResponse(
+            eligible_transactions=[],
+            total_potential_amount=0,
+            scan_count=total_scanned,
+            model_source="none",
+        )
+
+    # Build compact text batches
+    BATCH_SIZE = 50
+    eligible: list[FsaEligibleTransaction] = []
+    source = "none"
+    parse_errors = 0
+
+    for batch_start in range(0, len(candidates), BATCH_SIZE):
+        batch = candidates[batch_start:batch_start + BATCH_SIZE]
+        lines = []
+        for i, row in enumerate(batch):
+            payee = row.payee_name or "Unknown"
+            cat = row.category_name or ""
+            notes = row.notes or ""
+            amt = abs(float(row.amount))
+            lines.append(f"{i}: {row.date} | {payee} | {cat} | ${amt:.2f} | \"{notes}\"")
+
+        batch_text = "\n".join(lines)
+        prompt = f"""Review these transactions and identify any that may be FSA-eligible.
+
+{batch_text}
+
+Return JSON: {{"eligible": [{{"index": 0, "confidence": "high", "fsa_category": "Medical", "reason": "Doctor office copay"}}]}}
+Where index is the 0-based position in the list above. Only include transactions you believe are FSA-eligible. If none are eligible, return {{"eligible": []}}.
+No other text."""
+
+        response, src = await llm_client.complete_with_source(
+            prompt, system=_FSA_SYSTEM_PROMPT, max_tokens=2048
+        )
+        if source == "none":
+            source = src
+        if not response:
+            continue
+
+        try:
+            text = response.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+            items = json.loads(text).get("eligible", [])
+            for item in items:
+                idx = int(item.get("index", -1))
+                if idx < 0 or idx >= len(batch):
+                    continue
+                row = batch[idx]
+                confidence = item.get("confidence", "low")
+                if confidence not in ("high", "medium", "low"):
+                    confidence = "low"
+                eligible.append(FsaEligibleTransaction(
+                    transaction_id=row.id,
+                    date=str(row.date),
+                    payee_name=row.payee_name or "Unknown",
+                    category_name=row.category_name,
+                    amount=abs(float(row.amount)),
+                    confidence=confidence,
+                    fsa_category=str(item.get("fsa_category", "Other Medical"))[:50],
+                    reason=str(item.get("reason", ""))[:200],
+                ))
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
+            parse_errors += 1
+            logger.warning("FSA batch parse error: %s — raw response: %.300s", exc, text)
+
+    # Merge persisted claim/dismiss status
+    if eligible:
+        txn_ids = [t.transaction_id for t in eligible]
+        status_result = await db.execute(
+            select(FsaReviewItem.transaction_id, FsaReviewItem.status)
+            .where(FsaReviewItem.household_id == household_id)
+            .where(FsaReviewItem.transaction_id.in_(txn_ids))
+        )
+        status_map = {row.transaction_id: row.status for row in status_result.all()}
+        for t in eligible:
+            if t.transaction_id in status_map:
+                t.status = status_map[t.transaction_id]
+
+    total = sum(t.amount for t in eligible)
+
+    return FsaReviewResponse(
+        eligible_transactions=eligible,
+        total_potential_amount=round(total, 2),
+        scan_count=total_scanned,
+        model_source=source,
+        parse_errors=parse_errors,
+    )
+
+
+@router.patch("/fsa-review/items/{transaction_id}")
+async def update_fsa_item_status(
+    transaction_id: str,
+    req: FsaItemUpdateRequest,
+    household_id: str = Depends(_require_ai_enabled),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the claim/dismiss status of an FSA-reviewed transaction."""
+    import uuid as _uuid
+
+    # Verify transaction belongs to this household
+    txn_check = await db.execute(
+        select(Transaction.id)
+        .join(Account, Transaction.account_id == Account.id)
+        .where(Account.household_id == household_id)
+        .where(Transaction.id == transaction_id)
+    )
+    if txn_check.scalar() is None:
+        raise HTTPException(404, "Transaction not found.")
+
+    # Upsert
+    existing = await db.execute(
+        select(FsaReviewItem)
+        .where(FsaReviewItem.household_id == household_id)
+        .where(FsaReviewItem.transaction_id == transaction_id)
+    )
+    item = existing.scalar_one_or_none()
+    if item:
+        item.status = req.status
+    else:
+        item = FsaReviewItem(
+            id=str(_uuid.uuid4()),
+            household_id=household_id,
+            transaction_id=transaction_id,
+            status=req.status,
+        )
+        db.add(item)
+    await db.commit()
+    return {"status": req.status}
+
+
+@router.get("/fsa-review/items")
+async def list_fsa_items(
+    household_id: str = Depends(_require_ai_enabled),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all FSA review items for the household."""
+    result = await db.execute(
+        select(FsaReviewItem)
+        .where(FsaReviewItem.household_id == household_id)
+        .order_by(FsaReviewItem.updated_at.desc())
+    )
+    items = result.scalars().all()
+    return [
+        {
+            "transaction_id": i.transaction_id,
+            "status": i.status,
+            "fsa_category": i.fsa_category,
+            "confidence": i.confidence,
+            "reason": i.reason,
+            "updated_at": i.updated_at.isoformat() if i.updated_at else None,
+        }
+        for i in items
+    ]

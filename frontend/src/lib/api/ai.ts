@@ -67,6 +67,26 @@ export interface InterestRateSuggestionsResponse {
   note: string;
 }
 
+export interface FsaEligibleTransaction {
+  transaction_id: string;
+  date: string;
+  payee_name: string;
+  category_name: string | null;
+  amount: number;
+  confidence: "high" | "medium" | "low";
+  fsa_category: string;
+  reason: string;
+  status: "pending" | "claimed" | "dismissed";
+}
+
+export interface FsaReviewResponse {
+  eligible_transactions: FsaEligibleTransaction[];
+  total_potential_amount: number;
+  scan_count: number;
+  model_source: string;
+  parse_errors: number;
+}
+
 export const aiApi = {
   status: () => api.get<AiStatus>("/ai/status").then((r) => r.data),
   getInsights: () => api.post<InsightsResponse>("/ai/insights").then((r) => r.data),
@@ -76,4 +96,8 @@ export const aiApi = {
   suggestInterestRates: () => api.post<InterestRateSuggestionsResponse>("/ai/suggest-interest-rates").then((r) => r.data),
   chat: (messages: ChatMessage[]) =>
     api.post<ChatResponse>("/ai/chat", { messages }).then((r) => r.data),
+  getFsaReview: (params?: { date_from?: string; date_to?: string }) =>
+    api.post<FsaReviewResponse>("/ai/fsa-review", params ?? {}).then((r) => r.data),
+  updateFsaItemStatus: (transactionId: string, status: "pending" | "claimed" | "dismissed") =>
+    api.patch<{ status: string }>(`/ai/fsa-review/items/${transactionId}`, { status }).then((r) => r.data),
 };

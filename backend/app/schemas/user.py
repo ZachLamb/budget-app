@@ -44,13 +44,39 @@ class TokenResponse(BaseModel):
 
 
 class PasskeyRegisterOptionsRequest(BaseModel):
-    email: str
-    name: str
+    email: str = Field(..., max_length=254)
+    name: str = Field(..., min_length=1, max_length=200)
     household_name: str = "My Household"
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", v):
+            raise ValueError("Invalid email address")
+        return v
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("Name is required")
+        return v
 
 
 class PasskeyAuthenticateOptionsRequest(BaseModel):
     email: Optional[str] = None  # optional; if omitted, discoverable (resident) key is used
+
+    @field_validator("email")
+    @classmethod
+    def normalize_optional_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or not str(v).strip():
+            return None
+        v = str(v).strip().lower()
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", v):
+            raise ValueError("Invalid email address")
+        return v
 
 
 class PasskeyRegisterVerifyRequest(BaseModel):
@@ -69,3 +95,8 @@ class PasskeyCredentialListItem(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class GoogleOAuthExchangeRequest(BaseModel):
+    """One-time code issued after Google OAuth (replaces JWT in redirect query)."""
+    code: str = Field(..., min_length=8, max_length=300)

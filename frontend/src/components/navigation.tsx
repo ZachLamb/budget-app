@@ -154,6 +154,14 @@ function SidebarFooter() {
           {new Date(syncStatus.last_sync.completed_at).toLocaleString()}
         </p>
       )}
+      {syncStatus?.last_sync?.completed_at &&
+        syncStatus.last_sync.status !== "success" &&
+        syncStatus.last_sync.status !== "in_progress" && (
+          <p className="px-1 text-xs text-destructive leading-snug" role="status">
+            {syncStatus.last_sync.status === "partial" ? "Sync partially completed. " : "Sync issue. "}
+            {syncStatus.last_sync.error_message ?? "Open Settings to check your bank connection."}
+          </p>
+        )}
       <div className="flex items-center justify-between px-1">
         <span className="text-sm text-muted-foreground truncate">
           {user?.email}
@@ -202,14 +210,14 @@ export function MobileHeader() {
       </Button>
       <div className="flex items-center gap-2">
         <Wallet className="h-5 w-5 text-primary" />
-        <span className="font-semibold">Budget</span>
+        <span className="font-semibold">Clarity</span>
       </div>
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="left" className="w-64 p-0">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
           <div className="flex items-center gap-2 border-b px-6 py-4">
             <Wallet className="h-6 w-6 text-primary" />
-            <span className="text-lg font-semibold">Budget</span>
+            <span className="text-lg font-semibold">Clarity</span>
           </div>
           <div className="flex flex-col h-[calc(100%-57px)]">
             <NavContent onNavigate={() => setOpen(false)} />
@@ -226,10 +234,10 @@ export function Navigation() {
   if (!user) return null;
 
   return (
-    <aside className="hidden md:flex h-screen w-64 flex-col border-r bg-card">
+    <aside className="hidden md:flex h-screen w-64 flex-col border-r bg-card" aria-label="Primary navigation">
       <div className="flex items-center gap-2 border-b px-6 py-4">
         <Wallet className="h-6 w-6 text-primary" />
-        <span className="text-lg font-semibold">Budget</span>
+        <span className="text-lg font-semibold">Clarity</span>
       </div>
       <NavContent />
       <SidebarFooter />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useId } from "react";
 import { AuthGuard } from "@/components/auth-guard";
 import { useQuery } from "@tanstack/react-query";
 import { accountsApi, type Account } from "@/lib/api/accounts";
@@ -10,6 +10,7 @@ import { reportsApi } from "@/lib/api/reports";
 import { goalsApi, type FinancialGoal } from "@/lib/api/goals";
 import { aiApi } from "@/lib/api/ai";
 import { syncApi } from "@/lib/api/sync";
+import { recurringApi } from "@/lib/api/recurring";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -19,14 +20,14 @@ import {
   Sparkles, Lightbulb, RefreshCw, Cpu, Cloud, ChevronDown,
   Plug, Plus, Upload, X, Settings, WifiOff,
 } from "lucide-react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
 import { cn } from "@/lib/utils";
-import { formatCurrency, formatCurrencyNegative, getMonthString } from "@/lib/format";
-import { useIsClient, getApiErrorMessage } from "@/lib/hooks";
+import { formatCurrency, formatCurrencyNegative, getMonthString, navigateMonth, formatShortMonth } from "@/lib/format";
+import { useIsClient, getApiErrorMessage, useChartColors } from "@/lib/hooks";
+import { SetupChecklist } from "@/components/setup-checklist";
+import { NextBestAction } from "@/components/next-best-action";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-
-const COLORS = ["#3b82f6", "#ef4444", "#f59e0b", "#10b981", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316"];
 
 const DEBT_TYPES = ["credit", "loan"];
 
@@ -49,6 +50,7 @@ function InsightsPanel({
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const lastInvalidatedSyncRef = useRef<string | null>(null);
+  const panelId = useId();
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ["aiInsights"],
@@ -69,12 +71,15 @@ function InsightsPanel({
   return (
     <Card>
       <button
+        type="button"
         className="w-full text-left"
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls={panelId}
       >
         <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Sparkles className="h-5 w-5 text-purple-500" /> AI Suggestions
+          <CardTitle id={`${panelId}-label`} className="flex items-center gap-2 text-base">
+            <Sparkles className="h-5 w-5 text-purple-500" aria-hidden /> AI Suggestions
           </CardTitle>
           <div className="flex items-center gap-2">
             {data?.model_source && (
@@ -89,14 +94,17 @@ function InsightsPanel({
         </CardHeader>
       </button>
       {open && (
-        <CardContent>
+        <CardContent id={panelId} role="region" aria-labelledby={`${panelId}-label`}>
           {!hasFinancialData ? (
             <p className="text-sm text-muted-foreground">
               Connect and sync your bank (or add accounts and transactions) to get personalised AI suggestions based on your data.
             </p>
-          ) : (
-            <>
-              <div className="flex justify-end mb-2">
+              ) : (
+                <>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Grounded in your categories and balances—toggle AI off anytime in Settings if you prefer a fully manual app.
+                  </p>
+                  <div className="flex justify-end mb-2">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -122,11 +130,11 @@ function InsightsPanel({
                     {getApiErrorMessage(error, "Failed to load AI suggestions.")}
                   </p>
                   {(error as { response?: { status?: number } })?.response?.status === 403 && (
-                    <Link href="/settings">
-                      <Button variant="outline" size="sm" className="h-7 text-xs">
+                    <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
+                      <Link href="/settings">
                         <Settings className="h-3 w-3 mr-1" /> Enable AI in Settings
-                      </Button>
-                    </Link>
+                      </Link>
+                    </Button>
                   )}
                 </div>
               ) : (
@@ -175,34 +183,40 @@ function WelcomeBanner() {
       >
         <X className="h-4 w-4" />
       </button>
-      <h2 className="text-base font-semibold mb-1">Welcome! Let&apos;s get your accounts set up.</h2>
+      <h2 className="text-base font-semibold mb-1">Welcome to Clarity</h2>
       <p className="text-sm text-muted-foreground mb-4">
-        Connect your bank, add accounts manually, or import a CSV to get started.
+        Add accounts manually, import a CSV, or connect read-only bank sync (SimpleFIN)—your choice.
       </p>
       <div className="flex flex-wrap gap-2">
-        <Link href="/settings">
-          <button className="inline-flex items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm font-medium hover:bg-accent transition-colors">
-            <Plug className="h-4 w-4 text-primary" /> Connect bank (SimpleFIN)
-          </button>
-        </Link>
-        <Link href="/accounts">
-          <button className="inline-flex items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm font-medium hover:bg-accent transition-colors">
+        <Button variant="outline" size="sm" className="gap-2" asChild>
+          <Link href="/settings">
+            <Plug className="h-4 w-4 text-primary" /> Connect bank (read-only via SimpleFIN)
+          </Link>
+        </Button>
+        <Button variant="outline" size="sm" className="gap-2" asChild>
+          <Link href="/accounts">
             <Plus className="h-4 w-4 text-primary" /> Add account manually
-          </button>
-        </Link>
-        <Link href="/transactions">
-          <button className="inline-flex items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm font-medium hover:bg-accent transition-colors">
+          </Link>
+        </Button>
+        <Button variant="outline" size="sm" className="gap-2" asChild>
+          <Link href="/transactions">
             <Upload className="h-4 w-4 text-primary" /> Import CSV
-          </button>
-        </Link>
+          </Link>
+        </Button>
       </div>
     </div>
   );
 }
 
+function sumCategorySpend(rows: { total: number }[]): number {
+  return rows.reduce((acc, s) => acc + Math.abs(Number(s.total)), 0);
+}
+
 function DashboardContent() {
   const currentMonth = getMonthString(new Date());
+  const prevMonth = navigateMonth(currentMonth, -1);
   const isClient = useIsClient();
+  const chartColors = useChartColors(8);
 
   const { data: accounts = [] } = useQuery({
     queryKey: ["accounts"],
@@ -234,6 +248,21 @@ function DashboardContent() {
     queryFn: goalsApi.list,
     enabled: isClient,
   });
+  const { data: spendingPrev = [] } = useQuery({
+    queryKey: ["spending-by-category", prevMonth],
+    queryFn: () => reportsApi.spendingByCategory({ month: prevMonth }),
+    enabled: isClient,
+  });
+  const { data: cashFlowMonths = [] } = useQuery({
+    queryKey: ["spending-by-month", "dash", 6],
+    queryFn: () => reportsApi.spendingByMonth(6),
+    enabled: isClient,
+  });
+  const { data: recurringList = [] } = useQuery({
+    queryKey: ["recurring"],
+    queryFn: recurringApi.list,
+    enabled: isClient,
+  });
 
   const totalAssets = accounts
     .filter((a: Account) => !DEBT_TYPES.includes(a.account_type))
@@ -252,8 +281,32 @@ function DashboardContent() {
   const pieData = spending.slice(0, 8).map((s, i) => ({
     name: s.category_name,
     value: Math.abs(s.total),
-    color: COLORS[i % COLORS.length],
+    color: chartColors[i % chartColors.length],
   }));
+
+  const spendThisMonth = sumCategorySpend(spending);
+  const spendPrevMonth = sumCategorySpend(spendingPrev);
+  const spendMomPct =
+    spendPrevMonth > 0.01
+      ? ((spendThisMonth - spendPrevMonth) / spendPrevMonth) * 100
+      : null;
+
+  const cashFlowChart = cashFlowMonths.map((m) => ({
+    month: formatShortMonth(m.month),
+    expenses: Math.abs(m.expenses),
+    income: m.income,
+  }));
+
+  const soonRecurring = [...recurringList]
+    .filter((r) => {
+      const d = new Date(r.next_date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const horizon = new Date(today);
+      horizon.setDate(horizon.getDate() + 45);
+      return d >= today && d <= horizon;
+    })
+    .slice(0, 5);
 
   return (
     <div className="space-y-6">
@@ -261,6 +314,10 @@ function DashboardContent() {
 
       {/* First-run welcome banner */}
       {accounts.length === 0 && <WelcomeBanner />}
+
+      <SetupChecklist className="mt-2" />
+
+      <NextBestAction className="mt-2" />
 
       {/* Summary cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -295,7 +352,7 @@ function DashboardContent() {
             <CardContent>
               <p className="text-2xl font-bold text-red-600">{formatCurrencyNegative(totalLiabilities)}</p>
               {debtAccounts.length > 0 && (
-                <p className="text-xs text-muted-foreground mt-1">{debtAccounts.length} account{debtAccounts.length > 1 ? "s" : ""} · tap to plan payoff</p>
+                <p className="text-xs text-muted-foreground mt-1">{debtAccounts.length} account{debtAccounts.length > 1 ? "s" : ""} · open debt plan</p>
               )}
             </CardContent>
           </Card>
@@ -316,6 +373,72 @@ function DashboardContent() {
         </Link>
       </div>
 
+      {accounts.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Cash flow (recent months)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {cashFlowChart.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6">
+                  Import or sync transactions to see income and spending by month.
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={cashFlowChart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} width={44} />
+                    <Tooltip
+                      formatter={(value, name) => [
+                        formatCurrency(typeof value === "number" ? value : 0),
+                        name ?? "",
+                      ]}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="income" name="Income" fill={chartColors[0]} radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="expenses" name="Expenses" fill={chartColors[1]} radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">Upcoming recurring</CardTitle>
+              <Link href="/recurring" className="text-xs text-primary hover:underline">
+                Manage
+              </Link>
+            </CardHeader>
+            <CardContent>
+              {soonRecurring.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-2">
+                  No recurring items in the next 45 days.&nbsp;
+                  <Link href="/recurring" className="text-primary underline">Add one</Link>
+                </p>
+              ) : (
+                <ul className="space-y-2 text-sm">
+                  {soonRecurring.map((r) => (
+                    <li key={r.id} className="flex items-center justify-between gap-2">
+                      <span className="truncate">
+                        {r.payee_name ?? "Recurring"}
+                        {r.category_name ? (
+                          <span className="text-muted-foreground"> · {r.category_name}</span>
+                        ) : null}
+                      </span>
+                      <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                        {formatCurrency(r.amount)} · {new Date(r.next_date).toLocaleDateString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Main grid */}
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Spending pie */}
@@ -323,15 +446,45 @@ function DashboardContent() {
           <CardHeader><CardTitle>Spending This Month</CardTitle></CardHeader>
           <CardContent>
             {pieData.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">No spending data</p>
+              <div className="flex flex-col items-center gap-3 py-6 text-center">
+                <p className="text-sm text-muted-foreground">No spending recorded this month yet.</p>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/transactions">Add or import transactions</Link>
+                </Button>
+              </div>
             ) : (
               <>
+                {spendMomPct !== null && spendPrevMonth > 0.01 && (
+                  <p className="text-xs text-muted-foreground mb-2">
+                    <span className="font-medium text-foreground">vs last month:</span>{" "}
+                    {spendMomPct > 0 ? (
+                      <span className="text-amber-700 dark:text-amber-400">
+                        {spendMomPct.toFixed(0)}% more spending
+                      </span>
+                    ) : spendMomPct < 0 ? (
+                      <span className="text-green-700 dark:text-green-400">
+                        {Math.abs(spendMomPct).toFixed(0)}% less spending
+                      </span>
+                    ) : (
+                      "about the same"
+                    )}
+                    <span className="text-muted-foreground">
+                      {" "}
+                      ({formatCurrency(spendThisMonth)} vs {formatCurrency(spendPrevMonth)})
+                    </span>
+                  </p>
+                )}
                 <ResponsiveContainer width="100%" height={180}>
                   <PieChart>
                     <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={2} dataKey="value">
                       {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                     </Pie>
-                    <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                    <Tooltip
+                      formatter={(v: number | undefined) => {
+                        const n = typeof v === "number" ? v : Number(v);
+                        return [formatCurrency(Number.isFinite(n) ? n : 0), ""];
+                      }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="mt-2 space-y-1">
@@ -355,7 +508,12 @@ function DashboardContent() {
           <CardHeader><CardTitle>Accounts</CardTitle></CardHeader>
           <CardContent>
             {accounts.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No accounts yet.</p>
+              <div className="flex flex-col items-center gap-3 py-2 text-center">
+                <p className="text-sm text-muted-foreground">No accounts yet.</p>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/accounts">Add an account</Link>
+                </Button>
+              </div>
             ) : (
               <div className="space-y-3">
                 {accounts.map((acct: Account) => (
@@ -382,7 +540,12 @@ function DashboardContent() {
           <CardHeader><CardTitle>Recent Transactions</CardTitle></CardHeader>
           <CardContent>
             {!recentTxns?.transactions.length ? (
-              <p className="text-sm text-muted-foreground">No transactions yet.</p>
+              <div className="flex flex-col items-center gap-3 py-2 text-center">
+                <p className="text-sm text-muted-foreground">No transactions yet.</p>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/transactions">Go to transactions</Link>
+                </Button>
+              </div>
             ) : (
               <div className="space-y-3">
                 {recentTxns.transactions.map((txn) => (
@@ -393,7 +556,7 @@ function DashboardContent() {
                         {new Date(txn.date).toLocaleDateString()} {txn.category_name && `· ${txn.category_name}`}
                       </p>
                     </div>
-                    <p className={cn("font-mono font-medium", Number(txn.amount) >= 0 ? "text-green-600" : "text-red-600")}>
+                    <p className="font-mono font-medium text-foreground tabular-nums">
                       {formatCurrency(Number(txn.amount))}
                     </p>
                   </div>
