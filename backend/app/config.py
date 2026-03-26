@@ -3,17 +3,10 @@ import logging
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
-_INSECURE_SECRET_KEYS = {
-    "dev-secret-change-in-production",
-    "change-me-in-production",
-    "",
-}
-
-
 class Settings(BaseSettings):
-    database_url: str = "postgresql+asyncpg://budget:budget_dev_pass@localhost:5432/budget_app"
-    database_url_sync: str = "postgresql://budget:budget_dev_pass@localhost:5432/budget_app"
-    secret_key: str = "dev-secret-change-in-production"
+    database_url: str = "postgresql+asyncpg://budget:budget@localhost:5432/budget_app"
+    database_url_sync: str = "postgresql://budget:budget@localhost:5432/budget_app"
+    secret_key: str = ""
     cors_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:80"
     anthropic_api_key: str = ""
     sync_interval_hours: int = 4
@@ -45,11 +38,11 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
-    if settings.secret_key in _INSECURE_SECRET_KEYS:
-        logging.warning(
-            "SECRET_KEY is insecure (default or empty). "
-            "Set a strong random value: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+    if not settings.secret_key:
+        raise RuntimeError(
+            "SECRET_KEY is not set. Generate one with: "
+            "python -c \"import secrets; print(secrets.token_urlsafe(64))\""
         )
-    if len(settings.secret_key) < 32 and settings.secret_key not in _INSECURE_SECRET_KEYS:
+    if len(settings.secret_key) < 32:
         logging.warning("SECRET_KEY is shorter than 32 characters — consider using a longer key.")
     return settings

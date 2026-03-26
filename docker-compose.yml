@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-budget}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-budget_dev_pass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-budget_app}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -37,11 +37,11 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-budget}:${POSTGRES_PASSWORD:-budget_dev_pass}@postgres:5432/${POSTGRES_DB:-budget_app}
-      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-budget}:${POSTGRES_PASSWORD:-budget_dev_pass}@postgres:5432/${POSTGRES_DB:-budget_app}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-budget}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-budget_app}
+      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-budget}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-budget_app}
       SIMPLEFIN_ACCESS_URL: ${SIMPLEFIN_ACCESS_URL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production}
+      SECRET_KEY: ${SECRET_KEY}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
     ports:
