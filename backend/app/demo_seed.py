@@ -88,6 +88,7 @@ async def seed_demo_data(session_factory) -> None:
             debt_strategy="avalanche",
             debt_extra_monthly=Decimal("200.00"),
         ))
+        await db.flush()  # ensure household exists before FK references
 
         # ── User ───────────────────────────────────────────────────
         user_id = _id()
@@ -99,6 +100,7 @@ async def seed_demo_data(session_factory) -> None:
             household_id=household_id,
             role="owner",
         ))
+        await db.flush()  # ensure user + household exist
 
         # ── Categories ─────────────────────────────────────────────
         cat_lookup: dict[str, str] = {}  # category name → id
@@ -117,6 +119,7 @@ async def seed_demo_data(session_factory) -> None:
                 cid = _id()
                 cat_lookup[cat_name] = cid
                 db.add(Category(id=cid, group_id=gid, name=cat_name, sort_order=idx))
+        await db.flush()  # categories must exist before transactions reference them
 
         # ── Accounts ───────────────────────────────────────────────
         yesterday = datetime.now(timezone.utc) - timedelta(hours=18)
@@ -162,6 +165,9 @@ async def seed_demo_data(session_factory) -> None:
             pid = _id()
             payee_lookup[pname] = pid
             db.add(Payee(id=pid, household_id=household_id, name=pname))
+
+        # Flush accounts + payees so transactions can reference them
+        await db.flush()
 
         # ── Helper: add transaction ────────────────────────────────
         all_transactions: list[Transaction] = []
