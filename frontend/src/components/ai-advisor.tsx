@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams, usePathname, useRouter } from "next/navigation";
 import { aiApi } from "@/lib/api/ai";
 import type { ChatMessage } from "@/lib/api/ai";
 import { settingsApi } from "@/lib/api/settings";
@@ -10,12 +11,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Bot, X, Send, Loader2, Cpu, Cloud, WifiOff,
-  ChevronDown, Trash2, MessageSquare, Check, Edit2,
+  Bot, X, Send, Loader2, Cpu, Sparkles, WifiOff,
+  ChevronDown, Trash2, MessageSquare, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useIsClient } from "@/lib/hooks";
+import { useIsClient, detailFromJsonBody } from "@/lib/hooks";
 import Link from "next/link";
+import { parseChatEvidence, type ChatEvidenceItem } from "@/lib/ai-evidence";
+import { AI_COPY } from "@/lib/ai-copy";
+import { ChatEvidencePanel } from "@/components/chat-evidence-panel";
 
 const SUGGESTIONS = [
   "How can I pay off my debt faster?",
@@ -37,10 +41,10 @@ function SourceBadge({ source }: { source: string }) {
         <Cpu className="h-2.5 w-2.5" /> Local AI
       </Badge>
     );
-  if (source === "claude")
+  if (source === "demo")
     return (
       <Badge variant="outline" className="text-xs gap-1 py-0">
-        <Cloud className="h-2.5 w-2.5" /> Claude
+        <Sparkles className="h-2.5 w-2.5" /> Demo
       </Badge>
     );
   return null;
@@ -51,20 +55,34 @@ interface Message extends ChatMessage {
   pendingAction?: ParsedAction;
   actionStatus?: "pending" | "confirmed" | "cancelled";
   editData?: Record<string, string>;
+  evidence?: ChatEvidenceItem[];
 }
 
-export function AiAdvisor() {
+function AiAdvisorInner() {
   const isClient = useIsClient();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [modelSource, setModelSource] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [executingActionIdx, setExecutingActionIdx] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const shouldOpen = searchParams.get("ai_open") === "1";
+    const prompt = searchParams.get("ai_prompt");
+    if (!shouldOpen && !prompt) return;
+    if (shouldOpen) setOpen(true);
+    if (prompt) setInput(decodeURIComponent(prompt));
+    router.replace(pathname, { scroll: false });
+  }, [searchParams, pathname, router]);
 
   const { data: aiSettings } = useQuery({
     queryKey: ["aiSettings"],
@@ -115,14 +133,33 @@ export function AiAdvisor() {
         },
         body: JSON.stringify({ action_type: actionType, data }),
       });
-      const result = await resp.json();
+      const raw = await resp.text();
+      let body: unknown = null;
+      try {
+        body = raw ? JSON.parse(raw) : null;
+      } catch {
+        body = null;
+      }
+      const obj = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+      const detail = obj ? detailFromJsonBody(obj) : null;
+      const success = obj && typeof obj.success === "boolean" ? obj.success : false;
+      const message =
+        typeof obj?.message === "string" ? obj.message : null;
+
+      const line =
+        !resp.ok
+          ? detail ?? message ?? `Request failed (${resp.status})`
+          : success
+            ? message ?? "Done."
+            : message ?? detail ?? "Action could not be completed.";
+
       setMessages((prev) => {
         const copy = [...prev];
-        copy[msgIdx] = { ...copy[msgIdx], actionStatus: "confirmed" };
-        return [
-          ...copy,
-          { role: "assistant", content: result.success ? result.message : `Error: ${result.message}` },
-        ];
+        copy[msgIdx] = {
+          ...copy[msgIdx],
+          actionStatus: resp.ok && success ? "confirmed" : "cancelled",
+        };
+        return [...copy, { role: "assistant", content: resp.ok && success ? line : `Error: ${line}` }];
       });
     } catch {
       setMessages((prev) => {
@@ -139,9 +176,12 @@ export function AiAdvisor() {
     setInput("");
     setError(null);
 
-    const userMsg: Message = { role: "user", content: text };
-    const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
+    let snapshot: Message[] = [];
+    setMessages((prev) => {
+      snapshot = [...prev, { role: "user", content: text }];
+      return snapshot;
+    });
+
     setStreaming(true);
 
     // First, check for action intents
@@ -156,15 +196,29 @@ export function AiAdvisor() {
         body: JSON.stringify({ message: text }),
       });
       if (parseResp.ok) {
-        const parsed = await parseResp.json();
+        const parsed = (await parseResp.json()) as {
+          action_type?: string | null;
+          data?: unknown;
+          confirmation_text?: string;
+        };
         if (parsed.action_type) {
+          const dataObj =
+            parsed.data !== null &&
+            typeof parsed.data === "object" &&
+            !Array.isArray(parsed.data)
+              ? (parsed.data as Record<string, unknown>)
+              : {};
           const actionMsg: Message = {
             role: "assistant",
-            content: parsed.confirmation_text,
-            pendingAction: parsed as ParsedAction,
+            content: parsed.confirmation_text ?? "",
+            pendingAction: {
+              action_type: parsed.action_type,
+              data: dataObj,
+              confirmation_text: parsed.confirmation_text ?? "",
+            },
             actionStatus: "pending",
             editData: Object.fromEntries(
-              Object.entries(parsed.data as Record<string, unknown>).map(([k, v]) => [k, String(v ?? "")])
+              Object.entries(dataObj).map(([k, v]) => [k, String(v ?? "")])
             ),
           };
           setMessages((prev) => [...prev, actionMsg]);
@@ -174,12 +228,15 @@ export function AiAdvisor() {
       } else {
         let errMsg = `Request failed (${parseResp.status})`;
         try {
-          const text = await parseResp.text();
+          const errText = await parseResp.text();
           try {
-            const errBody = JSON.parse(text);
-            if (errBody?.detail && typeof errBody.detail === "string") errMsg = errBody.detail;
+            const errBody = JSON.parse(errText) as unknown;
+            errMsg = detailFromJsonBody(errBody) ?? errMsg;
+            if (errMsg === `Request failed (${parseResp.status})` && errText) {
+              errMsg = errText.slice(0, 200);
+            }
           } catch {
-            if (text) errMsg = text.slice(0, 200);
+            if (errText) errMsg = errText.slice(0, 200);
           }
         } catch {
           /* ignore */
@@ -194,7 +251,7 @@ export function AiAdvisor() {
 
     // Normal streaming chat
     // Placeholder for assistant reply that we'll fill in as chunks arrive
-    const assistantIdx = newMessages.length;
+    const assistantIdx = snapshot.length;
     setMessages((prev) => [...prev, { role: "assistant", content: "", streaming: true }]);
 
     const ctrl = new AbortController();
@@ -207,19 +264,20 @@ export function AiAdvisor() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ messages: newMessages.map(({ role, content }) => ({ role, content })) }),
+        body: JSON.stringify({ messages: snapshot.map(({ role, content }) => ({ role, content })) }),
         signal: ctrl.signal,
       });
 
       if (!resp.ok) {
         let msg = `Server error ${resp.status}`;
         try {
-          const text = await resp.text();
+          const errText = await resp.text();
           try {
-            const errBody = JSON.parse(text);
-            if (errBody?.detail && typeof errBody.detail === "string") msg = errBody.detail;
+            const errBody = JSON.parse(errText) as unknown;
+            msg = detailFromJsonBody(errBody) ?? msg;
+            if (msg === `Server error ${resp.status}` && errText) msg = errText.slice(0, 200);
           } catch {
-            if (text) msg = text.slice(0, 200);
+            if (errText) msg = errText.slice(0, 200);
           }
         } catch {
           /* ignore */
@@ -256,9 +314,16 @@ export function AiAdvisor() {
             }
             if (evt.done) {
               setModelSource(evt.model_source ?? "");
+              const evidence = parseChatEvidence(
+                (evt as { evidence?: unknown }).evidence,
+              );
               setMessages((prev) => {
                 const copy = [...prev];
-                copy[assistantIdx] = { ...copy[assistantIdx], streaming: false };
+                copy[assistantIdx] = {
+                  ...copy[assistantIdx],
+                  streaming: false,
+                  ...(evidence.length ? { evidence } : {}),
+                };
                 return copy;
               });
             }
@@ -280,7 +345,7 @@ export function AiAdvisor() {
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [input, messages, streaming]);
+  }, [input, streaming]);
 
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -352,9 +417,7 @@ export function AiAdvisor() {
                     <WifiOff className="h-2.5 w-2.5" /> Unavailable
                   </Badge>
                 ) : (
-                  <span className="text-xs text-muted-foreground">
-                    {status?.active_backend === "ollama" ? "Local AI · Private" : "Ready"}
-                  </span>
+                  <span className="text-xs text-muted-foreground">Local AI · Private</span>
                 )}
               </div>
             </div>
@@ -394,7 +457,7 @@ export function AiAdvisor() {
                 <p className="font-medium text-sm">Your personal finance advisor</p>
                 <p className="text-xs text-muted-foreground max-w-[280px]">
                   Answers use summaries we already store in the app (categories, balances, goals)—never your bank passwords.
-                  Cloud AI only sees what you send in chat plus those summaries when enabled.
+                  With Ollama, the model runs on your machine; those summaries are only sent to your local server.
                 </p>
                 <Link href="/settings" className="text-xs text-primary hover:underline">
                   What the AI uses (Settings)
@@ -414,7 +477,7 @@ export function AiAdvisor() {
                 </div>
               ) : (
                 <p className="text-xs text-destructive text-center">
-                  No AI backend available. Start Ollama or set ANTHROPIC_API_KEY.
+                  {AI_COPY.noBackendShort}
                 </p>
               )}
             </div>
@@ -432,7 +495,7 @@ export function AiAdvisor() {
               )}
               <div
                 className={cn(
-                  "rounded-2xl px-3.5 py-2.5 text-sm max-w-[85%] whitespace-pre-wrap",
+                  "rounded-2xl px-3.5 py-2.5 text-sm max-w-[85%] min-w-0 whitespace-pre-wrap",
                   m.role === "user"
                     ? "bg-primary text-primary-foreground rounded-br-sm"
                     : "bg-muted text-foreground rounded-bl-sm",
@@ -441,6 +504,9 @@ export function AiAdvisor() {
                 {m.content}
                 {m.streaming && (
                   <span className="inline-block w-1.5 h-4 ml-0.5 bg-current opacity-70 animate-pulse align-middle rounded-sm" />
+                )}
+                {m.role === "assistant" && !m.streaming && (m.evidence?.length ?? 0) > 0 && (
+                  <ChatEvidencePanel items={m.evidence ?? []} />
                 )}
                 {m.pendingAction && m.actionStatus === "pending" && (
                   <div className="mt-3 space-y-2 border-t border-border/50 pt-2">
@@ -510,10 +576,16 @@ export function AiAdvisor() {
                       <Button
                         size="sm"
                         className="h-7 text-xs"
+                        disabled={executingActionIdx !== null}
                         onClick={() => {
-                          if (!m.pendingAction) return;
+                          if (!m.pendingAction || executingActionIdx !== null) return;
                           const mergedData = { ...m.pendingAction.data, ...m.editData };
-                          executeAction(i, m.pendingAction.action_type, mergedData as Record<string, unknown>);
+                          setExecutingActionIdx(i);
+                          void executeAction(
+                            i,
+                            m.pendingAction.action_type,
+                            mergedData as Record<string, unknown>,
+                          ).finally(() => setExecutingActionIdx(null));
                         }}
                       >
                         <Check className="mr-1 h-3 w-3" /> Confirm
@@ -585,5 +657,13 @@ export function AiAdvisor() {
         </div>
       </div>
     </>
+  );
+}
+
+export function AiAdvisor() {
+  return (
+    <Suspense fallback={null}>
+      <AiAdvisorInner />
+    </Suspense>
   );
 }

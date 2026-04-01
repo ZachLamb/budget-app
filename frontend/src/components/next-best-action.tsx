@@ -11,9 +11,10 @@ import { budgetApi } from "@/lib/api/budget";
 import { settingsApi } from "@/lib/api/settings";
 import { syncApi } from "@/lib/api/sync";
 import { formatCurrency, getMonthString } from "@/lib/format";
-import { useIsClient, getApiErrorMessage } from "@/lib/hooks";
+import { useIsClient } from "@/lib/hooks";
+import { toastApiError } from "@/lib/toast-error";
 import { ArrowRight, RefreshCw } from "lucide-react";
-import { toast } from "sonner";
+import { appToast } from "@/lib/app-toast";
 import { cn } from "@/lib/utils";
 
 type ActionSpec = {
@@ -65,10 +66,10 @@ export function NextBestAction({ className }: { className?: string }) {
   const syncMutation = useMutation({
     mutationFn: syncApi.trigger,
     onSuccess: () => {
-      toast.success("Sync started");
+      appToast.success("Sync started");
       queryClient.invalidateQueries({ queryKey: ["syncStatus"] });
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to start sync")),
+    onError: (e) => toastApiError("Failed to start sync", e),
   });
 
   const action = useMemo((): ActionSpec | null => {
@@ -147,10 +148,17 @@ export function NextBestAction({ className }: { className?: string }) {
   if (!isClient || !action) return null;
 
   return (
-    <Card className={cn("border-amber-200/80 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20", className)}>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Next step</CardTitle>
-        <CardDescription className="text-foreground/90 font-medium">{action.title}</CardDescription>
+    <Card
+      className={cn(
+        "border-dashed border-amber-200/80 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20",
+        className,
+      )}
+    >
+      <CardHeader className="pb-2 pt-4">
+        <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Next step
+        </CardTitle>
+        <CardDescription className="text-sm text-foreground font-medium pt-0.5">{action.title}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">{action.detail}</p>

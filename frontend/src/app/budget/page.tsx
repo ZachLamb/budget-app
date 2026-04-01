@@ -20,6 +20,7 @@ import {
   ChevronDown,
   ChevronUp,
   Copy,
+  MessageSquare,
   Sparkles,
   TrendingUp,
   TrendingDown,
@@ -27,15 +28,18 @@ import {
   RefreshCw,
   Lightbulb,
   Cpu,
-  Cloud,
   Check,
   X,
   Edit2,
+  WifiOff,
+  Settings,
 } from "lucide-react";
-import { toast } from "sonner";
+import { appToast } from "@/lib/app-toast";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { formatCurrency, getMonthString, formatMonthDisplay, navigateMonth } from "@/lib/format";
 import { getApiErrorMessage, useIsClient } from "@/lib/hooks";
+import { toastApiError, toastPlainError } from "@/lib/toast-error";
 
 function AssignedCell({
   categoryId,
@@ -76,7 +80,7 @@ function AssignedCell({
       if (context?.previous) {
         queryClient.setQueryData(["budget", month], context.previous);
       }
-      toast.error(getApiErrorMessage(e, "Failed to save budget"));
+      toastApiError("Failed to save budget", e);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["budget", month] });
@@ -241,7 +245,7 @@ function AiSuggestionsPanel({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["budget", month] });
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to apply suggestion")),
+    onError: (e) => toastApiError("Failed to apply suggestion", e),
   });
 
   const acceptSuggestion = (s: BudgetSuggestion, overrideAmount?: number) => {
@@ -249,7 +253,7 @@ function AiSuggestionsPanel({
     assignMutation.mutate({ category_id: s.category_id, month, assigned_amount: amount });
     setDismissed((prev) => new Set([...prev, s.category_id]));
     setEditing(null);
-    toast.success(`Applied $${amount.toFixed(2)} to ${s.category_name}`);
+    appToast.success(`Applied $${amount.toFixed(2)} to ${s.category_name}`);
   };
 
   const dismissSuggestion = (id: string) => {
@@ -267,7 +271,7 @@ function AiSuggestionsPanel({
     for (const s of visible) {
       assignMutation.mutate({ category_id: s.category_id, month, assigned_amount: s.suggested_amount });
     }
-    toast.success(`Applied ${visible.length} budget suggestions`);
+    appToast.success(`Applied ${visible.length} budget suggestions`);
     onDismiss();
   };
 
@@ -379,11 +383,12 @@ function SpendingPatternsPanel({ month }: { month: string }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: ["budgetInsights", month],
     queryFn: aiApi.getBudgetInsights,
     staleTime: 5 * 60 * 1000,
     enabled: isClient && open,
+    retry: false,
   });
 
   return (
@@ -395,11 +400,11 @@ function SpendingPatternsPanel({ month }: { month: string }) {
         <div className="flex flex-wrap items-center gap-2">
           <Sparkles className="h-5 w-5 text-purple-500" />
           <span className="font-semibold">Spending patterns (optional AI)</span>
-          {data?.model_source && (
+          {(data?.model_source === "ollama" || data?.model_source === "demo") && (
             <Badge variant="outline" className="text-xs gap-1 ml-1">
               {data.model_source === "ollama"
                 ? <><Cpu className="h-2.5 w-2.5" /> Local AI</>
-                : <><Cloud className="h-2.5 w-2.5" /> Claude</>}
+                : <><Sparkles className="h-2.5 w-2.5" /> Demo</>}
             </Badge>
           )}
         </div>
@@ -429,6 +434,20 @@ function SpendingPatternsPanel({ month }: { month: string }) {
               {[1, 2, 3].map((i) => (
                 <div key={i} className="h-4 bg-muted animate-pulse rounded" />
               ))}
+            </div>
+          ) : isError ? (
+            <div className="space-y-2 text-sm">
+              <p className="text-destructive flex items-center gap-2">
+                <WifiOff className="h-4 w-4 shrink-0" />
+                {getApiErrorMessage(error, "Failed to load AI spending insights.")}
+              </p>
+              {(error as { response?: { status?: number } })?.response?.status === 403 && (
+                <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
+                  <Link href="/settings">
+                    <Settings className="h-3 w-3 mr-1" /> Enable AI in Settings
+                  </Link>
+                </Button>
+              )}
             </div>
           ) : (
             <>
@@ -503,9 +522,9 @@ function BudgetContent() {
     mutationFn: () => budgetApi.copyMonth(navigateMonth(month, -1), month),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["budget"] });
-      toast.success(`Copied ${result.copied} assignments from last month`);
+      appToast.success(`Copied ${result.copied} assignments from last month`);
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "No budget data in previous month to copy")),
+    onError: (e) => toastApiError("No budget data in previous month to copy", e),
   });
 
   const handleAiSuggestions = async () => {
@@ -513,13 +532,15 @@ function BudgetContent() {
     try {
       const result = await aiApi.getBudgetSuggestions();
       if (result.suggestions.length === 0) {
-        toast.info("No suggestions available — make sure you have 3 months of spending data.");
+        appToast.info("No suggestions available — make sure you have 3 months of spending data.");
       } else {
         setSuggestions(result.suggestions);
         setShowSuggestions(true);
       }
-    } catch {
-      toast.error("Failed to load AI suggestions. Make sure an AI backend is available.");
+    } catch (e) {
+      toastPlainError(
+        getApiErrorMessage(e, "Failed to load AI suggestions. Make sure an AI backend is available."),
+      );
     } finally {
       setSuggestionsLoading(false);
     }
@@ -537,6 +558,16 @@ function BudgetContent() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link
+              href={`/?ai_open=1&ai_prompt=${encodeURIComponent(
+                "Help me understand my spending for this budget month and what to adjust.",
+              )}`}
+            >
+              <MessageSquare className="mr-2 h-4 w-4" />
+              Ask AI
+            </Link>
+          </Button>
           <Button
             variant="outline"
             size="sm"

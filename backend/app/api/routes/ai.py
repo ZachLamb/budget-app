@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """AI financial advisor endpoints.
 
-All data is processed locally via Ollama (or falls back to Claude).
-No financial data is sent to third parties when Ollama is running.
+All LLM calls use local Ollama (or canned demo responses in demo mode).
+No cloud model APIs are used.
 
 New AI surface checklist (avoid \"AI for AI's sake\"):
 - Grounded: output must cite user data (amounts, categories, goals) or ask for missing input.
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_NO_AI_MSG = "No AI backend available. Start Ollama or set ANTHROPIC_API_KEY in settings."
+_NO_AI_MSG = "No AI backend available. Start Ollama and ensure OLLAMA_URL points to it."
 
 # Returned when there is no categorized spending to analyze (not the same as LLM unavailable).
 MODEL_SOURCE_NO_BUDGET_CATEGORY_DATA = "no_data"
@@ -76,7 +76,52 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
-    model_source: str   # ollama | claude | unavailable
+    model_source: str   # ollama | demo | unavailable | none | no_data
+
+
+class CategorySpendingLine(BaseModel):
+    category: str = Field(..., max_length=200)
+    amount: float = Field(..., ge=0)
+
+
+class ChatEvidenceCategorySpending(BaseModel):
+    type: Literal["category_spending"] = "category_spending"
+    month: str = Field(..., pattern=r"^\d{4}-\d{2}$")
+    lines: list[CategorySpendingLine] = Field(default_factory=list, max_length=25)
+
+
+def build_category_spending_evidence(
+    month_key: str, rows: list[tuple[str, Decimal]]
+) -> list[dict]:
+    """Pure helper for deterministic chat evidence (tested without DB)."""
+    lines: list[CategorySpendingLine] = []
+    for name, amt in rows:
+        lines.append(CategorySpendingLine(category=name, amount=float(abs(amt))))
+    item = ChatEvidenceCategorySpending(month=month_key, lines=lines)
+    return [item.model_dump()]
+
+
+async def _build_chat_evidence_list(
+    db: AsyncSession, household_id: str
+) -> list[dict]:
+    """Display-only snippets mirroring category spend in the chat system prompt."""
+    today = date.today()
+    month_start = today.replace(day=1)
+    month_key = month_start.strftime("%Y-%m")
+
+    spend_result = await db.execute(
+        select(Category.name, func.sum(Transaction.amount))
+        .join(Transaction, Transaction.category_id == Category.id)
+        .join(Account, Transaction.account_id == Account.id)
+        .where(Account.household_id == household_id)
+        .where(Transaction.date >= month_start)
+        .where(Transaction.amount < 0)
+        .group_by(Category.name)
+        .order_by(func.sum(Transaction.amount))
+        .limit(12)
+    )
+    rows = list(spend_result.all())
+    return build_category_spending_evidence(month_key, rows)
 
 
 class InsightsResponse(BaseModel):
@@ -135,7 +180,6 @@ async def _build_financial_context(db: AsyncSession, household_id: str) -> str:
     - No account numbers, routing numbers, SSNs, or credentials are ever included.
     - SimpleFIN access URLs are never included.
     - Spending data is category-level only (no individual transaction details).
-    - When using Claude (not Ollama), this data is sent to Anthropic's API.
     """
     today = date.today()
     month_start = today.replace(day=1)
@@ -235,8 +279,7 @@ async def ai_status():
 
     return {
         "ollama_available": ollama_ok,
-        "claude_available": bool(settings.anthropic_api_key),
-        "active_backend": "ollama" if ollama_ok else ("claude" if settings.anthropic_api_key else "none"),
+        "active_backend": "ollama" if ollama_ok else "none",
     }
 
 
@@ -325,6 +368,7 @@ async def chat_stream(
 ):
     """Streaming chat — yields Server-Sent Events so the UI can show tokens as they arrive."""
     ctx = await _build_financial_context(db, household_id)
+    evidence_list = await _build_chat_evidence_list(db, household_id)
     system = _build_chat_system(ctx)
     last_message, history = _build_chat_prompt(req)
 
@@ -342,7 +386,7 @@ async def chat_stream(
             yield f"data: {json.dumps({'chunk': chunk})}\n\n"
         if not any_chunk:
             yield f"data: {json.dumps({'error': _NO_AI_MSG})}\n\n"
-        yield f"data: {json.dumps({'done': True, 'model_source': detected_source})}\n\n"
+        yield f"data: {json.dumps({'done': True, 'model_source': detected_source, 'evidence': evidence_list})}\n\n"
 
     return StreamingResponse(
         generate(),

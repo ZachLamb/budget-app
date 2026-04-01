@@ -21,16 +21,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Upload, Search, ChevronLeft, ChevronRight, Trash2, Pencil, Download, ArrowLeftRight, SplitSquareHorizontal, CheckCircle, Circle, FileText, MoreHorizontal, Stethoscope, ChevronDown, ChevronUp, Loader2, ArrowUpDown, Check, X, Undo2 } from "lucide-react";
+import { Plus, Upload, Search, ChevronLeft, ChevronRight, Trash2, Pencil, Download, ArrowLeftRight, SplitSquareHorizontal, CheckCircle, Circle, FileText, MoreHorizontal, Stethoscope, ChevronDown, ChevronUp, Loader2, ArrowUpDown, Check, X, Undo2, MessageSquare } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { toast } from "sonner";
+import { appToast } from "@/lib/app-toast";
 import api from "@/lib/api/client";
 import { aiApi } from "@/lib/api/ai";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import { useFlatCategories, getApiErrorMessage, useIsClient } from "@/lib/hooks";
+import { toastApiError, toastPlainError } from "@/lib/toast-error";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
+import Link from "next/link";
 
 type TransactionSplitLinePayload = {
   amount: number;
@@ -140,10 +142,10 @@ function TransactionsContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      toast.success("Transaction added");
+      appToast.success("Transaction added");
       setAddOpen(false);
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to add transaction")),
+    onError: (e) => toastApiError("Failed to add transaction", e),
   });
 
   const updateMutation = useMutation({
@@ -151,10 +153,10 @@ function TransactionsContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      toast.success("Transaction updated");
+      appToast.success("Transaction updated");
       setEditTxn(null);
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to update transaction")),
+    onError: (e) => toastApiError("Failed to update transaction", e),
   });
 
   const deleteMutation = useMutation({
@@ -162,9 +164,9 @@ function TransactionsContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      toast.success("Transaction deleted");
+      appToast.success("Transaction deleted");
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to delete transaction")),
+    onError: (e) => toastApiError("Failed to delete transaction", e),
   });
 
   const transferMutation = useMutation({
@@ -173,10 +175,10 @@ function TransactionsContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      toast.success("Transfer created");
+      appToast.success("Transfer created");
       setTransferOpen(false);
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Transfer failed")),
+    onError: (e) => toastApiError("Transfer failed", e),
   });
 
   const splitMutation = useMutation({
@@ -184,10 +186,10 @@ function TransactionsContent() {
       api.post(`/transactions/${id}/split`, { splits }).then((r) => r.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      toast.success("Transaction split");
+      appToast.success("Transaction split");
       setSplitTxn(null);
     },
-    onError: (e: unknown) => toast.error(getApiErrorMessage(e, "Split failed")),
+    onError: (e: unknown) => toastApiError("Split failed", e),
   });
 
   const toggleCleared = useMutation({
@@ -219,7 +221,7 @@ function TransactionsContent() {
 
   const openImportFlow = () => {
     if (accounts.length === 0) {
-      toast.error("Add an account before importing a CSV.");
+      toastPlainError("Add an account before importing a CSV.");
       return;
     }
     if (!filters.account_id) {
@@ -232,7 +234,7 @@ function TransactionsContent() {
 
   const confirmImportAccountAndPickFile = () => {
     if (!importPickAccountId) {
-      toast.error("Choose an account to import into.");
+      toastPlainError("Choose an account to import into.");
       return;
     }
     setFilters((f) => ({ ...f, account_id: importPickAccountId, page: 1 }));
@@ -243,7 +245,7 @@ function TransactionsContent() {
   const handleCSVUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !filters.account_id) {
-      toast.error("Select an account first");
+      toastPlainError("Select an account first");
       return;
     }
     const formData = new FormData();
@@ -251,11 +253,11 @@ function TransactionsContent() {
     formData.append("account_id", filters.account_id);
     try {
       const res = await api.post("/upload/csv", formData, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success(`Imported ${res.data.imported} transactions (${res.data.skipped} skipped)`);
+      appToast.success(`Imported ${res.data.imported} transactions (${res.data.skipped} skipped)`);
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    } catch {
-      toast.error("CSV import failed");
+    } catch (e) {
+      toastApiError("CSV import failed", e);
     }
     if (fileRef.current) fileRef.current.value = "";
   };
@@ -273,8 +275,8 @@ function TransactionsContent() {
       a.download = "transactions.csv";
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      toast.error("Export failed");
+    } catch (e) {
+      toastApiError("Export failed", e);
     }
   };
 
@@ -311,6 +313,16 @@ function TransactionsContent() {
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button variant="outline" size="sm" className="hidden sm:inline-flex" asChild>
+            <Link
+              href={`/?ai_open=1&ai_prompt=${encodeURIComponent(
+                "Help me categorize uncategorized transactions and suggest rules for similar payees.",
+              )}`}
+            >
+              <MessageSquare className="mr-2 h-4 w-4" />
+              Ask AI
+            </Link>
+          </Button>
           <input ref={fileRef} type="file" accept=".csv" onChange={handleCSVUpload} className="hidden" />
           <Button variant="outline" size="sm" onClick={handleExport} className="hidden md:inline-flex">
             <Download className="mr-2 h-4 w-4" /> Export
@@ -347,8 +359,8 @@ function TransactionsContent() {
               <DialogHeader><DialogTitle>Add Transaction</DialogTitle></DialogHeader>
               <form onSubmit={(e) => {
                 e.preventDefault();
-                if (!form.account_id) { toast.error("Please select an account"); return; }
-                if (!form.amount) { toast.error("Please enter an amount"); return; }
+                if (!form.account_id) { toastPlainError("Please select an account"); return; }
+                if (!form.amount) { toastPlainError("Please enter an amount"); return; }
                 createMutation.mutate(form);
               }} className="space-y-4">
                 <div className="space-y-2">
@@ -428,8 +440,8 @@ function TransactionsContent() {
           <DialogHeader><DialogTitle>Edit Transaction</DialogTitle></DialogHeader>
           <form onSubmit={(e) => {
                 e.preventDefault();
-                if (!editForm.account_id) { toast.error("Please select an account"); return; }
-                if (!editForm.amount) { toast.error("Please enter an amount"); return; }
+                if (!editForm.account_id) { toastPlainError("Please select an account"); return; }
+                if (!editForm.amount) { toastPlainError("Please enter an amount"); return; }
                 if (editTxn) updateMutation.mutate({ id: editTxn.id, data: editForm });
               }} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -477,9 +489,9 @@ function TransactionsContent() {
           <DialogHeader><DialogTitle>Transfer Between Accounts</DialogTitle></DialogHeader>
           <form onSubmit={(e) => {
                 e.preventDefault();
-                if (!transferForm.from_account_id || !transferForm.to_account_id) { toast.error("Please select both accounts"); return; }
-                if (transferForm.from_account_id === transferForm.to_account_id) { toast.error("Accounts must be different"); return; }
-                if (!transferForm.amount || transferForm.amount <= 0) { toast.error("Amount must be positive"); return; }
+                if (!transferForm.from_account_id || !transferForm.to_account_id) { toastPlainError("Please select both accounts"); return; }
+                if (transferForm.from_account_id === transferForm.to_account_id) { toastPlainError("Accounts must be different"); return; }
+                if (!transferForm.amount || transferForm.amount <= 0) { toastPlainError("Amount must be positive"); return; }
                 transferMutation.mutate(transferForm);
               }} className="space-y-4">
             <div className="space-y-2">
