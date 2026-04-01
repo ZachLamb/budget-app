@@ -574,7 +574,9 @@ function SettingsContent() {
         <CardHeader>
           <CardTitle>Sync Status</CardTitle>
           <CardDescription>
-            Bank sync runs automatically based on your sync interval, or manually via the sidebar button
+            Bank sync runs automatically based on your sync interval, or manually via the sidebar button.
+            When data is older than your interval, the app marks it as stale so you know balances and activity might not
+            reflect your bank yet—run Sync now or wait for the next scheduled run.
           </CardDescription>
         </CardHeader>
         <CardContent>

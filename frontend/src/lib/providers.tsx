@@ -30,20 +30,22 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedToken = localStorage.getItem("token");
-    if (savedToken) {
-      setToken(savedToken);
-      authApi
-        .me()
-        .then((u) => setUser(u))
-        .catch(() => {
-          localStorage.removeItem("token");
-          localStorage.removeItem("user");
-        })
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+    queueMicrotask(() => {
+      const savedToken = localStorage.getItem("token");
+      if (savedToken) {
+        setToken(savedToken);
+        authApi
+          .me()
+          .then((u) => setUser(u))
+          .catch(() => {
+            localStorage.removeItem("token");
+            localStorage.removeItem("user");
+          })
+          .finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
+    });
   }, []);
 
   const login = useCallback((newToken: string, newUser: User) => {
@@ -83,10 +85,12 @@ function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   useEffect(() => {
-    const saved = localStorage.getItem("theme") as "light" | "dark" | null;
-    const preferred = saved || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    setTheme(preferred);
-    document.documentElement.classList.toggle("dark", preferred === "dark");
+    queueMicrotask(() => {
+      const saved = localStorage.getItem("theme") as "light" | "dark" | null;
+      const preferred = saved || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      setTheme(preferred);
+      document.documentElement.classList.toggle("dark", preferred === "dark");
+    });
   }, []);
 
   const toggleTheme = useCallback(() => {

@@ -28,6 +28,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { syncApi } from "@/lib/api/sync";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useIsClient, getApiErrorMessage } from "@/lib/hooks";
+import { shouldShowMobileSyncBanner } from "@/lib/ux-plan-logic";
 import { toast } from "sonner";
 
 const primaryNavItems = [
@@ -54,6 +55,7 @@ function NavLink({ href, label, icon: Icon, onNavigate }: { href: string; label:
     <Link
       href={href}
       onClick={onNavigate}
+      aria-current={isActive ? "page" : undefined}
       className={cn(
         "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
         isActive
@@ -154,9 +156,8 @@ function SidebarFooter() {
           {new Date(syncStatus.last_sync.completed_at).toLocaleString()}
         </p>
       )}
-      {syncStatus?.last_sync?.completed_at &&
-        syncStatus.last_sync.status !== "success" &&
-        syncStatus.last_sync.status !== "in_progress" && (
+      {syncStatus?.last_sync &&
+        shouldShowMobileSyncBanner(syncStatus.last_sync) && (
           <p className="px-1 text-xs text-destructive leading-snug" role="status">
             {syncStatus.last_sync.status === "partial" ? "Sync partially completed. " : "Sync issue. "}
             {syncStatus.last_sync.error_message ?? "Open Settings to check your bank connection."}

@@ -1133,7 +1133,7 @@ function PlanContent() {
           <Map className="h-8 w-8 text-primary" /> Financial Plan
         </h1>
         <p className="text-muted-foreground mt-1">
-          Manage your debt payoff and track financial goals.
+          Plan debt payoff and savings goals in one place.
         </p>
       </div>
 

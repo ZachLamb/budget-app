@@ -7,6 +7,7 @@ import {
   budgetApi,
   type GroupBudgetRow,
   type CategoryBudgetRow,
+  type BudgetMonthResponse,
 } from "@/lib/api/budget";
 import { aiApi, type SpendingTrend, type BudgetSuggestion } from "@/lib/api/ai";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,13 +56,13 @@ function AssignedCell({
     onMutate: async (newData) => {
       await queryClient.cancelQueries({ queryKey: ["budget", month] });
       const previous = queryClient.getQueryData(["budget", month]);
-      queryClient.setQueryData(["budget", month], (old: any) => {
+      queryClient.setQueryData(["budget", month], (old: BudgetMonthResponse | undefined) => {
         if (!old) return old;
         return {
           ...old,
-          groups: old.groups.map((g: any) => ({
+          groups: old.groups.map((g) => ({
             ...g,
-            categories: g.categories.map((c: any) =>
+            categories: g.categories.map((c) =>
               c.category_id === newData.category_id
                 ? { ...c, assigned: newData.assigned_amount, available: newData.assigned_amount + c.activity }
                 : c
@@ -215,7 +216,7 @@ function GroupSection({
   );
 }
 
-function TrendIcon({ trend, pctChange }: { trend: SpendingTrend["trend"]; pctChange: number }) {
+function TrendIcon({ trend }: { trend: SpendingTrend["trend"] }) {
   if (trend === "up") return <TrendingUp className="h-4 w-4 text-red-500 shrink-0" />;
   if (trend === "down") return <TrendingDown className="h-4 w-4 text-green-500 shrink-0" />;
   return <Minus className="h-4 w-4 text-muted-foreground shrink-0" />;
@@ -441,7 +442,7 @@ function SpendingPatternsPanel({ month }: { month: string }) {
                       <div key={p.category} className="flex items-center justify-between px-3 py-2 text-sm">
                         <span className="truncate">{p.category}</span>
                         <div className="flex items-center gap-2 shrink-0 ml-4">
-                          <TrendIcon trend={p.trend} pctChange={p.pct_change} />
+                          <TrendIcon trend={p.trend} />
                           <span className={cn(
                             "font-mono text-xs w-14 text-right",
                             p.pct_change > 5 ? "text-red-500" : p.pct_change < -5 ? "text-green-500" : "text-muted-foreground"
@@ -529,7 +530,12 @@ function BudgetContent() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-3xl font-bold">Budget</h1>
+        <div>
+          <h1 className="text-3xl font-bold">Budget</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Assign income to categories and track what&apos;s available to spend.
+          </p>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"

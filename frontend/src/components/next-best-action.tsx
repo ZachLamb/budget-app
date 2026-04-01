@@ -141,7 +141,7 @@ export function NextBestAction({ className }: { className?: string }) {
     simplefin?.configured,
     syncStatus?.is_stale,
     syncStatus?.syncing,
-    syncMutation.isPending, // re-evaluate disabled/label while a sync request is in flight
+    syncMutation,
   ]);
 
   if (!isClient || !action) return null;

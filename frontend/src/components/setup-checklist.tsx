@@ -13,18 +13,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, Circle, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { buildSetupSteps, isCoreSetupComplete } from "@/lib/ux-plan-logic";
 
 const DISMISS_KEY = "budget_setup_checklist_dismissed";
 /** ISO timestamp set once when core setup steps (non-optional) all complete — for activation analytics. */
 const FIRST_OUTCOME_KEY = "budget_first_outcome_at";
-
-type Step = {
-  id: string;
-  label: string;
-  done: boolean;
-  href: string;
-  optional?: boolean;
-};
 
 export function SetupChecklist({
   className,
@@ -61,39 +54,18 @@ export function SetupChecklist({
     enabled: isClient,
   });
 
-  const steps: Step[] = useMemo(
-    () => [
-      {
-        id: "account",
-        label: "Add at least one account",
-        done: accounts.length > 0,
-        href: "/accounts",
-      },
-      {
-        id: "txns",
-        label: "Import or sync transactions",
-        done: (txnProbe?.total ?? 0) > 0,
-        href: "/transactions",
-      },
-      {
-        id: "budget",
-        label: "Assign money in this month’s budget",
-        done: (budget?.total_assigned ?? 0) > 0,
-        href: "/budget",
-      },
-      {
-        id: "bank",
-        label: "Connect bank (SimpleFIN, optional)",
-        done: !!simplefin?.configured,
-        href: "/settings",
-        optional: true,
-      },
-    ],
+  const steps = useMemo(
+    () =>
+      buildSetupSteps({
+        accountCount: accounts.length,
+        transactionTotal: txnProbe?.total ?? 0,
+        budgetAssigned: budget?.total_assigned ?? 0,
+        simplefinConfigured: !!simplefin?.configured,
+      }),
     [accounts.length, txnProbe?.total, budget?.total_assigned, simplefin?.configured],
   );
 
-  const coreSteps = steps.filter((s) => !s.optional);
-  const coreDone = coreSteps.every((s) => s.done);
+  const coreDone = isCoreSetupComplete(steps);
   const coreDoneRef = useRef(false);
 
   useEffect(() => {

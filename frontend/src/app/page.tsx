@@ -26,8 +26,10 @@ import { formatCurrency, formatCurrencyNegative, getMonthString, navigateMonth, 
 import { useIsClient, getApiErrorMessage, useChartColors } from "@/lib/hooks";
 import { SetupChecklist } from "@/components/setup-checklist";
 import { NextBestAction } from "@/components/next-best-action";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
 import Link from "next/link";
+import { toast } from "sonner";
+import { shouldShowMobileSyncBanner } from "@/lib/ux-plan-logic";
 
 const DEBT_TYPES = ["credit", "loan"];
 
@@ -217,6 +219,7 @@ function DashboardContent() {
   const prevMonth = navigateMonth(currentMonth, -1);
   const isClient = useIsClient();
   const chartColors = useChartColors(8);
+  const queryClient = useQueryClient();
 
   const { data: accounts = [] } = useQuery({
     queryKey: ["accounts"],
@@ -227,6 +230,15 @@ function DashboardContent() {
     queryKey: ["syncStatus"],
     queryFn: syncApi.status,
     enabled: isClient,
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: syncApi.trigger,
+    onSuccess: () => {
+      toast.success("Sync started");
+      queryClient.invalidateQueries({ queryKey: ["syncStatus"] });
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to start sync")),
   });
   const { data: recentTxns } = useQuery({
     queryKey: ["transactions", "recent"],
@@ -308,9 +320,31 @@ function DashboardContent() {
     })
     .slice(0, 5);
 
+  const showDesktopStaleHint =
+    accounts.length > 0 &&
+    syncStatus?.is_stale &&
+    !syncStatus?.syncing &&
+    !shouldShowMobileSyncBanner(syncStatus?.last_sync ?? undefined);
+
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Dashboard</h1>
+      <div>
+        <h1 className="text-3xl font-bold">Dashboard</h1>
+        {showDesktopStaleHint && (
+          <p className="mt-2 hidden md:block text-sm text-muted-foreground">
+            Figures may not include your latest bank activity.{" "}
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-sm font-medium"
+              disabled={syncMutation.isPending}
+              onClick={() => syncMutation.mutate()}
+            >
+              Sync now
+            </Button>
+          </p>
+        )}
+      </div>
 
       {/* First-run welcome banner */}
       {accounts.length === 0 && <WelcomeBanner />}

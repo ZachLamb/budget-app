@@ -19,6 +19,7 @@ import { getApiErrorMessage, useIsClient } from "@/lib/hooks";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 const ACCOUNT_TYPES = [
   { value: "checking", label: "Checking" },
@@ -260,7 +261,13 @@ function AccountsContent() {
       ) : accounts.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground">No accounts yet. Add your first account to get started.</p>
+            <p className="text-muted-foreground">
+              No accounts yet. Add your first account to get started, or{" "}
+              <Link href="/settings" className="font-medium text-primary underline-offset-4 hover:underline">
+                connect your bank in Settings
+              </Link>{" "}
+              for automatic sync.
+            </p>
           </CardContent>
         </Card>
       ) : (

@@ -4,7 +4,13 @@ import { useState, useRef, useEffect, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/auth-guard";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { transactionsApi, type Transaction, type TransactionCreate, type TransactionFilters } from "@/lib/api/transactions";
+import {
+  transactionsApi,
+  type Transaction,
+  type TransactionCreate,
+  type TransactionFilters,
+  type TransactionList,
+} from "@/lib/api/transactions";
 import { accountsApi, type Account } from "@/lib/api/accounts";
 import { reportsApi } from "@/lib/api/reports";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -19,7 +25,7 @@ import { Plus, Upload, Search, ChevronLeft, ChevronRight, Trash2, Pencil, Downlo
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import api from "@/lib/api/client";
-import { aiApi, type FsaReviewResponse } from "@/lib/api/ai";
+import { aiApi } from "@/lib/api/ai";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import { useFlatCategories, getApiErrorMessage, useIsClient } from "@/lib/hooks";
@@ -31,6 +37,8 @@ type TransactionSplitLinePayload = {
   category_id: string | null;
   notes: string | null;
 };
+
+const FSA_CONF_ORDER = { high: 3, medium: 2, low: 1 } as const;
 
 function TransactionsContent() {
   const [addOpen, setAddOpen] = useState(false);
@@ -62,7 +70,9 @@ function TransactionsContent() {
   useEffect(() => {
     const raw = searchParams.get("uncategorized");
     if (raw !== "1" && raw !== "true") return;
-    setFilters((f) => ({ ...f, uncategorized: true, page: 1 }));
+    queueMicrotask(() => {
+      setFilters((f) => ({ ...f, uncategorized: true, page: 1 }));
+    });
   }, [searchParams]);
 
   const { data: accounts = [] } = useQuery({
@@ -78,7 +88,6 @@ function TransactionsContent() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const confOrder = { high: 3, medium: 2, low: 1 } as const;
   const filteredFsa = useMemo(() => {
     if (!fsaData?.eligible_transactions) return [];
     let items = fsaData.eligible_transactions;
@@ -88,7 +97,7 @@ function TransactionsContent() {
       let cmp = 0;
       if (fsaSortCol === "date") cmp = a.date.localeCompare(b.date);
       else if (fsaSortCol === "amount") cmp = a.amount - b.amount;
-      else cmp = confOrder[a.confidence] - confOrder[b.confidence];
+      else cmp = FSA_CONF_ORDER[a.confidence] - FSA_CONF_ORDER[b.confidence];
       return fsaSortDir === "asc" ? cmp : -cmp;
     });
   }, [fsaData, fsaConfFilter, fsaSortCol, fsaSortDir, fsaShowDismissed]);
@@ -187,11 +196,11 @@ function TransactionsContent() {
     onMutate: async ({ id, cleared }) => {
       await queryClient.cancelQueries({ queryKey: ["transactions", filters] });
       const previous = queryClient.getQueryData(["transactions", filters]);
-      queryClient.setQueryData(["transactions", filters], (old: any) => {
+      queryClient.setQueryData(["transactions", filters], (old: TransactionList | undefined) => {
         if (!old) return old;
         return {
           ...old,
-          transactions: old.transactions.map((t: any) =>
+          transactions: old.transactions.map((t) =>
             t.id === id ? { ...t, cleared } : t
           ),
         };
@@ -295,7 +304,12 @@ function TransactionsContent() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <h1 className="text-3xl font-bold">Transactions</h1>
+        <div>
+          <h1 className="text-3xl font-bold">Transactions</h1>
+          <p className="text-muted-foreground mt-1 text-sm md:text-base">
+            Search, import, split, and categorize activity across your accounts.
+          </p>
+        </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <input ref={fileRef} type="file" accept=".csv" onChange={handleCSVUpload} className="hidden" />
           <Button variant="outline" size="sm" onClick={handleExport} className="hidden md:inline-flex">

@@ -1,12 +1,13 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { categoriesApi, type CategoryGroup, type Category } from "@/lib/api/categories";
+import { resolveChartSeriesColors } from "@/lib/ux-plan-logic";
 
-/** True after mount; use to defer API-dependent queries to client-only and avoid SSR requests to backend. */
+const noopSubscribe = () => () => {};
+
+/** True in browser after hydration; use to defer API-dependent queries to client-only and avoid SSR requests to backend. */
 export function useIsClient() {
-  const [isClient, setIsClient] = useState(false);
-  useEffect(() => setIsClient(true), []);
-  return isClient;
+  return useSyncExternalStore(noopSubscribe, () => true, () => false);
 }
 
 export interface FlatCategory extends Category {
@@ -40,50 +41,49 @@ export function useFlatCategories() {
   return { groups, allCategories, catNameMap };
 }
 
+type AxiosLikeDetail =
+  | string
+  | Array<{ msg?: string; loc?: (string | number)[] }>;
+
+type AxiosLikeError = {
+  response?: { data?: { detail?: AxiosLikeDetail } };
+};
+
+function axiosDetail(error: unknown): AxiosLikeDetail | undefined {
+  if (error === null || typeof error !== "object" || !("response" in error)) return undefined;
+  const r = (error as AxiosLikeError).response?.data?.detail;
+  return r;
+}
+
 export function getApiErrorMessage(error: unknown, fallback: string): string {
-  if (
-    error &&
-    typeof error === "object" &&
-    "response" in error &&
-    (error as any).response?.data?.detail !== undefined
-  ) {
-    const detail = (error as any).response.data.detail;
-    if (typeof detail === "string") return detail;
-    if (Array.isArray(detail) && detail.length > 0) {
-      const first = detail[0];
-      const msg = first?.msg ?? first?.loc?.join(" ") ?? JSON.stringify(first);
-      return String(msg);
-    }
-    return fallback;
+  const detail = axiosDetail(error);
+  if (detail === undefined) return fallback;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0];
+    const msg = first?.msg ?? first?.loc?.join(" ") ?? JSON.stringify(first);
+    return String(msg);
   }
   return fallback;
 }
-
-const CHART_FALLBACK = [
-  "oklch(0.646 0.222 41.116)",
-  "oklch(0.6 0.118 184.704)",
-  "oklch(0.398 0.07 227.392)",
-  "oklch(0.828 0.189 84.429)",
-  "oklch(0.769 0.188 70.08)",
-];
 
 /** Resolved theme --chart-* colors for Recharts (client-only; falls back until mounted). */
 export function useChartColors(max = 8): string[] {
   const isClient = useIsClient();
   const [colors, setColors] = useState<string[]>(() =>
-    Array.from({ length: max }, (_, i) => CHART_FALLBACK[i % CHART_FALLBACK.length]),
+    resolveChartSeriesColors(max, () => ""),
   );
 
   useEffect(() => {
     if (!isClient) return;
     const root = document.documentElement;
-    const next: string[] = [];
-    for (let i = 0; i < max; i++) {
-      const n = (i % 5) + 1;
-      const raw = getComputedStyle(root).getPropertyValue(`--chart-${n}`).trim();
-      next.push(raw || CHART_FALLBACK[i % CHART_FALLBACK.length]);
-    }
-    setColors(next);
+    queueMicrotask(() => {
+      setColors(
+        resolveChartSeriesColors(max, (name) =>
+          getComputedStyle(root).getPropertyValue(name),
+        ),
+      );
+    });
   }, [isClient, max]);
 
   return colors;
