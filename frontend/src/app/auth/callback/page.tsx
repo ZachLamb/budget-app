@@ -36,31 +36,25 @@ function AuthCallbackInner() {
 
     const run = async () => {
       const code = searchParams.get("code");
-      const tokenLegacy = searchParams.get("token");
 
-      if (code) {
-        try {
-          const res = await authApi.googleExchange(code);
-          if (cancelled) return;
-          finishWithToken(res.access_token);
-        } catch {
-          if (cancelled) return;
-          setStatus("error");
-          toast.error("Sign-in failed. Please try again.");
-          router.replace("/login");
-        }
-        return;
-      }
-
-      if (!tokenLegacy) {
+      if (!code) {
         if (cancelled) return;
         setStatus("error");
-        toast.error("No token received. Please sign in again.");
+        toast.error("No sign-in code received. Please try again.");
         router.replace("/login");
         return;
       }
 
-      finishWithToken(tokenLegacy);
+      try {
+        const res = await authApi.googleExchange(code);
+        if (cancelled) return;
+        finishWithToken(res.access_token);
+      } catch {
+        if (cancelled) return;
+        setStatus("error");
+        toast.error("Sign-in failed. Please try again.");
+        router.replace("/login");
+      }
     };
 
     void run();

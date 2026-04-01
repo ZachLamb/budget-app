@@ -45,4 +45,9 @@ def get_settings() -> Settings:
         )
     if len(settings.secret_key) < 32:
         logging.warning("SECRET_KEY is shorter than 32 characters — consider using a longer key.")
+    _origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    if not _origins or any(o == "*" for o in _origins):
+        raise RuntimeError(
+            "CORS_ORIGINS must list explicit origins (wildcard '*' is not allowed with credential-bearing requests)."
+        )
     return settings

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.config import Settings
+from app.config import Settings, get_settings
 
 
 def test_settings_has_cors_origins() -> None:
@@ -41,3 +41,12 @@ def test_settings_has_database_url() -> None:
     assert hasattr(s, "database_url")
     assert isinstance(s.database_url, str)
     assert "postgresql" in s.database_url or "sqlite" in s.database_url
+
+
+def test_get_settings_rejects_cors_wildcard(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SECRET_KEY", "x" * 40)
+    monkeypatch.setenv("CORS_ORIGINS", "*")
+    get_settings.cache_clear()
+    with pytest.raises(RuntimeError, match="CORS_ORIGINS"):
+        get_settings()
+    get_settings.cache_clear()

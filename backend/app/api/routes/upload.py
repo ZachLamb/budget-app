@@ -13,6 +13,9 @@ from app.services.categorization.rules import apply_rules
 
 router = APIRouter()
 
+# Prevent accidental or malicious huge uploads tying up workers / memory
+_MAX_CSV_BYTES = 15 * 1024 * 1024
+
 
 @router.post("/csv")
 async def upload_csv(
@@ -28,7 +31,10 @@ async def upload_csv(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    content = (await file.read()).decode("utf-8-sig")
+    raw = await file.read()
+    if len(raw) > _MAX_CSV_BYTES:
+        raise HTTPException(status_code=413, detail="CSV file is too large (max 15 MB)")
+    content = raw.decode("utf-8-sig")
     result = parse_csv(content)
 
     if not result.transactions:

@@ -1,18 +1,17 @@
 import { NextRequest } from "next/server";
-
-const BACKEND =
-  process.env.NEXT_PUBLIC_API_DOCKER === "1"
-    ? "http://backend:8000"
-    : process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { getAiBackendBaseUrl, readProxyJsonBody } from "@/lib/ai-proxy";
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  const parsed = await readProxyJsonBody(req);
+  if (!parsed.ok) return parsed.response;
+
   const auth = req.headers.get("Authorization") ?? "";
+  const BACKEND = getAiBackendBaseUrl();
 
   const upstream = await fetch(`${BACKEND}/api/ai/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: auth },
-    body: JSON.stringify(body),
+    body: JSON.stringify(parsed.body),
   });
 
   if (!upstream.ok) {
