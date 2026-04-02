@@ -1,6 +1,6 @@
 """Middleware that makes the app read-only in demo mode.
 
-Blocks POST/PUT/PATCH/DELETE except for allowlisted paths (login, AI chat).
+Blocks POST/PUT/PATCH/DELETE except for allowlisted paths (login, Google code exchange, AI chat).
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from starlette.responses import Response
 _ALLOWED_PREFIXES = (
     "/api/auth/demo-login",
     "/api/auth/login",
+    "/api/auth/google/exchange",
     "/api/ai/",
 )
 
