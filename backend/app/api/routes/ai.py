@@ -274,8 +274,8 @@ async def ai_status():
         async with httpx.AsyncClient(timeout=3.0) as client:
             r = await client.get(f"{settings.ollama_url.rstrip('/')}/api/tags")
             ollama_ok = r.status_code == 200
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Ollama /api/tags probe failed: %s", e, exc_info=True)
 
     return {
         "ollama_available": ollama_ok,
@@ -626,8 +626,8 @@ No other text."""
                         suggested_amount=float(item["suggested_amount"]),
                         reasoning=str(item.get("reasoning", "")),
                     ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Budget suggestions: failed to parse LLM JSON: %s", e, exc_info=True)
 
     return BudgetSuggestionsResponse(suggestions=suggestions, model_source=source)
 
@@ -1065,8 +1065,8 @@ No other text."""
                     suggested_min_payment=round(min_pay, 2),
                     reasoning=str(item.get("reasoning", ""))[:200],
                 ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Interest rate suggestions: failed to parse LLM JSON: %s", e, exc_info=True)
 
     return InterestRateSuggestionsResponse(
         suggestions=suggestions,

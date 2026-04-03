@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import calendar
+import logging
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass
@@ -20,6 +21,9 @@ from app.models import (
     RecurringTransaction,
     RecurringSuggestionDismissal,
 )
+from app.services.pay_cycle import utc_today
+
+logger = logging.getLogger(__name__)
 
 
 def _add_months(d: date, months: int) -> date:
@@ -91,7 +95,7 @@ def confidence_score(occurrence_count: int, gaps: list[int], median_gap: float) 
             if sd > median_gap * 0.35:
                 base *= 0.8
         except statistics.StatisticsError:
-            pass
+            logger.debug("Skipping gap stddev (StatisticsError)", exc_info=True)
     return round(min(1.0, base), 2)
 
 
@@ -169,7 +173,7 @@ async def suggest_recurring_from_transactions(
     lookback_days: int = 90,
     today: Optional[date] = None,
 ) -> list[RecurringSuggestionOut]:
-    today = today or date.today()
+    today = today or utc_today()
     since = today - timedelta(days=max(30, min(lookback_days, 730)))
 
     budget_accounts = (

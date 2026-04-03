@@ -128,6 +128,18 @@ function extractErrorMessage(error: unknown): string {
   return String(error);
 }
 
+/** Human-readable fragment for query error toasts (e.g. paySchedule → "pay schedule"). */
+function formatQueryResourceLabel(queryKey: readonly unknown[]): string {
+  const raw = queryKey[0];
+  if (typeof raw !== "string") return "data";
+  const spaced = raw
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[-_]/g, " ")
+    .trim();
+  if (!spaced) return "data";
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
@@ -137,7 +149,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             // Skip 401s — the auth interceptor already handles logout/redirect
             const axiosErr = error as Error & { response?: { status?: number } };
             if (axiosErr?.response?.status === 401) return;
-            const label = (query.queryKey[0] as string) ?? "data";
+            const label = formatQueryResourceLabel(query.queryKey);
             const title = `Failed to load ${label}`;
             toastErrorDiagnostic(title, extractErrorMessage(error), error, { duration: 8000 });
           },

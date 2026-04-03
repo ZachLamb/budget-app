@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.database import get_db
 from app.api.deps import get_household_id
 from app.models import Household, Account
-from app.services.pay_cycle import VALID_FREQUENCIES, resolve_pay_cycle, PayCycleResolved
+from app.services.pay_cycle import VALID_FREQUENCIES, resolve_pay_cycle, PayCycleResolved, utc_today
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +255,7 @@ def _sync_cycle_review_anchor(h: Household, c: PayCycleResolved) -> bool:
 
 
 def _pay_schedule_to_response(h: Household, c: Optional[PayCycleResolved] = None) -> PayScheduleResponse:
-    resolved = c or resolve_pay_cycle(date.today(), h.pay_frequency, h.pay_last_confirmed_date)
+    resolved = c or resolve_pay_cycle(utc_today(), h.pay_frequency, h.pay_last_confirmed_date)
     framing = (h.budget_framing or "strict").strip().lower()
     if framing not in _VALID_BUDGET_FRAMING:
         framing = "strict"
@@ -288,7 +288,7 @@ async def get_pay_schedule(
     household = result.scalar_one_or_none()
     if not household:
         raise HTTPException(404, "Household not found")
-    c = resolve_pay_cycle(date.today(), household.pay_frequency, household.pay_last_confirmed_date)
+    c = resolve_pay_cycle(utc_today(), household.pay_frequency, household.pay_last_confirmed_date)
     if _sync_cycle_review_anchor(household, c):
         await db.flush()
     return _pay_schedule_to_response(household, c)
@@ -348,7 +348,7 @@ async def update_pay_schedule(
 
     await db.commit()
     await db.refresh(household)
-    c = resolve_pay_cycle(date.today(), household.pay_frequency, household.pay_last_confirmed_date)
+    c = resolve_pay_cycle(utc_today(), household.pay_frequency, household.pay_last_confirmed_date)
     if _sync_cycle_review_anchor(household, c):
         await db.commit()
         await db.refresh(household)
@@ -366,7 +366,7 @@ async def update_cycle_review(
     household = result.scalar_one_or_none()
     if not household:
         raise HTTPException(404, "Household not found")
-    c = resolve_pay_cycle(date.today(), household.pay_frequency, household.pay_last_confirmed_date)
+    c = resolve_pay_cycle(utc_today(), household.pay_frequency, household.pay_last_confirmed_date)
     _sync_cycle_review_anchor(household, c)
     household.cycle_review_step = body.step
     await db.commit()
@@ -398,6 +398,8 @@ async def update_plan_preferences(
     if "debt_extra_monthly" in body.model_fields_set:
         household.debt_extra_monthly = body.debt_extra_monthly
 
+    await db.commit()
+    await db.refresh(household)
     return PlanPreferencesResponse(
         debt_strategy=household.debt_strategy,
         debt_extra_monthly=float(household.debt_extra_monthly) if household.debt_extra_monthly is not None else None,

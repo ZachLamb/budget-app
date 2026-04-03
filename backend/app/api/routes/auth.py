@@ -410,7 +410,10 @@ async def passkey_authenticate_options(
                     allow_credentials = [PublicKeyCredentialDescriptor(id=c.credential_id) for c in creds_list]
                 except Exception:
                     # Table might not exist yet or other DB issue; continue with empty list
-                    pass
+                    logger.warning(
+                        "Passkey auth options: could not load credentials for user (continuing with empty allowCredentials)",
+                        exc_info=True,
+                    )
         options = generate_authentication_options(
             rp_id=rp_id,
             allow_credentials=allow_credentials,

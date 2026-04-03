@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from app.services.pay_cycle import add_period, resolve_pay_cycle
+from app.services.pay_cycle import add_period, resolve_pay_cycle, utc_today
 
 
 def test_biweekly_mid_cycle():
@@ -15,6 +15,7 @@ def test_biweekly_mid_cycle():
     assert r.next_pay_date == date(2026, 3, 29)
     assert r.date_to == date(2026, 3, 28)
     assert not r.is_fallback_30d
+    assert r.label == "Mar 15 – Mar 28"
 
 
 def test_biweekly_on_pay_day_advances():
@@ -25,6 +26,8 @@ def test_biweekly_on_pay_day_advances():
     )
     assert r.date_from == date(2026, 3, 29)
     assert r.next_pay_date == date(2026, 4, 12)
+    assert r.date_to == date(2026, 4, 11)
+    assert r.label == "Mar 29 – Apr 11"
     assert not r.is_fallback_30d
 
 
@@ -69,3 +72,9 @@ def test_weekly():
     )
     assert r.date_from == date(2026, 3, 15)
     assert r.next_pay_date == date(2026, 3, 22)
+    assert r.date_to == date(2026, 3, 21)
+    assert r.label == "Mar 15 – Mar 21"
+
+
+def test_utc_today_returns_date():
+    assert isinstance(utc_today(), date)

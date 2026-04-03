@@ -9,12 +9,17 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal, Optional
 
 PayFrequency = Literal["weekly", "biweekly", "monthly", "irregular"]
 
 VALID_FREQUENCIES: frozenset[str] = frozenset({"weekly", "biweekly", "monthly", "irregular"})
+
+
+def utc_today() -> date:
+    """Calendar date in UTC (stable pay-cycle boundaries regardless of server local TZ)."""
+    return datetime.now(timezone.utc).date()
 
 
 @dataclass(frozen=True)
@@ -80,7 +85,8 @@ def resolve_pay_cycle(
     if end_inclusive < cycle_start:
         end_inclusive = next_pay
 
-    label = f"{_fmt(cycle_start)} – {_fmt(next_pay)}"
+    # Label matches inclusive spend window (date_from … date_to), not the next pay date.
+    label = f"{_fmt(cycle_start)} – {_fmt(end_inclusive)}"
     return PayCycleResolved(
         date_from=cycle_start,
         date_to=end_inclusive,

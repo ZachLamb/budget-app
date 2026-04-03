@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from starlette.responses import Response
@@ -13,7 +13,7 @@ from app.schemas.cycle_commitment import (
     CycleCommitmentUpdate,
     CycleCommitmentResponse,
 )
-from app.services.pay_cycle import resolve_pay_cycle, PayCycleResolved
+from app.services.pay_cycle import resolve_pay_cycle, PayCycleResolved, utc_today
 
 router = APIRouter()
 
@@ -27,7 +27,7 @@ async def _resolved_cycle(db: AsyncSession, household_id: str) -> tuple[Househol
     h = result.scalar_one_or_none()
     if not h:
         raise HTTPException(404, "Household not found")
-    c = resolve_pay_cycle(date.today(), h.pay_frequency, h.pay_last_confirmed_date)
+    c = resolve_pay_cycle(utc_today(), h.pay_frequency, h.pay_last_confirmed_date)
     return h, c
 
 

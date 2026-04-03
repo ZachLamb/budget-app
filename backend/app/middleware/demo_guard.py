@@ -19,6 +19,8 @@ _ALLOWED_PREFIXES = (
     "/api/ai/",
     "/api/cycle-commitments",
     "/api/settings/cycle-review",
+    "/api/settings/pay-schedule",
+    "/api/recurring/suggestions/dismiss",
 )
 
 
