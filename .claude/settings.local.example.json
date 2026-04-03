@@ -2,8 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(docker compose:*)",
-      "Bash(curl -s http://localhost:8000/api/health)"
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(npx vercel:*)",
+      "Bash(railway:*)"
     ]
   },
-  "_comment": "Copy to settings.local.json (gitignored). Do not put API tokens or Bearer values in this file if you copy it into a gist or another repo."
+  "_comment": "Copy to settings.local.json (gitignored). Never add: Bearer tokens, API keys, production URLs (*.railway.app deploy hosts, private staging URLs), or mcp__<uuid>__ rules (approve MCP in-app instead). Use localhost for health checks."
 }
