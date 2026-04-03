@@ -625,6 +625,15 @@ def _build_redirect_uri(request: Request) -> str:
     return f"{base}/api/auth/google/callback"
 
 
+def _oauth_complete_redirect(frontend_url: str, rel_path: str, *, is_secure: bool) -> RedirectResponse:
+    """Redirect to the frontend and clear the one-time OAuth state cookie (must match set_cookie attrs)."""
+    base = frontend_url.rstrip("/")
+    path = rel_path if rel_path.startswith("/") else f"/{rel_path}"
+    r = RedirectResponse(url=f"{base}{path}", status_code=302)
+    r.delete_cookie(key="oauth_state", path="/", secure=is_secure, samesite="lax")
+    return r
+
+
 @router.get("/google")
 async def google_start(request: Request):
     """Redirect the user to Google's OAuth consent screen."""
@@ -666,17 +675,16 @@ async def google_callback(
     """Exchange code for tokens, get user info, create/update user, redirect to frontend with JWT."""
     settings = get_settings()
     frontend_url = settings.frontend_url.rstrip("/")
+    oauth_cookie_secure = not settings.frontend_url.startswith("http://localhost")
 
     if error:
-        return RedirectResponse(url=f"{frontend_url}/login?error=access_denied", status_code=302)
+        return _oauth_complete_redirect(frontend_url, "/login?error=access_denied", is_secure=oauth_cookie_secure)
     if not code or not state:
-        return RedirectResponse(url=f"{frontend_url}/login?error=missing_params", status_code=302)
+        return _oauth_complete_redirect(frontend_url, "/login?error=missing_params", is_secure=oauth_cookie_secure)
 
     cookie_state = request.cookies.get("oauth_state")
-    response = RedirectResponse(url=f"{frontend_url}/login?error=invalid_state", status_code=302)
-    response.delete_cookie("oauth_state", path="/")
     if not cookie_state or cookie_state != state:
-        return response
+        return _oauth_complete_redirect(frontend_url, "/login?error=invalid_state", is_secure=oauth_cookie_secure)
 
     redirect_uri = _build_redirect_uri(request)
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
@@ -692,25 +700,25 @@ async def google_callback(
             headers={"Accept": "application/json"},
         )
         if token_resp.status_code != 200:
-            return RedirectResponse(url=f"{frontend_url}/login?error=token_failed", status_code=302)
+            return _oauth_complete_redirect(frontend_url, "/login?error=token_failed", is_secure=oauth_cookie_secure)
         data = token_resp.json()
         access_token = data.get("access_token")
         if not access_token:
-            return RedirectResponse(url=f"{frontend_url}/login?error=token_failed", status_code=302)
+            return _oauth_complete_redirect(frontend_url, "/login?error=token_failed", is_secure=oauth_cookie_secure)
 
         userinfo_resp = await client.get(
             GOOGLE_USERINFO_URL,
             headers={"Authorization": f"Bearer {access_token}"},
         )
         if userinfo_resp.status_code != 200:
-            return RedirectResponse(url=f"{frontend_url}/login?error=userinfo_failed", status_code=302)
+            return _oauth_complete_redirect(frontend_url, "/login?error=userinfo_failed", is_secure=oauth_cookie_secure)
         profile = userinfo_resp.json()
 
     google_id = profile.get("id")
     email = profile.get("email")
     name = (profile.get("name") or profile.get("given_name") or email or "User").strip()
     if not google_id or not email:
-        return RedirectResponse(url=f"{frontend_url}/login?error=invalid_profile", status_code=302)
+        return _oauth_complete_redirect(frontend_url, "/login?error=invalid_profile", is_secure=oauth_cookie_secure)
     email = (email or "").strip().lower()
 
     try:
@@ -757,16 +765,14 @@ async def google_callback(
         _clean_oauth_login_codes()
         login_code = secrets.token_urlsafe(32)
         _oauth_login_codes[login_code] = (user.id, time.time())
-        return RedirectResponse(
-            url=f"{frontend_url}/auth/callback?code={login_code}",
-            status_code=302,
+        return _oauth_complete_redirect(
+            frontend_url,
+            f"/auth/callback?code={login_code}",
+            is_secure=oauth_cookie_secure,
         )
     except Exception:
         logger.exception("Google OAuth callback failed")
-        return RedirectResponse(
-            url=f"{frontend_url}/login?error=server_error",
-            status_code=302,
-        )
+        return _oauth_complete_redirect(frontend_url, "/login?error=server_error", is_secure=oauth_cookie_secure)
 
 
 @router.post("/google/exchange", response_model=TokenResponse)

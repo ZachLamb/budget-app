@@ -21,7 +21,12 @@ async def get_current_user(
 ) -> User:
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, get_settings().secret_key, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token,
+            get_settings().secret_key,
+            algorithms=[ALGORITHM],
+            options={"require_exp": True, "require_sub": True},
+        )
         user_id: str = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")

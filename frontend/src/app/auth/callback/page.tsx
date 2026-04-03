@@ -3,8 +3,23 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/providers";
-import { authApi } from "@/lib/api/auth";
-import { toast } from "sonner";
+import { authApi, type TokenResponse } from "@/lib/api/auth";
+import { toastPlainError } from "@/lib/toast-error";
+
+/** One exchange per code: avoids burning the server one-time code under React Strict Mode double effects. */
+const googleExchangeByCode = new Map<string, Promise<TokenResponse>>();
+
+function exchangeGoogleCodeOnce(code: string): Promise<TokenResponse> {
+  let p = googleExchangeByCode.get(code);
+  if (!p) {
+    p = authApi.googleExchange(code);
+    googleExchangeByCode.set(code, p);
+    void p.finally(() => {
+      setTimeout(() => googleExchangeByCode.delete(code), 60_000);
+    });
+  }
+  return p;
+}
 
 function AuthCallbackInner() {
   const router = useRouter();
@@ -16,7 +31,6 @@ function AuthCallbackInner() {
     let cancelled = false;
 
     const finishWithToken = (token: string) => {
-      localStorage.setItem("token", token);
       authApi
         .me()
         .then((user) => {
@@ -29,7 +43,7 @@ function AuthCallbackInner() {
           if (cancelled) return;
           localStorage.removeItem("token");
           setStatus("error");
-          toast.error("Sign-in failed. Please try again.");
+          toastPlainError("Sign-in failed. Please try again.");
           router.replace("/login");
         });
     };
@@ -40,19 +54,19 @@ function AuthCallbackInner() {
       if (!code) {
         if (cancelled) return;
         setStatus("error");
-        toast.error("No sign-in code received. Please try again.");
+        toastPlainError("No sign-in code received. Please try again.");
         router.replace("/login");
         return;
       }
 
       try {
-        const res = await authApi.googleExchange(code);
+        const res = await exchangeGoogleCodeOnce(code);
         if (cancelled) return;
         finishWithToken(res.access_token);
       } catch {
         if (cancelled) return;
         setStatus("error");
-        toast.error("Sign-in failed. Please try again.");
+        toastPlainError("Sign-in failed. Please try again.");
         router.replace("/login");
       }
     };
