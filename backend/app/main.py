@@ -101,6 +101,62 @@ async def _run_fsa_review_items_migration(conn):
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fsa_review_items_transaction_id ON fsa_review_items (transaction_id)"))
 
 
+async def _run_household_pay_schedule_migration(conn):
+    """Paycheck-cycle fields on households (matches migrations/004_household_pay_schedule.sql)."""
+    await conn.execute(text("ALTER TABLE households ADD COLUMN IF NOT EXISTS pay_frequency VARCHAR(20)"))
+    await conn.execute(text("ALTER TABLE households ADD COLUMN IF NOT EXISTS pay_last_confirmed_date DATE"))
+    await conn.execute(
+        text("ALTER TABLE households ADD COLUMN IF NOT EXISTS budget_framing VARCHAR(20) NOT NULL DEFAULT 'strict'")
+    )
+
+
+async def _run_recurring_suggestion_dismissals_migration(conn):
+    """Recurring suggestion dismissals (matches migrations/005_recurring_suggestion_dismissals.sql)."""
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS recurring_suggestion_dismissals (
+            id VARCHAR(36) PRIMARY KEY,
+            household_id VARCHAR(36) NOT NULL REFERENCES households(id),
+            dedupe_key VARCHAR(128) NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT uq_recurring_suggestion_household_key UNIQUE (household_id, dedupe_key)
+        )
+    """))
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_recurring_suggestion_dismissals_household "
+            "ON recurring_suggestion_dismissals (household_id)"
+        )
+    )
+
+
+async def _run_cycle_commitments_migration(conn):
+    """Cycle review columns + cycle_commitments table (matches migrations/006_cycle_commitments_and_review.sql)."""
+    await conn.execute(
+        text("ALTER TABLE households ADD COLUMN IF NOT EXISTS cycle_review_step SMALLINT NOT NULL DEFAULT 0")
+    )
+    await conn.execute(text("ALTER TABLE households ADD COLUMN IF NOT EXISTS cycle_review_cycle_start DATE"))
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS cycle_commitments (
+            id VARCHAR(36) PRIMARY KEY,
+            household_id VARCHAR(36) NOT NULL REFERENCES households(id),
+            cycle_start_date DATE NOT NULL,
+            cycle_end_date DATE NOT NULL,
+            title VARCHAR(300) NOT NULL,
+            kind VARCHAR(20) NOT NULL,
+            payload JSONB,
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_cycle_commitments_household_cycle "
+            "ON cycle_commitments (household_id, cycle_start_date)"
+        )
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Ensure all models are registered before create_all
@@ -119,6 +175,9 @@ async def lifespan(app: FastAPI):
         ("AI enabled migration", _run_ai_enabled_migration),
         ("Plan preferences migration", _run_plan_preferences_migration),
         ("FSA review items migration", _run_fsa_review_items_migration),
+        ("Household pay schedule migration", _run_household_pay_schedule_migration),
+        ("Recurring suggestion dismissals migration", _run_recurring_suggestion_dismissals_migration),
+        ("Cycle commitments migration", _run_cycle_commitments_migration),
     ]:
         try:
             async with engine.begin() as conn:
