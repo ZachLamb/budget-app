@@ -1,14 +1,56 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
 from app.api.deps import get_household_id
-from app.models import RecurringTransaction, Payee, Category, Account
-from app.schemas.recurring import RecurringCreate, RecurringUpdate, RecurringResponse
+from app.models import RecurringTransaction, Payee, Category, Account, RecurringSuggestionDismissal
+from app.schemas.recurring import (
+    RecurringCreate,
+    RecurringUpdate,
+    RecurringResponse,
+    RecurringSuggestionResponse,
+    RecurringSuggestionDismissBody,
+)
+from app.services.recurring_detection import suggest_recurring_from_transactions, suggestion_to_api_dict
 from app.utils import validate_category_ownership, validate_payee_ownership, validate_account_ownership
 
 router = APIRouter()
+
+
+@router.get("/suggestions", response_model=list[RecurringSuggestionResponse])
+async def list_recurring_suggestions(
+    lookback_days: int = Query(90, ge=30, le=730),
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Heuristic recurring candidates from budget-account outflows (not yet saved as recurring)."""
+    raw = await suggest_recurring_from_transactions(
+        db, household_id, lookback_days=lookback_days
+    )
+    return [RecurringSuggestionResponse(**suggestion_to_api_dict(s)) for s in raw]
+
+
+@router.post("/suggestions/dismiss", status_code=204)
+async def dismiss_recurring_suggestion(
+    body: RecurringSuggestionDismissBody,
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    existing = await db.execute(
+        select(RecurringSuggestionDismissal).where(
+            RecurringSuggestionDismissal.household_id == household_id,
+            RecurringSuggestionDismissal.dedupe_key == body.dedupe_key,
+        )
+    )
+    if existing.scalar_one_or_none() is None:
+        db.add(
+            RecurringSuggestionDismissal(
+                household_id=household_id,
+                dedupe_key=body.dedupe_key,
+            )
+        )
+    return None
 
 
 async def _enrich(db: AsyncSession, r: RecurringTransaction) -> RecurringResponse:

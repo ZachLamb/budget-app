@@ -61,3 +61,18 @@ export async function readProxyJsonBody(
     };
   }
 }
+
+/** Read upstream response as JSON; avoids throwing when the backend returns HTML or an empty body. */
+export async function readUpstreamJsonSafe(upstream: Response): Promise<unknown> {
+  const text = await upstream.text();
+  if (!text.trim()) {
+    return upstream.ok ? {} : { detail: `Request failed (${upstream.status})` };
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return {
+      detail: text.length > 280 ? `${text.slice(0, 280)}…` : text || `Request failed (${upstream.status})`,
+    };
+  }
+}

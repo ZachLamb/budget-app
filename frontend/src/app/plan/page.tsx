@@ -23,7 +23,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatCurrencyNegative } from "@/lib/format";
 import { useIsClient, getApiErrorMessage } from "@/lib/hooks";
-import { toast } from "sonner";
+import { toastApiError, toastPlainError } from "@/lib/toast-error";
+import { appToast } from "@/lib/app-toast";
 import { cn } from "@/lib/utils";
 import {
   TrendingDown, Target, PiggyBank, Shield, Plus, Trash2,
@@ -281,27 +282,27 @@ function GoalsTab() {
 
   const createMutation = useMutation({
     mutationFn: goalsApi.create,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["goals"] }); toast.success("Goal created"); setOpen(false); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["goals"] }); appToast.success("Goal created"); setOpen(false); },
     onError: (err) => {
-      toast.error(getApiErrorMessage(err, "Failed to create goal"));
+      toastApiError("Failed to create goal", err);
     },
   });
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: object }) => goalsApi.update(id, data),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["goals"] }); toast.success("Goal updated"); setEditGoal(null); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["goals"] }); appToast.success("Goal updated"); setEditGoal(null); },
     onError: (err) => {
-      toast.error(getApiErrorMessage(err, "Failed to update goal"));
+      toastApiError("Failed to update goal", err);
     },
   });
   const deleteMutation = useMutation({
     mutationFn: goalsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["goals"] });
-      toast.success("Goal deleted");
+      appToast.success("Goal deleted");
       setDeleteId(null);
     },
     onError: (err) => {
-      toast.error(getApiErrorMessage(err, "Failed to delete goal"));
+      toastApiError("Failed to delete goal", err);
     },
   });
 
@@ -485,7 +486,7 @@ function DebtTab() {
       debt_strategy: s,
       debt_extra_monthly: extra,
     }).catch((err: unknown) => {
-      toast.error(getApiErrorMessage(err, "Could not save plan preferences"));
+      toastApiError("Could not save plan preferences", err);
     });
   }, []);
 
@@ -519,7 +520,7 @@ function DebtTab() {
       invalidateDebtQueries();
     },
     onError: (err) => {
-      toast.error(getApiErrorMessage(err, "Failed to update account"));
+      toastApiError("Failed to update account", err);
     },
   });
 
@@ -551,10 +552,13 @@ function DebtTab() {
       setDismissedRates(new Set());
       setAcceptedRateIds(new Set());
       if (result.suggestions.length === 0) {
-        toast.success(result.note || "All accounts already have rate data.");
+        appToast.success(result.note || "All accounts already have rate data.");
       }
     } catch (err) {
-      toast.error(getApiErrorMessage(err, "Failed to get rate suggestions. Enable AI in Settings or check that Ollama is running."));
+      toastApiError(
+        "Failed to get rate suggestions. Enable AI in Settings or check that Ollama is running.",
+        err,
+      );
     } finally {
       setRateLoading(false);
     }
@@ -570,7 +574,7 @@ function DebtTab() {
       {
         onSuccess: () => {
           setAcceptedRateIds((prev) => new Set([...prev, s.account_id]));
-          toast.success(`Applied rate for ${s.account_name}`);
+          appToast.success(`Applied rate for ${s.account_name}`);
         },
       },
     );
@@ -602,9 +606,9 @@ function DebtTab() {
       queryClient.invalidateQueries({ queryKey: ["payoffPlan"] });
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
       if (failed === 0) {
-        toast.success(`Applied ${succeeded} rate suggestion${succeeded !== 1 ? "s" : ""}`);
+        appToast.success(`Applied ${succeeded} rate suggestion${succeeded !== 1 ? "s" : ""}`);
       } else {
-        toast.error(`Applied ${succeeded} of ${succeeded + failed} (${failed} failed)`);
+        toastPlainError(`Applied ${succeeded} of ${succeeded + failed} (${failed} failed)`);
       }
     }
     if (mountedRef.current) {
@@ -631,7 +635,7 @@ function DebtTab() {
       if (status === 403) {
         setAiError("AI features are disabled. Enable AI Financial Advisor in Settings.");
       } else if (status === 503) {
-        setAiError("AI backend unavailable. Start Ollama or add ANTHROPIC_API_KEY, then try again.");
+        setAiError("AI backend unavailable. Start Ollama and ensure it is reachable from the API server, then try again.");
       } else {
         setAiError(getApiErrorMessage(err, "Failed to get AI recommendation. Please try again."));
       }
@@ -649,14 +653,14 @@ function DebtTab() {
     if (aiSuggestion.strategy === "avalanche" || aiSuggestion.strategy === "snowball") {
       appliedStrategy = aiSuggestion.strategy;
     } else {
-      toast.success("Applied avalanche strategy (hybrid is not yet supported)");
+      appToast.success("Applied avalanche strategy (hybrid is not yet supported)");
     }
     setStrategy(appliedStrategy);
     const extra = aiSuggestion.monthly_extra > 0 ? aiSuggestion.monthly_extra : extraMonthly;
     setExtraMonthly(extra);
     persistPreferences(appliedStrategy, extra);
     if (aiSuggestion.strategy === "avalanche" || aiSuggestion.strategy === "snowball") {
-      toast.success(`Applied ${STRATEGY_LABELS[appliedStrategy].label} strategy${aiSuggestion.monthly_extra > 0 ? ` + ${formatCurrency(aiSuggestion.monthly_extra)}/mo extra` : ""}`);
+      appToast.success(`Applied ${STRATEGY_LABELS[appliedStrategy].label} strategy${aiSuggestion.monthly_extra > 0 ? ` + ${formatCurrency(aiSuggestion.monthly_extra)}/mo extra` : ""}`);
     }
   };
 
@@ -1048,7 +1052,7 @@ function DebtTab() {
                   if (editForm.interest_rate.trim() !== "") {
                     const r = parseFloat(editForm.interest_rate);
                     if (!Number.isFinite(r)) {
-                      toast.error("Enter a valid interest rate.");
+                      toastPlainError("Enter a valid interest rate.");
                       return;
                     }
                     rate = r / 100;
@@ -1056,14 +1060,14 @@ function DebtTab() {
                   if (editForm.minimum_payment.trim() !== "") {
                     const m = parseFloat(editForm.minimum_payment);
                     if (!Number.isFinite(m)) {
-                      toast.error("Enter a valid minimum payment.");
+                      toastPlainError("Enter a valid minimum payment.");
                       return;
                     }
                     minPay = m;
                   }
                   updateMutation.mutate(
                     { id: editAccount.id, data: { interest_rate: rate, minimum_payment: minPay } },
-                    { onSuccess: () => { toast.success("Account updated"); setEditAccount(null); } },
+                    { onSuccess: () => { appToast.success("Account updated"); setEditAccount(null); } },
                   );
                 }}
                 disabled={updateMutation.isPending}

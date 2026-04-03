@@ -1,0 +1,209 @@
+{
+  "version": 1,
+  "guides": [
+    {
+      "merchant_key": "netflix",
+      "display_name": "Netflix",
+      "aliases": ["netflix", "netflix.com"],
+      "verified_cancel_url": "https://www.netflix.com/cancelplan",
+      "steps": [
+        "Sign in at netflix.com",
+        "Open your profile → Account (or Membership & Billing)",
+        "Choose Cancel Membership and follow the prompts"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "spotify",
+      "display_name": "Spotify",
+      "aliases": ["spotify", "spotify usa", "spotify premium"],
+      "verified_cancel_url": "https://www.spotify.com/account/subscription/",
+      "steps": [
+        "Log in at spotify.com/account",
+        "Under Your plan, select Change plan or Cancel subscription",
+        "Confirm cancellation (you keep Premium until the period ends)"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "hulu",
+      "display_name": "Hulu",
+      "aliases": ["hulu", "hulu llc", "disney hulu"],
+      "verified_cancel_url": "https://www.hulu.com/manage-subscription",
+      "steps": [
+        "Sign in at hulu.com → Account",
+        "Open Manage subscription or Your Subscription",
+        "Select Cancel and complete the flow"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "disney_plus",
+      "display_name": "Disney+",
+      "aliases": ["disney plus", "disney+", "disneyplus", "disney streaming"],
+      "verified_cancel_url": "https://www.disneyplus.com/account",
+      "steps": [
+        "Log in at disneyplus.com → Profile → Account",
+        "Select Subscription → Cancel subscription"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "apple",
+      "display_name": "Apple subscriptions",
+      "aliases": ["apple.com/bill", "apple bill", "itunes", "icloud", "apple services"],
+      "verified_cancel_url": "https://apps.apple.com/account/subscriptions",
+      "steps": [
+        "On iPhone/iPad: Settings → [your name] → Subscriptions",
+        "On Mac: App Store → Account → Account Settings → Manage next to Subscriptions",
+        "Or use the Apple subscriptions web link and sign in with your Apple ID"
+      ],
+      "verification": "official_docs"
+    },
+    {
+      "merchant_key": "youtube_premium",
+      "display_name": "YouTube Premium / Google",
+      "aliases": ["youtube", "google youtube", "yt premium", "google one"],
+      "verified_cancel_url": "https://payments.google.com/gp/w/home/subscriptionsandservices",
+      "steps": [
+        "Open Google Pay subscriptions (payments.google.com) while signed into the paying account",
+        "Find YouTube or the Google subscription and select Manage → Cancel"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "amazon_prime",
+      "display_name": "Amazon Prime",
+      "aliases": ["amazon prime", "amzn prime", "prime video", "amazon.com"],
+      "verified_cancel_url": "https://www.amazon.com/gp/primecentral",
+      "steps": [
+        "Go to Amazon → Account & Lists → Prime Membership",
+        "Choose Manage membership → End membership (or update before renewal)"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "adobe",
+      "display_name": "Adobe",
+      "aliases": ["adobe", "adobe inc", "creative cloud"],
+      "verified_cancel_url": "https://account.adobe.com/plans",
+      "steps": [
+        "Sign in at account.adobe.com",
+        "Plans & products → Manage plan for your subscription",
+        "Cancel plan (check trial vs paid and any early termination terms)"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "microsoft_365",
+      "display_name": "Microsoft 365",
+      "aliases": ["microsoft", "msft", "office 365", "xbox game pass", "xbox"],
+      "verified_cancel_url": "https://account.microsoft.com/services",
+      "steps": [
+        "Sign in at account.microsoft.com → Services & subscriptions",
+        "Find the product → Manage → Cancel (or turn off recurring billing)"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "dropbox",
+      "display_name": "Dropbox",
+      "aliases": ["dropbox"],
+      "verified_cancel_url": "https://www.dropbox.com/account/plan",
+      "steps": [
+        "Log in → Settings → Plan",
+        "Cancel plan or downgrade (files remain per plan rules)"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "github",
+      "display_name": "GitHub",
+      "aliases": ["github", "github inc"],
+      "verified_cancel_url": "https://github.com/settings/billing",
+      "steps": [
+        "GitHub → Settings → Billing and plans",
+        "Edit or cancel the subscription or trial"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "notion",
+      "display_name": "Notion",
+      "aliases": ["notion", "notion labs"],
+      "verified_cancel_url": "https://www.notion.so/my-plan",
+      "steps": [
+        "Notion → Settings & members → Plans (or Billing)",
+        "Change plan or cancel and confirm"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "slack",
+      "display_name": "Slack",
+      "aliases": ["slack", "slack technologies"],
+      "verified_cancel_url": "https://my.slack.com/admin/billing",
+      "steps": [
+        "Open your workspace admin → Billing (paid workspaces)",
+        "Adjust subscription or cancel; some changes need workspace primary owner"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "zoom",
+      "display_name": "Zoom",
+      "aliases": ["zoom", "zoom.us", "zoom video"],
+      "verified_cancel_url": "https://zoom.us/billing",
+      "steps": [
+        "Sign in at zoom.us → Account Management → Billing",
+        "Cancel subscription or turn off auto-renew as offered"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "peloton",
+      "display_name": "Peloton",
+      "aliases": ["peloton", "peloton interactive"],
+      "verified_cancel_url": "https://www.onepeloton.com/membership",
+      "steps": [
+        "Sign in on the web → Membership or Subscriptions",
+        "Follow cancel membership for your product (app vs hardware may differ)"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "planet_fitness",
+      "display_name": "Planet Fitness",
+      "aliases": ["planet fitness", "planet fit"],
+      "verified_cancel_url": null,
+      "steps": [
+        "Many locations require cancel in person or by certified mail per your agreement",
+        "Check your membership contract for the required notice period",
+        "Call your home club or use the member portal if your location offers online cancel"
+      ],
+      "verification": "community"
+    },
+    {
+      "merchant_key": "openai",
+      "display_name": "ChatGPT Plus (OpenAI)",
+      "aliases": ["openai", "chatgpt", "chat gpt"],
+      "verified_cancel_url": "https://chatgpt.com/#settings/Subscription",
+      "steps": [
+        "Open ChatGPT while signed in → Settings → Subscription (or Manage subscription in account menu)",
+        "Cancel and confirm; access continues until the paid period ends"
+      ],
+      "verification": "maintainer_curated"
+    },
+    {
+      "merchant_key": "nyt",
+      "display_name": "The New York Times",
+      "aliases": ["new york times", "nytimes", "nyt"],
+      "verified_cancel_url": "https://www.nytimes.com/subscription/onetime/go",
+      "steps": [
+        "Sign in at nytimes.com → Account → Manage subscription",
+        "Choose cancel or contact options shown for your plan"
+      ],
+      "verification": "maintainer_curated"
+    }
+  ]
+}

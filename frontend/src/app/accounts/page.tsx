@@ -13,7 +13,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Pencil, RefreshCw } from "lucide-react";
-import { toast } from "sonner";
+import { appToast } from "@/lib/app-toast";
+import { toastApiError } from "@/lib/toast-error";
 import { formatCurrency, formatCurrencyNegative } from "@/lib/format";
 import { getApiErrorMessage, useIsClient } from "@/lib/hooks";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -126,11 +127,11 @@ function AccountsContent() {
     mutationFn: accountsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      toast.success("Account created");
+      appToast.success("Account created");
       setCreateOpen(false);
       setCreateForm({ name: "", account_type: "checking", institution: "", starting_balance: "", interest_rate: "", minimum_payment: "" });
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to create account")),
+    onError: (e) => toastApiError("Failed to create account", e),
   });
 
   const updateMutation = useMutation({
@@ -139,19 +140,19 @@ function AccountsContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
       queryClient.invalidateQueries({ queryKey: ["debtAccounts"] });
-      toast.success("Account updated");
+      appToast.success("Account updated");
       setEditAccount(null);
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to update account")),
+    onError: (e) => toastApiError("Failed to update account", e),
   });
 
   const deleteMutation = useMutation({
     mutationFn: accountsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      toast.success("Account deleted");
+      appToast.success("Account deleted");
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to delete account")),
+    onError: (e) => toastApiError("Failed to delete account", e),
   });
 
   const openEdit = (acct: Account) => {

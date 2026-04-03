@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from "@ta
 import { useState, createContext, useContext, useEffect, useCallback } from "react";
 import { authApi, type User } from "@/lib/api/auth";
 import { Toaster } from "@/components/ui/sonner";
-import { toast } from "sonner";
+import { toastErrorDiagnostic } from "@/lib/toast-error";
 
 interface AuthContextType {
   user: User | null;
@@ -138,20 +138,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
             const axiosErr = error as Error & { response?: { status?: number } };
             if (axiosErr?.response?.status === 401) return;
             const label = (query.queryKey[0] as string) ?? "data";
-            toast.error(`Failed to load ${label}`, {
-              description: extractErrorMessage(error),
-              duration: 6000,
-            });
+            const title = `Failed to load ${label}`;
+            toastErrorDiagnostic(title, extractErrorMessage(error), error, { duration: 8000 });
           },
         }),
         mutationCache: new MutationCache({
           onError: (error) => {
             const axiosErr = error as Error & { response?: { status?: number } };
             if (axiosErr?.response?.status === 401) return;
-            toast.error("Action failed", {
-              description: extractErrorMessage(error),
-              duration: 6000,
-            });
+            toastErrorDiagnostic("Action failed", extractErrorMessage(error), error, { duration: 8000 });
           },
         }),
         defaultOptions: {

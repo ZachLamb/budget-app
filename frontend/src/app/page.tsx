@@ -11,24 +11,27 @@ import { goalsApi, type FinancialGoal } from "@/lib/api/goals";
 import { aiApi } from "@/lib/api/ai";
 import { syncApi } from "@/lib/api/sync";
 import { recurringApi } from "@/lib/api/recurring";
+import { settingsApi } from "@/lib/api/settings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import {
   Wallet, TrendingUp, TrendingDown, PiggyBank, Target,
-  Sparkles, Lightbulb, RefreshCw, Cpu, Cloud, ChevronDown,
+  Sparkles, Lightbulb, RefreshCw, Cpu, ChevronDown,
   Plug, Plus, Upload, X, Settings, WifiOff,
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatCurrencyNegative, getMonthString, navigateMonth, formatShortMonth } from "@/lib/format";
 import { useIsClient, getApiErrorMessage, useChartColors } from "@/lib/hooks";
+import { toastApiError } from "@/lib/toast-error";
 import { SetupChecklist } from "@/components/setup-checklist";
 import { NextBestAction } from "@/components/next-best-action";
+import { CycleReviewSection } from "@/components/cycle-review-section";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import Link from "next/link";
-import { toast } from "sonner";
+import { appToast } from "@/lib/app-toast";
 import { shouldShowMobileSyncBanner } from "@/lib/ux-plan-logic";
 
 const DEBT_TYPES = ["credit", "loan"];
@@ -84,11 +87,11 @@ function InsightsPanel({
             <Sparkles className="h-5 w-5 text-purple-500" aria-hidden /> AI Suggestions
           </CardTitle>
           <div className="flex items-center gap-2">
-            {data?.model_source && (
+            {(data?.model_source === "ollama" || data?.model_source === "demo") && (
               <Badge variant="outline" className="text-xs gap-1">
                 {data.model_source === "ollama"
                   ? <><Cpu className="h-2.5 w-2.5" /> Local AI</>
-                  : <><Cloud className="h-2.5 w-2.5" /> Claude</>}
+                  : <><Sparkles className="h-2.5 w-2.5" /> Demo</>}
               </Badge>
             )}
             <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")} />
@@ -235,10 +238,10 @@ function DashboardContent() {
   const syncMutation = useMutation({
     mutationFn: syncApi.trigger,
     onSuccess: () => {
-      toast.success("Sync started");
+      appToast.success("Sync started");
       queryClient.invalidateQueries({ queryKey: ["syncStatus"] });
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to start sync")),
+    onError: (e) => toastApiError("Failed to start sync", e),
   });
   const { data: recentTxns } = useQuery({
     queryKey: ["transactions", "recent"],
@@ -250,9 +253,24 @@ function DashboardContent() {
     queryFn: () => budgetApi.getMonth(currentMonth),
     enabled: isClient,
   });
+  const { data: paySchedule, isSuccess: payScheduleLoaded } = useQuery({
+    queryKey: ["paySchedule"],
+    queryFn: settingsApi.getPaySchedule,
+    enabled: isClient,
+  });
+  const spendByPayCycle = payScheduleLoaded && !!paySchedule;
+  const cycleFrom = paySchedule?.cycle.date_from;
+  const cycleTo = paySchedule?.cycle.date_to;
+  const reflectiveFraming = paySchedule?.budget_framing === "reflective";
+
   const { data: spending = [] } = useQuery({
-    queryKey: ["spending-by-category", currentMonth],
-    queryFn: () => reportsApi.spendingByCategory({ month: currentMonth }),
+    queryKey: spendByPayCycle
+      ? ["spending-by-category", "pay-cycle", cycleFrom, cycleTo]
+      : ["spending-by-category", currentMonth],
+    queryFn: () =>
+      spendByPayCycle
+        ? reportsApi.spendingByCategory({ date_from: cycleFrom!, date_to: cycleTo! })
+        : reportsApi.spendingByCategory({ month: currentMonth }),
     enabled: isClient,
   });
   const { data: goals = [] } = useQuery({
@@ -330,6 +348,23 @@ function DashboardContent() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Dashboard</h1>
+        {payScheduleLoaded && paySchedule && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Spend window:</span>{" "}
+            {paySchedule.cycle.label}
+            {paySchedule.cycle.next_pay_date ? (
+              <>
+                {" "}
+                · Next pay ~{" "}
+                {new Date(paySchedule.cycle.next_pay_date + "T12:00:00").toLocaleDateString()}
+              </>
+            ) : null}
+            .{" "}
+            <Link href="/settings" className="text-primary underline-offset-4 hover:underline">
+              Pay schedule
+            </Link>
+          </p>
+        )}
         {showDesktopStaleHint && (
           <p className="mt-2 hidden md:block text-sm text-muted-foreground">
             Figures may not include your latest bank activity.{" "}
@@ -352,6 +387,8 @@ function DashboardContent() {
       <SetupChecklist className="mt-2" />
 
       <NextBestAction className="mt-2" />
+
+      {accounts.length > 0 && <CycleReviewSection className="mt-2" />}
 
       {/* Summary cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -393,15 +430,25 @@ function DashboardContent() {
         </Link>
 
         <Link href="/budget">
-          <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+          <Card
+            className={cn(
+              "hover:border-primary/50 transition-colors cursor-pointer",
+              reflectiveFraming && "opacity-90",
+            )}
+          >
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Ready to Assign</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                {reflectiveFraming ? "Ready to assign (calendar month)" : "Ready to Assign"}
+              </CardTitle>
               <PiggyBank className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <p className={cn("text-2xl font-bold", readyToAssign > 0 ? "text-green-600" : readyToAssign < 0 ? "text-red-600" : "")}>
                 {formatCurrency(readyToAssign)}
               </p>
+              {reflectiveFraming && (
+                <p className="text-xs text-muted-foreground mt-1">Envelope totals use the budget month, not the pay window above.</p>
+              )}
             </CardContent>
           </Card>
         </Link>
@@ -477,11 +524,22 @@ function DashboardContent() {
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Spending pie */}
         <Card className="lg:col-span-1">
-          <CardHeader><CardTitle>Spending This Month</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>
+              {payScheduleLoaded && paySchedule
+                ? paySchedule.cycle.is_fallback_30d
+                  ? "Spending (last 30 days)"
+                  : "Spending this pay period"
+                : "Spending this month"}
+            </CardTitle>
+            {payScheduleLoaded && paySchedule && (
+              <p className="text-xs text-muted-foreground font-normal mt-1">{paySchedule.cycle.label}</p>
+            )}
+          </CardHeader>
           <CardContent>
             {pieData.length === 0 ? (
               <div className="flex flex-col items-center gap-3 py-6 text-center">
-                <p className="text-sm text-muted-foreground">No spending recorded this month yet.</p>
+                <p className="text-sm text-muted-foreground">No spending in this window yet.</p>
                 <Button variant="outline" size="sm" asChild>
                   <Link href="/transactions">Add or import transactions</Link>
                 </Button>
@@ -490,7 +548,7 @@ function DashboardContent() {
               <>
                 {spendMomPct !== null && spendPrevMonth > 0.01 && (
                   <p className="text-xs text-muted-foreground mb-2">
-                    <span className="font-medium text-foreground">vs last month:</span>{" "}
+                    <span className="font-medium text-foreground">vs prior calendar month:</span>{" "}
                     {spendMomPct > 0 ? (
                       <span className="text-amber-700 dark:text-amber-400">
                         {spendMomPct.toFixed(0)}% more spending

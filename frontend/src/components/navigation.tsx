@@ -27,9 +27,11 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { syncApi } from "@/lib/api/sync";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useIsClient, getApiErrorMessage } from "@/lib/hooks";
+import { useIsClient } from "@/lib/hooks";
+import { toastApiError } from "@/lib/toast-error";
 import { shouldShowMobileSyncBanner } from "@/lib/ux-plan-logic";
-import { toast } from "sonner";
+import { appToast } from "@/lib/app-toast";
+import { NotificationBell } from "@/components/notification-center";
 
 const primaryNavItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -127,10 +129,10 @@ function SidebarFooter() {
   const syncMutation = useMutation({
     mutationFn: syncApi.trigger,
     onSuccess: () => {
-      toast.success("Sync started");
+      appToast.success("Sync started");
       queryClient.invalidateQueries({ queryKey: ["syncStatus"] });
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to start sync")),
+    onError: (e) => toastApiError("Failed to start sync", e),
   });
 
   return (
@@ -209,10 +211,11 @@ export function MobileHeader() {
       >
         <Menu className="h-5 w-5" />
       </Button>
-      <div className="flex items-center gap-2">
-        <Wallet className="h-5 w-5 text-primary" />
-        <span className="font-semibold">Clarity</span>
+      <div className="flex items-center gap-2 min-w-0">
+        <Wallet className="h-5 w-5 shrink-0 text-primary" />
+        <span className="font-semibold truncate">Clarity</span>
       </div>
+      <NotificationBell className="ml-auto" />
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="left" className="w-64 p-0">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
@@ -236,9 +239,12 @@ export function Navigation() {
 
   return (
     <aside className="hidden md:flex h-screen w-64 flex-col border-r bg-card" aria-label="Primary navigation">
-      <div className="flex items-center gap-2 border-b px-6 py-4">
-        <Wallet className="h-6 w-6 text-primary" />
-        <span className="text-lg font-semibold">Clarity</span>
+      <div className="flex items-center justify-between gap-2 border-b px-4 py-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <Wallet className="h-6 w-6 shrink-0 text-primary" />
+          <span className="truncate text-lg font-semibold">Clarity</span>
+        </div>
+        <NotificationBell />
       </div>
       <NavContent />
       <SidebarFooter />

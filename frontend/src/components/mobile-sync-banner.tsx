@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { syncApi } from "@/lib/api/sync";
-import { useIsClient, getApiErrorMessage } from "@/lib/hooks";
+import { useIsClient } from "@/lib/hooks";
+import { toastApiError } from "@/lib/toast-error";
 import { resolveMobileDataBarKind } from "@/lib/ux-plan-logic";
 import { AlertCircle, RefreshCw, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { appToast } from "@/lib/app-toast";
 import { cn } from "@/lib/utils";
 
 /**
@@ -27,10 +28,10 @@ export function MobileSyncBanner() {
   const syncMutation = useMutation({
     mutationFn: syncApi.trigger,
     onSuccess: () => {
-      toast.success("Sync started");
+      appToast.success("Sync started");
       queryClient.invalidateQueries({ queryKey: ["syncStatus"] });
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to start sync")),
+    onError: (e) => toastApiError("Failed to start sync", e),
   });
 
   const last = syncStatus?.last_sync;

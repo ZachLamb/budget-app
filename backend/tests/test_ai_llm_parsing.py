@@ -34,7 +34,7 @@ def test_parse_debt_plan_strips_markdown_fence() -> None:
 
 def test_parse_debt_plan_string_priority_order_does_not_split_chars() -> None:
     raw = '{"strategy": "avalanche", "rationale": "r", "priority_order": "One big string", "monthly_extra": 0}'
-    out = parse_debt_plan_suggestion_from_llm_response(raw, "claude")
+    out = parse_debt_plan_suggestion_from_llm_response(raw, "ollama")
     assert out.priority_order == []
 
 

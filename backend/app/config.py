@@ -8,7 +8,6 @@ class Settings(BaseSettings):
     database_url_sync: str = "postgresql://budget:budget@localhost:5432/budget_app"
     secret_key: str = ""
     cors_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:80"
-    anthropic_api_key: str = ""
     sync_interval_hours: int = 4
     sync_stale_minutes: int = 30
     db_pool_size: int = 10
@@ -23,8 +22,8 @@ class Settings(BaseSettings):
     webauthn_rp_name: str = "Budget App"
     webauthn_debug: bool = False  # if True, GET /api/auth/passkey/debug is enabled
 
-    # Local LLM via Ollama (preferred — keeps all data on your machine)
-    # Set ollama_url="" to disable and fall back to Anthropic Claude API only.
+    # Local LLM via Ollama (required for AI features outside demo mode)
+    # Set ollama_url="" only if you intend to disable LLM calls entirely.
     # Recommended models: qwen2.5:7b (~4.7 GB) or llama3.1:8b (~4.7 GB)
     ollama_url: str = "http://ollama:11434"
     ollama_model: str = "qwen2.5:7b"

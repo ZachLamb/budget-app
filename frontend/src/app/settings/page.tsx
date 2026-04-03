@@ -5,7 +5,12 @@ import { AuthGuard } from "@/components/auth-guard";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { syncApi, type SyncLog } from "@/lib/api/sync";
 import { authApi, credentialToJSON } from "@/lib/api/auth";
-import { settingsApi, type SimplefinClaimAccount, type AiSettings } from "@/lib/api/settings";
+import {
+  settingsApi,
+  type SimplefinClaimAccount,
+  type AiSettings,
+  type PaySchedule,
+} from "@/lib/api/settings";
 import { parseCreationOptions, supportsPasskey } from "@/lib/webauthn";
 import { useAuth } from "@/lib/providers";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -14,11 +19,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { KeyRound, Trash2, Link2, ExternalLink, Loader2, CheckCircle2, AlertCircle, RefreshCw, Sparkles } from "lucide-react";
+import {
+  KeyRound, Trash2, Link2, ExternalLink, Loader2, CheckCircle2, AlertCircle, RefreshCw, Sparkles,
+  CalendarDays,
+} from "lucide-react";
 import { useIsClient, getApiErrorMessage } from "@/lib/hooks";
-import { toast } from "sonner";
+import { toastApiError, toastPlainError } from "@/lib/toast-error";
+import { appToast } from "@/lib/app-toast";
 import { formatCurrency } from "@/lib/format";
 import { SetupChecklist } from "@/components/setup-checklist";
 
@@ -107,10 +119,10 @@ function SimplefinSetupDialog({
     syncApi.trigger()
       .then(() => {
         queryClient.invalidateQueries({ queryKey: ["syncStatus"] });
-        toast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. First sync started — check back in a moment.`);
+        appToast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. First sync started — check back in a moment.`);
       })
       .catch(() => {
-        toast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. Click "Sync Now" in the sidebar to import transactions.`);
+        appToast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. Click "Sync Now" in the sidebar to import transactions.`);
       });
   };
 
@@ -317,14 +329,43 @@ function SettingsContent() {
     enabled: isClient,
   });
 
+  const { data: paySchedule } = useQuery({
+    queryKey: ["paySchedule"],
+    queryFn: settingsApi.getPaySchedule,
+    enabled: isClient,
+  });
+
+  const [payFreqDraft, setPayFreqDraft] = useState<string>("");
+  const [payLastDraft, setPayLastDraft] = useState<string>("");
+  const [framingDraft, setFramingDraft] = useState<string>("strict");
+
+  useEffect(() => {
+    if (!paySchedule) return;
+    setPayFreqDraft(paySchedule.pay_frequency ?? "");
+    setPayLastDraft(paySchedule.pay_last_confirmed_date ?? "");
+    setFramingDraft(paySchedule.budget_framing ?? "strict");
+  }, [paySchedule]);
+
+  const payScheduleMutation = useMutation({
+    mutationFn: settingsApi.updatePaySchedule,
+    onSuccess: (data: PaySchedule) => {
+      queryClient.invalidateQueries({ queryKey: ["paySchedule"] });
+      appToast.success("Pay schedule saved");
+      setPayFreqDraft(data.pay_frequency ?? "");
+      setPayLastDraft(data.pay_last_confirmed_date ?? "");
+      setFramingDraft(data.budget_framing ?? "strict");
+    },
+    onError: (e) => toastApiError("Failed to save pay schedule", e),
+  });
+
   const aiSettingsMutation = useMutation({
     mutationFn: (enabled: boolean) => settingsApi.updateAiSettings(enabled),
     onSuccess: (data: AiSettings) => {
       queryClient.invalidateQueries({ queryKey: ["aiSettings"] });
       setAiEnabledDraft(null);
-      toast.success(data.ai_enabled ? "AI advisor enabled" : "AI advisor disabled");
+      appToast.success(data.ai_enabled ? "AI advisor enabled" : "AI advisor disabled");
     },
-    onError: () => toast.error("Failed to save AI settings"),
+    onError: (e) => toastApiError("Failed to save AI settings", e),
   });
 
   const currentAiEnabled = aiEnabledDraft !== null ? aiEnabledDraft : (aiSettings?.ai_enabled ?? true);
@@ -334,9 +375,9 @@ function SettingsContent() {
     try {
       await authApi.passkeyDeleteCredential(id);
       await queryClient.invalidateQueries({ queryKey: ["passkeyCredentials"] });
-      toast.success("Passkey removed");
-    } catch {
-      toast.error("Failed to remove passkey");
+      appToast.success("Passkey removed");
+    } catch (e) {
+      toastApiError("Failed to remove passkey", e);
     } finally {
       setRemovingId(null);
     }
@@ -352,17 +393,14 @@ function SettingsContent() {
         : { publicKey: optionsObj as PublicKeyCredentialCreationOptions };
       const credential = (await navigator.credentials.create(createOptions)) as PublicKeyCredential | null;
       if (!credential) {
-        toast.error("Passkey creation was cancelled or failed");
+        toastPlainError("Passkey creation was cancelled or failed");
         return;
       }
       await authApi.passkeyAddVerify(credentialToJSON(credential));
       await queryClient.invalidateQueries({ queryKey: ["passkeyCredentials"] });
-      toast.success("Passkey added");
+      appToast.success("Passkey added");
     } catch (err: unknown) {
-      const res = err && typeof err === "object" && "response" in err ? (err as { response: { status: number; data?: unknown } }).response : null;
-      const detail = res?.data && typeof res.data === "object" && "detail" in res.data ? (res.data as { detail: unknown }).detail : null;
-      const msg = typeof detail === "string" ? detail : "Failed to add passkey";
-      toast.error(msg);
+      toastApiError("Failed to add passkey", err);
     } finally {
       setAddingPasskey(false);
     }
@@ -382,6 +420,99 @@ function SettingsContent() {
       <h1 className="text-3xl font-bold">Settings</h1>
 
       <SetupChecklist variant="settings" />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CalendarDays className="h-5 w-5" />
+            Pay schedule &amp; dashboard
+          </CardTitle>
+          <CardDescription>
+            Anchor spending summaries to your paycheck cycle. Calendar-month budgeting on the Budget page is unchanged.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!paySchedule ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : (
+            <>
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                <p className="font-medium text-foreground">Current window</p>
+                <p className="text-muted-foreground mt-0.5">{paySchedule.cycle.label}</p>
+                {paySchedule.cycle.next_pay_date && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Next pay (expected): {new Date(paySchedule.cycle.next_pay_date + "T12:00:00").toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="pay-frequency">Pay frequency</Label>
+                <Select
+                  value={payFreqDraft || "unset"}
+                  onValueChange={(v) => setPayFreqDraft(v === "unset" ? "" : v)}
+                >
+                  <SelectTrigger id="pay-frequency">
+                    <SelectValue placeholder="Not set (use 30-day window)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unset">Not set</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="biweekly">Every two weeks</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="irregular">Irregular (30-day window)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="pay-last">Last payday you were paid</Label>
+                <Input
+                  id="pay-last"
+                  type="date"
+                  value={payLastDraft}
+                  onChange={(e) => setPayLastDraft(e.target.value)}
+                  disabled={!payFreqDraft || payFreqDraft === "irregular"}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Required for weekly, biweekly, or monthly. We roll the window forward from this date.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="budget-framing">Dashboard emphasis</Label>
+                <Select value={framingDraft} onValueChange={setFramingDraft}>
+                  <SelectTrigger id="budget-framing">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="strict">Strict — Ready to Assign stays prominent</SelectItem>
+                    <SelectItem value="reflective">Reflective — pay-period spending first</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  disabled={payScheduleMutation.isPending}
+                  onClick={() => {
+                    const freq =
+                      !payFreqDraft || payFreqDraft === "unset" ? null : payFreqDraft;
+                    let last: string | null = null;
+                    if (freq === "weekly" || freq === "biweekly" || freq === "monthly") {
+                      last = payLastDraft || null;
+                    }
+                    payScheduleMutation.mutate({
+                      pay_frequency: freq,
+                      pay_last_confirmed_date: last,
+                      budget_framing: framingDraft,
+                    });
+                  }}
+                >
+                  {payScheduleMutation.isPending ? "Saving…" : "Save pay schedule"}
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -508,7 +639,7 @@ function SettingsContent() {
           )}
           <div className="rounded-md bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground space-y-1">
             <p><span className="font-medium text-foreground">What&apos;s shared with AI:</span> Account names, balances, spending by category, and goals. No account numbers, bank credentials, or passwords.</p>
-            <p><span className="font-medium text-foreground">Privacy:</span> When Ollama is configured, all data stays on your device. When using Claude (Anthropic), aggregated financial summaries are sent to Anthropic&apos;s API per their <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener noreferrer" className="underline">privacy policy</a>.</p>
+            <p><span className="font-medium text-foreground">Privacy:</span> AI uses local Ollama only. Financial summaries sent to the model never leave your network unless you route Ollama elsewhere.</p>
           </div>
         </CardContent>
       </Card>

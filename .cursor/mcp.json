@@ -1,8 +1,1 @@
-{
-  "mcpServers": {
-    "docker": {
-      "command": "uvx",
-      "args": ["mcp-server-docker"]
-    }
-  }
-}
+{"mcpServers":{"docker":{"command":"uvx","args":["mcp-server-docker"]},"MCP_DOCKER":{"command":"docker","args":["mcp","gateway","run"]}}}

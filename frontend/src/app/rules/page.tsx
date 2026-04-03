@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rulesApi, type Rule, type RuleCreate } from "@/lib/api/rules";
 import { reportsApi, type LlmSuggestion } from "@/lib/api/reports";
 import { useFlatCategories, getApiErrorMessage, useIsClient } from "@/lib/hooks";
+import { toastApiError } from "@/lib/toast-error";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Trash2, Sparkles, Play, Check, X } from "lucide-react";
-import { toast } from "sonner";
+import { appToast } from "@/lib/app-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
 
@@ -58,19 +59,19 @@ function RulesContent() {
     mutationFn: rulesApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rules"] });
-      toast.success("Rule created");
+      appToast.success("Rule created");
       setAddOpen(false);
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to create rule")),
+    onError: (e) => toastApiError("Failed to create rule", e),
   });
 
   const deleteMutation = useMutation({
     mutationFn: rulesApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rules"] });
-      toast.success("Rule deleted");
+      appToast.success("Rule deleted");
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to delete rule")),
+    onError: (e) => toastApiError("Failed to delete rule", e),
   });
 
   const toggleMutation = useMutation({
@@ -82,9 +83,9 @@ function RulesContent() {
     mutationFn: reportsApi.applyRules,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      toast.success("Rules applied to uncategorized transactions");
+      appToast.success("Rules applied to uncategorized transactions");
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to apply rules")),
+    onError: (e) => toastApiError("Failed to apply rules", e),
   });
 
   const suggestMutation = useMutation({
@@ -93,17 +94,17 @@ function RulesContent() {
       setSuggestions(data.suggestions);
       setSuggestOpen(true);
       if (data.suggestions.length === 0) {
-        toast.info("No uncategorized transactions to suggest for");
+        appToast.info("No uncategorized transactions to suggest for");
       }
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to get suggestions. Is the API key configured?")),
+    onError: (e) => toastApiError("Failed to get suggestions. Is the API key configured?", e),
   });
 
   const applySuggestionsMutation = useMutation({
     mutationFn: reportsApi.applySuggestions,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      toast.success(`Applied ${data.applied} suggestions`);
+      appToast.success(`Applied ${data.applied} suggestions`);
       setSuggestOpen(false);
     },
   });

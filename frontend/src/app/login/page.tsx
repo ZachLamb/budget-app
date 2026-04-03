@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Wallet, KeyRound, Play } from "lucide-react";
-import { toast } from "sonner";
+import { toastApiError, toastPlainError } from "@/lib/toast-error";
 
 const ERROR_MESSAGES: Record<string, string> = {
   access_denied: "Google sign-in was cancelled or denied.",
@@ -43,7 +43,7 @@ function LoginPageContent() {
   useEffect(() => {
     const error = searchParams.get("error");
     if (error) {
-      toast.error(ERROR_MESSAGES[error] ?? "Sign-in failed. Please try again.");
+      toastPlainError(ERROR_MESSAGES[error] ?? "Sign-in failed. Please try again.");
       router.replace("/login", { scroll: false });
     }
   }, [searchParams, router]);
@@ -54,8 +54,8 @@ function LoginPageContent() {
       const result = await authApi.demoLogin();
       login(result.access_token, result.user);
       router.push("/");
-    } catch {
-      toast.error("Demo login failed. Is the backend running in demo mode?");
+    } catch (e) {
+      toastApiError("Demo login failed. Is the backend running in demo mode?", e);
     } finally {
       setDemoLoading(false);
     }
@@ -69,8 +69,8 @@ function LoginPageContent() {
       const result = await authApi.login({ email, password });
       login(result.access_token, result.user);
       router.push("/");
-    } catch {
-      toast.error("Invalid credentials");
+    } catch (e) {
+      toastApiError("Invalid credentials", e);
     } finally {
       setLoading(false);
     }
@@ -78,7 +78,7 @@ function LoginPageContent() {
 
   const handleCreateWithPasskey = async () => {
     if (!name.trim() || !email.trim()) {
-      toast.error("Please enter your name and email");
+      toastPlainError("Please enter your name and email");
       return;
     }
     setLoading(true);
@@ -94,17 +94,14 @@ function LoginPageContent() {
         : { publicKey: optionsObj as PublicKeyCredentialCreationOptions };
       const credential = (await navigator.credentials.create(createOptions)) as PublicKeyCredential | null;
       if (!credential) {
-        toast.error("Passkey creation was cancelled or failed");
+        toastPlainError("Passkey creation was cancelled or failed");
         return;
       }
       const result = await authApi.passkeyRegisterVerify(credentialToJSON(credential));
       login(result.access_token, result.user);
       router.push("/onboarding");
     } catch (err: unknown) {
-      const res = err && typeof err === "object" && "response" in err ? (err as { response: { status: number; data?: unknown } }).response : null;
-      const detail = res?.data && typeof res.data === "object" && "detail" in res.data ? (res.data as { detail: unknown }).detail : null;
-      const msg = typeof detail === "string" ? detail : Array.isArray(detail) && detail[0]?.msg ? String(detail[0].msg) : "Passkey registration failed";
-      toast.error(msg);
+      toastApiError("Passkey registration failed", err);
     } finally {
       setLoading(false);
     }
@@ -120,17 +117,14 @@ function LoginPageContent() {
         : { publicKey: optionsObj as PublicKeyCredentialRequestOptions };
       const credential = (await navigator.credentials.get(getOptions)) as PublicKeyCredential | null;
       if (!credential) {
-        toast.error("Sign-in was cancelled or failed");
+        toastPlainError("Sign-in was cancelled or failed");
         return;
       }
       const result = await authApi.passkeyAuthenticateVerify(credentialToJSON(credential));
       login(result.access_token, result.user);
       router.push("/");
     } catch (err: unknown) {
-      const res = err && typeof err === "object" && "response" in err ? (err as { response: { status: number; data?: unknown } }).response : null;
-      const detail = res?.data && typeof res.data === "object" && "detail" in res.data ? (res.data as { detail: unknown }).detail : null;
-      const msg = typeof detail === "string" ? detail : Array.isArray(detail) && detail[0]?.msg ? String(detail[0].msg) : "Passkey sign-in failed";
-      toast.error(msg);
+      toastApiError("Passkey sign-in failed", err);
     } finally {
       setLoading(false);
     }

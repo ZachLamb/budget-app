@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, ChevronDown, ChevronRight } from "lucide-react";
-import { toast } from "sonner";
+import { appToast } from "@/lib/app-toast";
 import { useIsClient } from "@/lib/hooks";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 
@@ -32,7 +32,7 @@ function CategoriesContent() {
     mutationFn: categoriesApi.createGroup,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categoryGroups"] });
-      toast.success("Group created");
+      appToast.success("Group created");
       setNewGroup("");
     },
   });
@@ -41,7 +41,7 @@ function CategoriesContent() {
     mutationFn: categoriesApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categoryGroups"] });
-      toast.success("Category created");
+      appToast.success("Category created");
     },
   });
 
@@ -49,7 +49,7 @@ function CategoriesContent() {
     mutationFn: categoriesApi.deleteGroup,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categoryGroups"] });
-      toast.success("Group deleted");
+      appToast.success("Group deleted");
     },
   });
 
@@ -57,7 +57,7 @@ function CategoriesContent() {
     mutationFn: categoriesApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categoryGroups"] });
-      toast.success("Category deleted");
+      appToast.success("Category deleted");
     },
   });
 

@@ -13,7 +13,7 @@ async def suggest_categories_batch(
 ) -> list[dict]:
     """Send uncategorized transactions to an LLM for category suggestions.
 
-    Uses local Ollama if available, falls back to Claude API.
+    Uses local Ollama when configured and reachable.
     Returns a list of {transaction_id, suggested_category_id, payee_name, category_name}.
     """
     # Gather uncategorized transactions

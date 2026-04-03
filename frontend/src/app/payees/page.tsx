@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { payeesApi, type Payee, type PayeeCreate } from "@/lib/api/payees";
 import { accountsApi, type Account } from "@/lib/api/accounts";
 import { useFlatCategories, getApiErrorMessage, useIsClient } from "@/lib/hooks";
+import { toastApiError } from "@/lib/toast-error";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Trash2, Search, Pencil } from "lucide-react";
-import { toast } from "sonner";
+import { appToast } from "@/lib/app-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
 
@@ -46,18 +47,18 @@ function PayeesContent() {
     mutationFn: payeesApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payees"] });
-      toast.success("Payee created");
+      appToast.success("Payee created");
       setAddOpen(false);
       setForm({ name: "" });
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to create payee")),
+    onError: (e) => toastApiError("Failed to create payee", e),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<PayeeCreate> }) => payeesApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payees"] });
-      toast.success("Payee updated");
+      appToast.success("Payee updated");
       setEditId(null);
     },
   });
@@ -66,9 +67,9 @@ function PayeesContent() {
     mutationFn: payeesApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payees"] });
-      toast.success("Payee deleted");
+      appToast.success("Payee deleted");
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to delete payee")),
+    onError: (e) => toastApiError("Failed to delete payee", e),
   });
 
   const startEdit = (payee: Payee) => {

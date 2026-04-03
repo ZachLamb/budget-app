@@ -26,6 +26,20 @@ export interface RecurringCreate {
   is_subscription?: boolean;
 }
 
+export interface RecurringSuggestion {
+  dedupe_key: string;
+  payee_id: string;
+  payee_name: string;
+  suggested_amount: number;
+  suggested_frequency: string;
+  occurrence_count: number;
+  last_date: string;
+  suggested_next_date: string;
+  confidence: number;
+  category_id: string | null;
+  account_id: string | null;
+}
+
 export const recurringApi = {
   list: () => api.get<RecurringTransaction[]>("/recurring").then((r) => r.data),
   create: (data: RecurringCreate) =>
@@ -33,4 +47,10 @@ export const recurringApi = {
   update: (id: string, data: Partial<RecurringCreate>) =>
     api.put<RecurringTransaction>(`/recurring/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/recurring/${id}`),
+  suggestions: (lookback_days = 90) =>
+    api
+      .get<RecurringSuggestion[]>("/recurring/suggestions", { params: { lookback_days } })
+      .then((r) => r.data),
+  dismissSuggestion: (dedupe_key: string) =>
+    api.post("/recurring/suggestions/dismiss", { dedupe_key }),
 };

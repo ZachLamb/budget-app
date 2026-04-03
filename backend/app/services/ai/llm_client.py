@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-"""Unified LLM client that prefers a local Ollama instance and falls back to Claude.
+"""LLM client for local Ollama only — no cloud model APIs.
 
-Priority:
-  1. Ollama (local, private — no data leaves the machine)
-  2. Anthropic Claude API (if ANTHROPIC_API_KEY is set)
-  3. Returns None / yields nothing
+Data stays on your machine when Ollama is reachable. If Ollama is down or
+OLLAMA_URL is empty, completions return nothing (callers show a clear error).
 """
 
 import json
@@ -26,11 +24,11 @@ _OLLAMA_STREAM_TIMEOUT = 60.0
 
 
 def has_any_backend() -> bool:
-    """Synchronous check — true if at least one backend is configured."""
+    """True when demo mode is on or Ollama URL is configured (may still be unreachable)."""
     settings = get_settings()
     if settings.demo_mode:
         return True
-    return bool(settings.ollama_url or settings.anthropic_api_key)
+    return bool(settings.ollama_url)
 
 
 # ── Demo mode canned responses ────────────────────────────────────────────────
@@ -125,35 +123,12 @@ async def _try_ollama(prompt: str, system: Optional[str] = None, max_tokens: int
         return None
 
 
-async def _try_claude(prompt: str, system: Optional[str] = None, max_tokens: int = 1024) -> Optional[str]:
-    settings = get_settings()
-    if not settings.anthropic_api_key:
-        return None
-    try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-        kwargs: dict = {
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        if system:
-            kwargs["system"] = system
-        message = await client.messages.create(**kwargs)
-        return message.content[0].text
-    except Exception as e:
-        logger.warning("Claude API error: %s", e)
-        return None
-
-
 async def complete_with_source(
     prompt: str, system: Optional[str] = None, max_tokens: int = 1024
 ) -> tuple[Optional[str], str]:
-    """Send a prompt to the best available LLM.
+    """Send a prompt to Ollama (or demo canned data).
 
-    Returns (response_text, source_name) where source_name is one of:
-    "ollama", "claude", or "unavailable".
-    Only one backend is probed — no double-pinging.
+    Returns (response_text, source_name): "demo", "ollama", or "unavailable".
     """
     if get_settings().demo_mode:
         return _demo_response(prompt), "demo"
@@ -161,10 +136,6 @@ async def complete_with_source(
     result = await _try_ollama(prompt, system, max_tokens=max_tokens)
     if result is not None:
         return result, "ollama"
-
-    result = await _try_claude(prompt, system, max_tokens=max_tokens)
-    if result is not None:
-        return result, "claude"
 
     return None, "unavailable"
 
@@ -219,34 +190,13 @@ async def _stream_ollama(prompt: str, system: Optional[str] = None) -> AsyncIter
         return
 
 
-async def _stream_claude(prompt: str, system: Optional[str] = None) -> AsyncIterator[str]:
-    settings = get_settings()
-    if not settings.anthropic_api_key:
-        return
-    try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-        kwargs: dict = {
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 1024,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        if system:
-            kwargs["system"] = system
-        async with client.messages.stream(**kwargs) as stream:
-            async for text in stream.text_stream:
-                yield text
-    except Exception as e:
-        logger.warning("Claude stream error: %s", e)
-        return
-
-
 async def stream_complete_with_source(
     prompt: str, system: Optional[str] = None
 ) -> AsyncIterator[tuple[str, str]]:
     """Yields (chunk, source) tuples. Source is set once on first chunk."""
     if get_settings().demo_mode:
         import asyncio
+
         response = _demo_response(prompt)
         # Simulate streaming by yielding word-by-word
         words = response.split(" ")
@@ -256,13 +206,8 @@ async def stream_complete_with_source(
             await asyncio.sleep(0.03)
         return
 
-    ollama_yielded = False
     async for chunk in _stream_ollama(prompt, system):
-        ollama_yielded = True
         yield chunk, "ollama"
-    if not ollama_yielded:
-        async for chunk in _stream_claude(prompt, system):
-            yield chunk, "claude"
 
 
 async def stream_complete(prompt: str, system: Optional[str] = None) -> AsyncIterator[str]:

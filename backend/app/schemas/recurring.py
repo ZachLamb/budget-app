@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional
@@ -22,6 +22,24 @@ class RecurringUpdate(BaseModel):
     next_date: Optional[date] = None
     account_id: Optional[str] = None
     is_subscription: Optional[bool] = None
+
+
+class RecurringSuggestionResponse(BaseModel):
+    dedupe_key: str
+    payee_id: str
+    payee_name: str
+    suggested_amount: float
+    suggested_frequency: str
+    occurrence_count: int
+    last_date: date
+    suggested_next_date: date
+    confidence: float
+    category_id: Optional[str] = None
+    account_id: Optional[str] = None
+
+
+class RecurringSuggestionDismissBody(BaseModel):
+    dedupe_key: str = Field(..., min_length=1, max_length=128)
 
 
 class RecurringResponse(BaseModel):

@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, AlertCircle, ExternalLink, Loader2, Wallet, ArrowRight, Banknote, TrendingUp, Eye } from "lucide-react";
-import { toast } from "sonner";
+import { appToast } from "@/lib/app-toast";
 import { getApiErrorMessage } from "@/lib/hooks";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -331,10 +331,10 @@ export default function OnboardingPage() {
       .trigger()
       .then(() => {
         queryClient.invalidateQueries({ queryKey: ["syncStatus"] });
-        toast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. First sync started!`);
+        appToast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. First sync started!`);
       })
       .catch(() => {
-        toast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. Click "Sync Now" to import transactions.`);
+        appToast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. Click "Sync Now" to import transactions.`);
       });
     setStep(3);
   };

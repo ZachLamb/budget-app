@@ -10,6 +10,8 @@ import { transactionsApi } from "@/lib/api/transactions";
 import { budgetApi } from "@/lib/api/budget";
 import { settingsApi } from "@/lib/api/settings";
 import { syncApi } from "@/lib/api/sync";
+import { recurringApi } from "@/lib/api/recurring";
+import { cycleCommitmentsApi } from "@/lib/api/cycle-commitments";
 import { formatCurrency, getMonthString } from "@/lib/format";
 import { useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
@@ -62,6 +64,24 @@ export function NextBestAction({ className }: { className?: string }) {
     queryFn: syncApi.status,
     enabled: isClient,
   });
+  const payReady = isClient && accounts.length > 0;
+  const { data: paySchedule, isSuccess: payScheduleReady } = useQuery({
+    queryKey: ["paySchedule"],
+    queryFn: settingsApi.getPaySchedule,
+    enabled: payReady,
+  });
+  const { data: recurringSuggestions = [] } = useQuery({
+    queryKey: ["recurring-suggestions", 90],
+    queryFn: () => recurringApi.suggestions(90),
+    enabled: payReady,
+    staleTime: 60_000,
+  });
+  const { data: cycleCommitments = [] } = useQuery({
+    queryKey: ["cycle-commitments"],
+    queryFn: cycleCommitmentsApi.list,
+    enabled: payReady,
+    staleTime: 30_000,
+  });
 
   const syncMutation = useMutation({
     mutationFn: syncApi.trigger,
@@ -95,6 +115,25 @@ export function NextBestAction({ className }: { className?: string }) {
       };
     }
 
+    if (payScheduleReady && paySchedule && !paySchedule.pay_frequency) {
+      return {
+        title: "Set your pay schedule",
+        detail:
+          "Anchor spending to your paycheck cycle so the dashboard window and cycle checklist match how you’re paid.",
+        href: "/settings",
+        primaryLabel: "Open Settings",
+      };
+    }
+
+    if (payReady && recurringSuggestions.length >= 3) {
+      return {
+        title: `${recurringSuggestions.length} recurring suggestions to review`,
+        detail: "Confirm or dismiss detected patterns so your recurring list stays trustworthy.",
+        href: "/recurring",
+        primaryLabel: "Review recurring",
+      };
+    }
+
     if (uncatTotal > 0) {
       return {
         title: `${uncatTotal} uncategorized transaction${uncatTotal === 1 ? "" : "s"}`,
@@ -122,6 +161,34 @@ export function NextBestAction({ className }: { className?: string }) {
       };
     }
 
+    if (
+      payScheduleReady &&
+      paySchedule?.pay_frequency &&
+      (paySchedule.review_step ?? 0) < 3
+    ) {
+      return {
+        title: "Continue your pay-cycle review",
+        detail: "Walk observe → diagnose → decide for this window, then add commitments if helpful.",
+        href: "/#cycle-review",
+        primaryLabel: "Go to checklist",
+      };
+    }
+
+    const activeCommitments = cycleCommitments.filter((c) => c.status === "active");
+    if (
+      payScheduleReady &&
+      paySchedule?.pay_frequency &&
+      (paySchedule.review_step ?? 0) >= 3 &&
+      activeCommitments.length > 0
+    ) {
+      return {
+        title: `${activeCommitments.length} active pay-cycle commitment${activeCommitments.length === 1 ? "" : "s"}`,
+        detail: "Check them off when you’ve acted, or dismiss if plans changed.",
+        href: "/#cycle-review",
+        primaryLabel: "View commitments",
+      };
+    }
+
     if (txnTotal === 0) {
       return {
         title: "Add this month’s activity",
@@ -135,6 +202,12 @@ export function NextBestAction({ className }: { className?: string }) {
   }, [
     isClient,
     accounts.length,
+    payReady,
+    payScheduleReady,
+    paySchedule?.pay_frequency,
+    paySchedule?.review_step,
+    recurringSuggestions.length,
+    cycleCommitments,
     txnProbe?.total,
     uncat?.total,
     budget?.total_income,

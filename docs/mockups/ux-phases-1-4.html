@@ -1,0 +1,1814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Budget app — data view mockups (configurable)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f1412;
+      --panel: #1a221e;
+      --border: #2d3d36;
+      --muted: #8fa89c;
+      --text: #e8f0eb;
+      --accent: #7dd3a8;
+      --accent-dim: #3d7a5c;
+      --warn: #e8b86d;
+      --chart-1: #7dd3a8;
+      --chart-2: #6eb5e8;
+      --chart-3: #c9a0dc;
+      --chart-4: #e8b86d;
+      --chart-5: #e88a7a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "DM Sans", system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    h1, h2, .phase-label {
+      font-family: "Fraunces", Georgia, serif;
+      font-weight: 700;
+    }
+    .page-intro {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem 1rem;
+      text-align: center;
+    }
+    .page-intro h1 {
+      font-size: 1.75rem;
+      margin: 0 0 0.5rem;
+      letter-spacing: -0.02em;
+    }
+    .page-intro p {
+      color: var(--muted);
+      margin: 0;
+      font-size: 0.95rem;
+    }
+    .phase-block {
+      margin: 3rem auto;
+      max-width: 1100px;
+      padding: 0 1rem 3rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .phase-block:last-child { border-bottom: none; }
+    .phase-header {
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.25rem;
+    }
+    .phase-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+    }
+    .phase-header h2 {
+      margin: 0;
+      font-size: 1.35rem;
+    }
+    .phase-goal {
+      width: 100%;
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin-top: 0.35rem;
+    }
+    /* Fake app shell */
+    .shell {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 24px 48px rgba(0,0,0,0.35);
+    }
+    .shell.mobile {
+      max-width: 380px;
+      margin: 0 auto;
+      overflow: visible;
+    }
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.65rem 1rem;
+      background: rgba(0,0,0,0.25);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .nav-item {
+      font-size: 0.72rem;
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+      color: var(--muted);
+    }
+    .nav-item.active {
+      background: var(--accent-dim);
+      color: var(--text);
+    }
+    .nav-item.phase1-highlight {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .main {
+      padding: 1.25rem 1.25rem 1.5rem;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    @media (max-width: 700px) {
+      .hero { grid-template-columns: 1fr; }
+    }
+    .hero-chart {
+      background: rgba(0,0,0,0.2);
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+      min-height: 200px;
+      display: flex;
+      flex-direction: column;
+    }
+    .hero-chart .title {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 0.75rem;
+    }
+    .donut-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1.25rem;
+    }
+    .donut {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: conic-gradient(
+        var(--chart-1) 0deg 100deg,
+        var(--chart-2) 100deg 200deg,
+        var(--chart-3) 200deg 280deg,
+        var(--chart-4) 280deg 340deg,
+        var(--chart-5) 340deg 360deg
+      );
+      mask: radial-gradient(farthest-side, transparent 58%, #000 59%);
+      -webkit-mask: radial-gradient(farthest-side, transparent 58%, #000 59%);
+    }
+    .legend {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .legend span { display: block; margin: 0.2rem 0; }
+    .legend i {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .hero-copy {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    .hero-copy .big {
+      font-family: "Fraunces", serif;
+      font-size: 1.5rem;
+      color: var(--accent);
+    }
+    .hero-copy .sub { color: var(--muted); font-size: 0.88rem; }
+    .nba {
+      border: 1px dashed var(--warn);
+      background: rgba(232, 184, 109, 0.08);
+      border-radius: 10px;
+      padding: 1rem;
+    }
+    .nba .nba-tag {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--warn);
+      margin-bottom: 0.35rem;
+    }
+    .nba .nba-title { font-weight: 600; margin-bottom: 0.25rem; }
+    .nba .nba-detail { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.75rem; }
+    .btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .btn {
+      font-size: 0.75rem;
+      padding: 0.4rem 0.85rem;
+      border-radius: 6px;
+      border: none;
+      background: var(--accent-dim);
+      color: var(--text);
+      cursor: default;
+    }
+    .btn.secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    /* Budget phase */
+    .rta-strip {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      height: 72px;
+      padding: 0.5rem 0 0;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .rta-seg {
+      flex: 1;
+      border-radius: 4px 4px 0 0;
+      min-height: 8px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      font-size: 0.65rem;
+      color: var(--bg);
+      padding-bottom: 2px;
+    }
+    .rta-seg.a { background: var(--chart-2); flex: 1.2; }
+    .rta-seg.b { background: var(--chart-1); flex: 2; }
+    .rta-seg.c { background: var(--chart-4); flex: 0.6; }
+    .rta-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .cat-row {
+      display: grid;
+      grid-template-columns: 1fr 80px 100px 70px;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8rem;
+    }
+    .cat-row.head {
+      color: var(--muted);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-bottom-color: var(--accent-dim);
+    }
+    .spark {
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 28px;
+    }
+    .spark b {
+      width: 5px;
+      background: var(--accent);
+      border-radius: 1px;
+      opacity: 0.85;
+    }
+    .spark b:nth-child(1) { height: 40%; }
+    .spark b:nth-child(2) { height: 65%; }
+    .spark b:nth-child(3) { height: 55%; }
+    .spark b:nth-child(4) { height: 90%; }
+    .spark b:nth-child(5) { height: 70%; }
+    /* Transactions */
+    .analytics-strip {
+      display: flex;
+      gap: 1rem;
+      padding: 0.75rem;
+      background: rgba(0,0,0,0.2);
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .mini-bar {
+      flex: 1;
+      min-width: 120px;
+    }
+    .mini-bar .l { font-size: 0.65rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      height: 48px;
+    }
+    .bars div {
+      flex: 1;
+      background: var(--chart-2);
+      border-radius: 2px 2px 0 0;
+      opacity: 0.9;
+    }
+    .bars.bars--dynamic div { height: var(--bar-h, 50%); }
+    .timeline-day {
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin: 1rem 0 0.35rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .txn {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.65rem 0.5rem;
+      border-radius: 8px;
+      margin-bottom: 0.35rem;
+      background: rgba(0,0,0,0.15);
+    }
+    .txn .left { display: flex; flex-direction: column; gap: 0.15rem; }
+    .txn .payee { font-weight: 600; font-size: 0.85rem; }
+    .txn .meta { font-size: 0.72rem; color: var(--muted); }
+    .pill {
+      display: inline-block;
+      font-size: 0.65rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      background: var(--accent-dim);
+      color: var(--text);
+    }
+    .amt { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+    /* Data-first overview */
+    .view-steps {
+      margin: 0 0 1rem;
+      padding: 0.65rem 0.85rem;
+      background: rgba(0, 0, 0, 0.22);
+      border-radius: 8px;
+      border-left: 3px solid var(--accent-dim);
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .view-steps strong { color: var(--text); }
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.65rem;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 800px) {
+      .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+    }
+    .kpi-card {
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.65rem 0.75rem;
+      min-height: 4.5rem;
+    }
+    .kpi-card .k-label {
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      margin-bottom: 0.25rem;
+    }
+    .kpi-card .k-val {
+      font-family: "Fraunces", serif;
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.2;
+      word-break: break-word;
+    }
+    .kpi-card .k-hint { font-size: 0.68rem; color: var(--muted); margin-top: 0.35rem; line-height: 1.3; }
+    .kpi-card.state-ok { border-color: rgba(125, 211, 168, 0.35); }
+    .kpi-card.state-warn { border-color: rgba(232, 184, 109, 0.45); }
+    .kpi-card.state-bad { border-color: rgba(232, 138, 122, 0.55); }
+    .kpi-card.state-neu { border-color: var(--border); }
+    .narrative-block {
+      margin-bottom: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .narrative-block .big {
+      font-family: "Fraunces", serif;
+      font-size: 1.45rem;
+      font-weight: 600;
+      color: var(--accent);
+      margin: 0 0 0.35rem;
+    }
+    .narrative-block .big.negative { color: #e88a7a; }
+    .narrative-block .big.warm { color: var(--warn); }
+    .narrative-block .sub { color: var(--muted); font-size: 0.88rem; margin: 0; max-width: 52ch; }
+    .split-insight {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 1.25rem;
+      margin-bottom: 1rem;
+      align-items: start;
+    }
+    @media (max-width: 800px) {
+      .split-insight { grid-template-columns: 1fr; }
+    }
+    .panel-box {
+      background: rgba(0, 0, 0, 0.18);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+    }
+    .panel-box h3 {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin: 0 0 0.65rem;
+      font-weight: 600;
+      font-family: "DM Sans", sans-serif;
+    }
+    .panel-box .title {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .panel-box .panel-caption {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin: 0.5rem 0 0;
+      line-height: 1.4;
+    }
+    .bridge-track {
+      height: 36px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      display: flex;
+      overflow: hidden;
+      position: relative;
+    }
+    .bridge-seg {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.62rem;
+      font-weight: 600;
+      color: var(--bg);
+      min-width: 0;
+      padding: 0 2px;
+      text-align: center;
+      line-height: 1.15;
+    }
+    .bridge-seg.assigned { background: var(--accent-dim); }
+    .bridge-seg.rta { background: var(--chart-4); color: var(--bg); }
+    .bridge-seg.gap { background: transparent; color: var(--muted); font-size: 0.6rem; }
+    .bridge-seg.over { background: #c44a3a; }
+    .bridge-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      margin-top: 0.55rem;
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+    .bridge-legend span { display: flex; align-items: center; gap: 0.35rem; }
+    .bridge-legend i {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      display: inline-block;
+    }
+    .insight-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.65rem;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 800px) {
+      .insight-grid { grid-template-columns: 1fr; }
+    }
+    .insight-card {
+      background: rgba(110, 181, 232, 0.06);
+      border: 1px solid rgba(110, 181, 232, 0.2);
+      border-radius: 8px;
+      padding: 0.65rem 0.75rem;
+      font-size: 0.78rem;
+      line-height: 1.45;
+    }
+    .insight-card .iq {
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--chart-2);
+      margin-bottom: 0.35rem;
+    }
+    .insight-card .ia { color: var(--text); }
+    .filter-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-bottom: 0.65rem;
+    }
+    .filter-chips span {
+      font-size: 0.65rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .filter-chips span.on {
+      background: var(--accent-dim);
+      border-color: var(--accent-dim);
+      color: var(--text);
+    }
+    .section-caption {
+      max-width: 1100px;
+      margin: 0 auto 0.75rem;
+      padding: 0 1rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .kpi-strip--compact .kpi-card { min-height: auto; padding: 0.45rem 0.5rem; }
+    .kpi-strip--compact .k-val { font-size: 0.95rem; }
+
+    /* Phase 4 polish — notes in document flow (avoids overflow clip + overlap bugs) */
+    .mock-note {
+      font-size: 0.65rem;
+      line-height: 1.35;
+      color: var(--warn);
+      border: 1px dashed var(--warn);
+      padding: 0.4rem 0.55rem;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.35);
+      margin: 0 0 0.75rem;
+    }
+    .phase4-main {
+      padding: 1rem 1rem 1.25rem;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 2rem 1rem;
+      color: var(--muted);
+    }
+    .empty-state .empty-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-top: 0.25rem;
+    }
+    .empty-state .illus {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 1rem;
+      border-radius: 16px;
+      background: linear-gradient(135deg, var(--accent-dim), transparent);
+      opacity: 0.6;
+    }
+    footer {
+      text-align: center;
+      padding: 2rem 1rem 3rem;
+      color: var(--muted);
+      font-size: 0.75rem;
+    }
+    /* Scenario controls — configure mock data + chart framing */
+    .scenario-dock {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      max-width: 1100px;
+      margin: 0 auto 0.5rem;
+      padding: 1rem 1.25rem 1.25rem;
+      background: rgba(15, 20, 18, 0.92);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+    }
+    .scenario-dock h2 {
+      font-family: "Fraunces", Georgia, serif;
+      font-size: 1rem;
+      margin: 0 0 0.5rem;
+    }
+    .scenario-dock .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem 1.5rem;
+      align-items: flex-end;
+    }
+    .scenario-dock label {
+      display: block;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 0.25rem;
+    }
+    .scenario-dock select {
+      min-width: 220px;
+      padding: 0.45rem 0.65rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      font-size: 0.85rem;
+    }
+    .scenario-dock fieldset {
+      border: none;
+      margin: 0;
+      padding: 0;
+    }
+    .scenario-dock fieldset input { accent-color: var(--accent); }
+    .scenario-blurb {
+      margin: 0.75rem 0 0;
+      padding: 0.65rem 0.75rem;
+      border-radius: 8px;
+      border: 1px dashed var(--border);
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .scenario-blurb strong { color: var(--accent); }
+    .live-context {
+      font-size: 0.72rem;
+      color: var(--warn);
+      margin: 0.35rem 0 0;
+    }
+    .hero-copy .big.negative { color: #e88a7a; }
+    .hero-copy .big.warm { color: var(--warn); }
+    .phase4-main .big.negative { color: #e88a7a; }
+    .phase4-main .big.warm { color: var(--warn); }
+    .fieldset-legend {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin: 0 0 0.35rem;
+      padding: 0;
+    }
+    .scenario-dock fieldset label {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin: 0.2rem 0;
+      cursor: pointer;
+      font-size: 0.8rem;
+      color: var(--text);
+      text-transform: none;
+      letter-spacing: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="page-intro">
+    <h1>How people should <em>read</em> their money</h1>
+    <p>Redesigned around a <strong>viewing order</strong>: numbers first → where cash went (bridge) vs what you bought (mix) → plain-language checks → then budget rows and activity. Use the dock to swap scenarios; everything below stays in sync.</p>
+  </header>
+
+  <div class="scenario-dock" id="scenario-dock">
+    <h2>Configure scenario &amp; chart framing</h2>
+    <div class="row">
+      <div>
+        <label for="pick-scenario">Life situation</label>
+        <select id="pick-scenario" aria-describedby="scenario-blurb-text"></select>
+      </div>
+      <fieldset>
+        <legend class="fieldset-legend">Chart framing</legend>
+        <label><input type="radio" name="frame" value="story" checked /> Spending mix (default story)</label>
+        <label><input type="radio" name="frame" value="pctIncome" /> % of take-home</label>
+        <label><input type="radio" name="frame" value="compare" /> Vs last month</label>
+      </fieldset>
+      <div>
+        <label for="pick-merge">Legend detail</label>
+        <select id="pick-merge">
+          <option value="full">Show all categories</option>
+          <option value="merge">Merge small slices into “Other”</option>
+        </select>
+      </div>
+    </div>
+    <p class="scenario-blurb" id="scenario-blurb-text" aria-live="polite"></p>
+    <p class="live-context" id="frame-hint" aria-live="polite"></p>
+  </div>
+
+  <!-- OVERVIEW (Home) — data reading order -->
+  <section class="phase-block" id="phase-1">
+    <div class="phase-header">
+      <span class="phase-label">Screen A</span>
+      <h2>Overview — same numbers, clearer reading order</h2>
+      <p class="phase-goal">KPI scan → headline story → <strong>cash bridge</strong> (income vs assigned vs RTA) next to <strong>spending mix</strong> (donut) → three “sanity checks” → next action.</p>
+    </div>
+    <div class="shell">
+      <nav class="nav" aria-label="Mock navigation">
+        <span class="nav-item active phase1-highlight">Home</span>
+        <span class="nav-item">Budget</span>
+        <span class="nav-item">Transactions</span>
+        <span class="nav-item">Plan</span>
+        <span class="nav-item">Settings</span>
+      </nav>
+      <div class="main">
+        <p class="view-steps" id="mock-view-steps"></p>
+        <div class="kpi-strip" id="mock-kpi-strip"></div>
+        <div class="narrative-block">
+          <div class="big" id="mock-rta-big">$640 left to assign</div>
+          <p class="sub" id="mock-rta-sub"></p>
+        </div>
+        <div class="split-insight">
+          <div class="panel-box">
+            <h3>Cash flow bridge</h3>
+            <p class="panel-caption">Bar width = this month’s income. See how much is already <em>spoken for</em> vs still <em>ready to assign</em>. Different question than the donut.</p>
+            <div class="bridge-track" id="mock-bridge-track"></div>
+            <div class="bridge-legend" id="mock-bridge-legend"></div>
+          </div>
+          <div class="panel-box">
+            <div class="title" id="mock-chart-title-1" style="margin-bottom:0.65rem">Spending mix</div>
+            <div class="donut-wrap" style="min-height:160px">
+              <div class="donut" id="mock-donut-1" style="width:112px;height:112px" aria-hidden="true"></div>
+              <div class="legend" id="mock-legend-1"></div>
+            </div>
+            <p class="panel-caption">Donut = <em>where dollars went by category</em> (activity). Bridge = <em>plan math</em> (assignments vs RTA). Both should stay on screen together.</p>
+          </div>
+        </div>
+        <div class="insight-grid" id="mock-insight-grid"></div>
+        <div class="nba">
+          <div class="nba-tag">Next step</div>
+          <div class="nba-title" id="mock-nba-title-1">14 uncategorized transactions</div>
+          <p class="nba-detail" id="mock-nba-detail-1">Rules and reports work best when spending has categories.</p>
+          <div class="btn-row">
+            <span class="btn" id="mock-nba-p1-1">Review in Transactions</span>
+            <span class="btn secondary" id="mock-nba-p2-1">Dismiss</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BUDGET — explains bridge rows -->
+  <section class="phase-block" id="phase-2">
+    <p class="section-caption">Budget is the <strong>drill-down</strong>: each row should tie back to the bridge (assigned / available) and show trend without hiding the big picture above.</p>
+    <div class="phase-header">
+      <span class="phase-label">Screen B</span>
+      <h2>Budget — categories &amp; health</h2>
+      <p class="phase-goal">RTA strip echoes the bridge; rows show assigned vs available + spark trend. Goal: answer “which line item forced the tradeoff?”</p>
+    </div>
+    <div class="shell">
+      <nav class="nav">
+        <span class="nav-item">Home</span>
+        <span class="nav-item active">Budget</span>
+        <span class="nav-item">Transactions</span>
+        <span class="nav-item">Plan</span>
+        <span class="nav-item">Settings</span>
+      </nav>
+      <div class="main">
+        <p style="margin:0 0 0.5rem; font-size:0.75rem; color:var(--muted);" id="mock-p2-month">March 2026 · <span style="color:var(--accent)">Tools ▾</span> <span style="opacity:0.5">(AI suggestions, copy month…)</span></p>
+        <div class="rta-labels">
+          <span>Income</span>
+          <span>Assigned</span>
+          <span>Ready to assign</span>
+        </div>
+        <div class="rta-strip" title="Mock waterfall" id="mock-p2-rta-strip">
+          <div class="rta-seg a" id="mock-p2-seg-i" style="height:100%; flex:1.2">$4.2k</div>
+          <div class="rta-seg b" id="mock-p2-seg-a" style="height:75%; flex:2">$3.5k</div>
+          <div class="rta-seg c" id="mock-p2-seg-r" style="height:35%; flex:0.6">$640</div>
+        </div>
+        <div class="cat-row head">
+          <span>Category</span>
+          <span style="text-align:right">Assigned</span>
+          <span style="text-align:center">Trend</span>
+          <span style="text-align:right">Avail.</span>
+        </div>
+        <div id="mock-p2-rows"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ACTIVITY -->
+  <section class="phase-block" id="phase-3">
+    <p class="section-caption">Activity view is for <strong>reconciliation</strong>: filters + small multiples should mirror the categories you care about (debt, home, trips) without leaving the list.</p>
+    <div class="phase-header">
+      <span class="phase-label">Screen C</span>
+      <h2>Activity — filters + pattern, then lines</h2>
+      <p class="phase-goal">Chips suggest mental models; bars show cadence; list stays scannable. Caption ties chart to “why open this screen now.”</p>
+    </div>
+    <div class="shell">
+      <nav class="nav">
+        <span class="nav-item">Home</span>
+        <span class="nav-item">Budget</span>
+        <span class="nav-item active">Transactions</span>
+        <span class="nav-item">Plan</span>
+        <span class="nav-item">Settings</span>
+      </nav>
+      <div class="main">
+        <div class="filter-chips" aria-hidden="true">
+          <span class="on">All</span>
+          <span>Outflows</span>
+          <span>Debt</span>
+          <span>Home</span>
+          <span>Trips</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+          <span style="font-size:0.75rem; color:var(--muted);">This month · Search…</span>
+          <span class="btn secondary" style="font-size:0.7rem;">Analytics on</span>
+        </div>
+        <p class="panel-caption" id="mock-p3-caption" style="margin:0 0 0.65rem"></p>
+        <div class="analytics-strip">
+          <div class="mini-bar">
+            <div class="l" id="mock-p3-week-label">Spend by week</div>
+            <div class="bars bars--dynamic" id="mock-p3-week-bars"></div>
+          </div>
+          <div class="mini-bar">
+            <div class="l" id="mock-p3-cat-label">Top categories</div>
+            <div class="bars bars--dynamic" id="mock-p3-cat-bars" style="gap:4px"></div>
+          </div>
+        </div>
+        <div id="mock-p3-txns"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MOBILE + EMPTY -->
+  <section class="phase-block" id="phase-4">
+    <div class="phase-header">
+      <span class="phase-label">Screen D</span>
+      <h2>Mobile + empty data</h2>
+      <p class="phase-goal">Same reading order, stacked: KPIs 2×2 → one-line bridge → donut → action. Empty state explains what chart will show once data exists.</p>
+    </div>
+    <p style="max-width:1100px; margin:0 auto 1rem; padding:0 1rem; color:var(--muted); font-size:0.88rem;">
+      Narrow shell: priority is <strong>scan KPIs</strong>, then <strong>see plan vs spend</strong> (mini bridge + mix), then act — not a shrunken desktop.
+    </p>
+    <div class="shell mobile">
+      <nav class="nav" style="justify-content:center;">
+        <span class="nav-item active">Home</span>
+        <span class="nav-item">Budget</span>
+        <span class="nav-item">More ▾</span>
+      </nav>
+      <div class="main phase4-main">
+        <div class="kpi-strip kpi-strip--compact" id="mock-p4-kpis"></div>
+        <div class="panel-box" style="margin-bottom:0.75rem;padding:0.55rem 0.65rem">
+          <h3 style="margin-bottom:0.35rem">Cash bridge</h3>
+          <div class="bridge-track" id="mock-bridge-track-4" style="height:28px"></div>
+        </div>
+        <div class="hero-chart" style="min-height:140px;padding:0.75rem">
+          <div class="title">Spending mix</div>
+          <div class="donut-wrap" style="flex-direction:column;">
+            <div class="donut" id="mock-donut-4" style="width:88px; height:88px;"></div>
+            <div class="big" id="mock-p4-rta" style="font-size:1.05rem; margin-top:0.35rem;">$640 RTA</div>
+          </div>
+        </div>
+        <div class="nba" style="margin-top:0.75rem;">
+          <div class="nba-tag">Next step</div>
+          <div class="nba-title" id="mock-p4-nba-title">Sync bank data</div>
+          <p class="nba-detail" id="mock-p4-nba-detail">Last sync 5 days ago.</p>
+          <span class="btn" id="mock-p4-nba-btn">Sync now</span>
+        </div>
+        <p class="mock-note" style="margin-top:0.75rem; margin-bottom:0;">
+          Optional: FAB for AI — same data contract as desktop; answers should reference KPI + bridge + mix.
+        </p>
+      </div>
+    </div>
+    <div class="shell" style="max-width:1100px; margin:1.5rem auto 0;">
+      <div class="main">
+        <div class="empty-state">
+          <div class="illus"></div>
+          <p style="font-weight:600; color:var(--text); margin:0 0 0.35rem;">No transactions this month yet</p>
+          <p style="margin:0 auto 1rem; max-width:320px;">Import a CSV, add one manually, or connect an account to see your spending chart here.</p>
+          <div class="empty-actions">
+            <span class="btn">Add transaction</span>
+            <span class="btn secondary">Import CSV</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Mockups for Clarity Budget / internal planning · Redesign emphasizes <strong>parallel views</strong> (plan bridge + spend mix) and explicit <strong>how to read</strong> steps.
+  </footer>
+
+  <script>
+(function () {
+  const COL = { c1: "#7dd3a8", c2: "#6eb5e8", c3: "#c9a0dc", c4: "#e8b86d", c5: "#e88a7a" };
+
+  const FRAMES = {
+    story: {
+      title: "This month at a glance",
+      hint: "Framing: story-first — where money went, without turning the home screen into a spreadsheet.",
+    },
+    pctIncome: {
+      title: "Where take-home went",
+      hint: "Framing: % of after-tax inflow — speaks to paycheck-to-paycheck and “is rent eating me alive?” questions.",
+    },
+    compare: {
+      title: "Compared to last month",
+      hint: "Framing: drift on the donut; compare to the bridge to see if assignments (not just spending) moved too.",
+    },
+  };
+
+  const SCENARIOS = {
+    you_mixed: {
+      label: "You: debt payoff + home vs debt + trips",
+      blurb:
+        "<strong>Your focus:</strong> crush debt, decide when cash goes to the house vs the card, and keep trips funded without guilt. <strong>Useful graph:</strong> one view that shows <em>minimums + extra debt</em>, <em>reno sinking</em>, and <em>travel sinking</em> alongside fixed bills — so tradeoffs are visible, not buried.",
+      slices: [
+        { name: "Debt (min + extra)", pct: 28, col: "c5", delta: "extra ↑" },
+        { name: "Housing & utilities", pct: 30, col: "c2", delta: "flat" },
+        { name: "Home projects (sink)", pct: 12, col: "c4", delta: "+$75" },
+        { name: "Trips (sink)", pct: 10, col: "c3", delta: "+$100" },
+        { name: "Groceries & life", pct: 20, col: "c1", delta: "+$18" },
+      ],
+      rta: "$380 left to assign",
+      rtaClass: "",
+      sub: "Decide this month’s story: more to the highest-APR card, bump the kitchen fund, or front-load the June trip — you can’t do all three full tilt every month, and the chart should make that obvious.",
+      subCompare: " Debt extra paydown was lighter last month while the home bucket grew — was that intentional?",
+      nba1: {
+        title: "Put this month’s ‘extra’ toward debt or Japan?",
+        detail: "You planned $150 extra to cards and $100 to Trips. If RTA is tight, pick one winner for the next two weeks.",
+        p1: "Open Plan / Goals",
+        p2: "Ask AI to compare",
+      },
+      budget: {
+        month: 'March 2026 · <span style="color:var(--accent)">Tools ▾</span> <span style="opacity:0.5">(AI suggestions, copy month…)</span>',
+        inc: "$4.8k",
+        asg: "$4.42k",
+        rta: "$380",
+        flexI: 1.2,
+        flexA: 2.2,
+        flexR: 0.45,
+        hi: 100,
+        ha: 82,
+        hr: 28,
+        rows: [
+          { name: "Card payoff (extra)", asg: "$350", avail: "$0", neg: false, pos: false },
+          { name: "Kitchen refresh (sink)", asg: "$200", avail: "$48", neg: false, pos: true },
+          { name: "Japan trip (sink)", asg: "$300", avail: "$22", neg: false, pos: false },
+        ],
+      },
+      week: [62, 58, 71, 55, 68, 52],
+      topCat: [
+        { h: 88, bg: "var(--chart-5)" },
+        { h: 72, bg: "var(--chart-2)" },
+        { h: 48, bg: "var(--chart-4)" },
+        { h: 42, bg: "var(--chart-3)" },
+      ],
+      weekLabel: "Outflows by week (debt + sinks + life)",
+      catLabel: "Where money fought: debt vs house vs travel",
+      txns: [
+        { day: "Today", payee: "Extra payment · Visa", cat: "Debt", acct: "Checking ··4242", amt: "−$150.00" },
+        { day: "Today", payee: "Lowe’s", cat: "Home projects", acct: "Credit ··8810", amt: "−$86.40" },
+        { day: "Yesterday", payee: "Transfer to Trip fund", cat: "Trips", acct: "Checking ··4242", amt: "−$100.00" },
+      ],
+      p4: { rta: "$380 RTA", nbaT: "June trip: on track?", nbaD: "$922 saved · $2.6k to go at $100/mo.", nbaB: "Adjust trip plan" },
+      insights: [
+        {
+          q: "Debt vs kitchen vs Japan — who wins this month?",
+          a: "RTA is the only flexible pool. The bridge shows how much is already locked; the donut shows whether debt + sinks + life add up to the story you want. If both agree, you’re not guessing.",
+        },
+        {
+          q: "When does the donut lie?",
+          a: "Timing: card charges vs payment. Uncategorized merchants. Transfers between your own accounts. Cross-check weird slices against the Activity list below.",
+        },
+        {
+          q: "What if I only have 30 seconds?",
+          a: "KPI strip + bridge + first insight. If RTA and Attention look fine, you can close the app.",
+        },
+      ],
+      p3Caption:
+        "Reconcile with the same mental buckets you use on Overview: Debt, Home, Trips. Chips are mock — in product they’d filter without hiding totals.",
+    },
+    steady: {
+      label: "Steady month (routine bills on track)",
+      blurb:
+        "<strong>Who:</strong> Two incomes, most categories healthy. <strong>Useful graph:</strong> confirm nothing weird before assigning the last dollars.",
+      slices: [
+        { name: "Groceries", pct: 22, col: "c1", delta: "+$12" },
+        { name: "Housing", pct: 35, col: "c2", delta: "flat" },
+        { name: "Transit", pct: 8, col: "c3", delta: "−$8" },
+        { name: "Dining", pct: 12, col: "c4", delta: "+$40" },
+        { name: "Other", pct: 23, col: "c5", delta: "mixed" },
+      ],
+      rta: "$640 left to assign",
+      rtaClass: "",
+      sub: "Income and assignments are in sync. Assign what’s left so every dollar has a job before weekend spending.",
+      subCompare: " Dining is up about $40 vs last month — worth a quick look before you assign the remainder.",
+      nba1: {
+        title: "14 uncategorized transactions",
+        detail: "Coffee runs and delivery charges need categories so trends and rules stay honest.",
+        p1: "Review in Transactions",
+        p2: "Dismiss",
+      },
+      budget: {
+        month: 'March 2026 · <span style="color:var(--accent)">Tools ▾</span> <span style="opacity:0.5">(AI suggestions, copy month…)</span>',
+        inc: "$4.2k",
+        asg: "$3.56k",
+        rta: "$640",
+        flexI: 1.2,
+        flexA: 2,
+        flexR: 0.6,
+        hi: 100,
+        ha: 75,
+        hr: 35,
+        rows: [
+          { name: "Groceries", asg: "$500", avail: "$42", neg: false, pos: true },
+          { name: "Rent", asg: "$1,800", avail: "$0", neg: false, pos: false },
+          { name: "Dining out", asg: "$200", avail: "−$18", neg: true, pos: false },
+        ],
+      },
+      week: [55, 70, 45, 85, 55, 40],
+      topCat: [
+        { h: 90, bg: "var(--chart-1)" },
+        { h: 60, bg: "var(--chart-2)" },
+        { h: 45, bg: "var(--chart-3)" },
+        { h: 30, bg: "var(--chart-4)" },
+      ],
+      weekLabel: "Cash out by week (this month)",
+      catLabel: "Largest categories (month-to-date)",
+      txns: [
+        { day: "Today", payee: "Whole Foods", cat: "Groceries", acct: "Checking ··4242", amt: "−$47.20" },
+        { day: "Today", payee: "City Utilities", cat: "Utilities", acct: "Checking ··4242", amt: "−$112.00" },
+        { day: "Yesterday", payee: "Coffee Shop", cat: "Dining", acct: "Credit ··8810", amt: "−$6.50" },
+      ],
+      p4: { rta: "$640 RTA", nbaT: "Sync bank data", nbaD: "Last sync 5 days ago.", nbaB: "Sync now" },
+    },
+    tight: {
+      label: "Paycheck-to-paycheck (little slack)",
+      blurb:
+        "<strong>Who:</strong> Every dollar spoken for; small shocks hurt. <strong>Useful graph:</strong> see flexible vs fixed spend before moving money.",
+      slices: [
+        { name: "Housing", pct: 42, col: "c2", delta: "flat" },
+        { name: "Groceries", pct: 24, col: "c1", delta: "+$35" },
+        { name: "Dining", pct: 18, col: "c4", delta: "+$62" },
+        { name: "Kids / care", pct: 10, col: "c3", delta: "+$20" },
+        { name: "Other", pct: 6, col: "c5", delta: "−$10" },
+      ],
+      rta: "$0 ready to assign",
+      rtaClass: "warm",
+      sub: "You assigned every inflow. If something breaks, you’ll pull from Dining or Groceries first — both ran hot this month.",
+      subCompare: " Dining is the fastest-growing slice vs February — good candidate to trim before next payday.",
+      nba1: {
+        title: "Dining is $40 over the category",
+        detail: "Move $40 from Fun money or increase Dining if this is the new normal.",
+        p1: "Open Budget",
+        p2: "Snooze 3 days",
+      },
+      budget: {
+        month: 'March 2026 · <span style="color:var(--accent)">Tools ▾</span> <span style="opacity:0.5">(AI suggestions, copy month…)</span>',
+        inc: "$3.8k",
+        asg: "$3.8k",
+        rta: "$0",
+        flexI: 1.2,
+        flexA: 2.5,
+        flexR: 0.15,
+        hi: 100,
+        ha: 100,
+        hr: 12,
+        rows: [
+          { name: "Groceries", asg: "$420", avail: "−$8", neg: true, pos: false },
+          { name: "Rent", asg: "$1,650", avail: "$0", neg: false, pos: false },
+          { name: "Dining out", asg: "$150", avail: "−$40", neg: true, pos: false },
+        ],
+      },
+      week: [82, 95, 70, 88, 92, 78],
+      topCat: [
+        { h: 100, bg: "var(--chart-2)" },
+        { h: 72, bg: "var(--chart-1)" },
+        { h: 58, bg: "var(--chart-4)" },
+        { h: 35, bg: "var(--chart-3)" },
+      ],
+      weekLabel: "Weekly outflows (stress weeks taller)",
+      catLabel: "Fixed vs flexible (by spend)",
+      txns: [
+        { day: "Today", payee: "DoorDash", cat: "Dining", acct: "Debit ··9011", amt: "−$34.10" },
+        { day: "Today", payee: "Shell", cat: "Fuel", acct: "Credit ··8810", amt: "−$48.00" },
+        { day: "Yesterday", payee: "Target", cat: "Groceries", acct: "Debit ··9011", amt: "−$86.22" },
+      ],
+      p4: { rta: "$0 RTA", nbaT: "Cover Dining overspend", nbaD: "You’re $40 short in Dining with 6 days left.", nbaB: "Fix in Budget" },
+    },
+    newuser: {
+      label: "Brand new budgeter (sparse data)",
+      blurb:
+        "<strong>Who:</strong> First weeks in the app. <strong>Useful graph:</strong> gentle — mostly “uncategorized” until habits form.",
+      slices: [
+        { name: "Uncategorized", pct: 52, col: "c5", delta: "new" },
+        { name: "Groceries", pct: 20, col: "c1", delta: "new" },
+        { name: "Housing", pct: 18, col: "c2", delta: "new" },
+        { name: "Everything else", pct: 10, col: "c3", delta: "new" },
+      ],
+      rta: "$3,200 left to assign",
+      rtaClass: "",
+      sub: "First paycheck logged. Assign rent and groceries before fun categories — the donut will look meaningful after two weeks.",
+      subCompare: " Too early for month-over-month; focus on categorizing last week’s card charges.",
+      nba1: {
+        title: "Connect your primary checking",
+        detail: "Manual entry works, but auto-import saves Sunday reconciliation.",
+        p1: "Bank settings",
+        p2: "I’ll add CSV later",
+      },
+      budget: {
+        month: 'March 2026 · <span style="color:var(--accent)">Tools ▾</span> <span style="opacity:0.5">(AI suggestions, copy month…)</span>',
+        inc: "$3.2k",
+        asg: "$0",
+        rta: "$3.2k",
+        flexI: 1,
+        flexA: 0.2,
+        flexR: 3,
+        hi: 100,
+        ha: 15,
+        hr: 100,
+        rows: [
+          { name: "Rent (starter)", asg: "$0", avail: "$0", neg: false, pos: false },
+          { name: "Groceries", asg: "$0", avail: "$0", neg: false, pos: false },
+          { name: "Fun money", asg: "$0", avail: "$0", neg: false, pos: false },
+        ],
+      },
+      week: [20, 35, 15, 40, 25, 30],
+      topCat: [
+        { h: 55, bg: "var(--chart-5)" },
+        { h: 40, bg: "var(--chart-1)" },
+        { h: 25, bg: "var(--chart-2)" },
+      ],
+      weekLabel: "Activity still light (keep importing)",
+      catLabel: "Where labeling exists so far",
+      txns: [
+        { day: "Today", payee: "VENMO *SARAH", cat: "Uncategorized", acct: "Checking ··4242", amt: "−$60.00" },
+        { day: "Yesterday", payee: "Trader Joe's", cat: "Groceries", acct: "Checking ··4242", amt: "−$54.30" },
+      ],
+      p4: { rta: "$3.2k RTA", nbaT: "Name your top 3 bills", nbaD: "Assign rent, groceries, and transport first.", nbaB: "Start assigning" },
+    },
+    overassigned: {
+      label: "Over-assigned (math doesn’t close)",
+      blurb:
+        "<strong>Who:</strong> Ready to Assign went negative. <strong>Useful graph:</strong> RTA strip should scream before the donut decorates it.",
+      slices: [
+        { name: "Housing", pct: 38, col: "c2", delta: "flat" },
+        { name: "Groceries", pct: 20, col: "c1", delta: "+$5" },
+        { name: "Savings goals", pct: 15, col: "c3", delta: "+$200" },
+        { name: "Dining", pct: 14, col: "c4", delta: "+$15" },
+        { name: "Other", pct: 13, col: "c5", delta: "mixed" },
+      ],
+      rta: "−$120 ready to assign",
+      rtaClass: "negative",
+      sub: "You assigned $120 more than you have in this month’s inflow. Pull money back from goals or categories until this reads $0.",
+      subCompare: " Savings goals jumped vs February — that’s often where over-assignment hides.",
+      nba1: {
+        title: "Budget is over-assigned",
+        detail: "Ready to Assign is negative until you move $120 from categories or add income.",
+        p1: "Fix in Budget",
+        p2: "Learn why",
+      },
+      budget: {
+        month: 'March 2026 · <span style="color:var(--accent)">Tools ▾</span> <span style="opacity:0.5">(AI suggestions, copy month…)</span>',
+        inc: "$4.0k",
+        asg: "$4.12k",
+        rta: "−$120",
+        flexI: 1.2,
+        flexA: 2.6,
+        flexR: 0.4,
+        hi: 100,
+        ha: 105,
+        hr: 22,
+        rows: [
+          { name: "Emergency fund", asg: "$400", avail: "$400", neg: false, pos: true },
+          { name: "Rent", asg: "$1,800", avail: "$0", neg: false, pos: false },
+          { name: "Dining out", asg: "$250", avail: "−$30", neg: true, pos: false },
+        ],
+      },
+      week: [60, 55, 70, 65, 80, 75],
+      topCat: [
+        { h: 85, bg: "var(--chart-2)" },
+        { h: 55, bg: "var(--chart-1)" },
+        { h: 50, bg: "var(--chart-3)" },
+        { h: 40, bg: "var(--chart-4)" },
+      ],
+      weekLabel: "Outflows by week",
+      catLabel: "Categories (while over-assigned)",
+      txns: [
+        { day: "Today", payee: "IRA transfer", cat: "Investing", acct: "Checking ··4242", amt: "−$200.00" },
+        { day: "Yesterday", payee: "Landlord", cat: "Rent", acct: "Checking ··4242", amt: "−$1,800.00" },
+      ],
+      p4: { rta: "−$120 RTA", nbaT: "Pull back $120", nbaD: "Tap a funded category to cover the gap.", nbaB: "Open Budget" },
+    },
+    freelance: {
+      label: "Irregular income (lumpy cashflow)",
+      blurb:
+        "<strong>Who:</strong> Freelance / commission. <strong>Useful graph:</strong> keep a fat Ready to Assign until invoices land.",
+      slices: [
+        { name: "Taxes / HSA", pct: 22, col: "c3", delta: "bucket up" },
+        { name: "Housing", pct: 30, col: "c2", delta: "flat" },
+        { name: "Business", pct: 18, col: "c4", delta: "reimbursements" },
+        { name: "Groceries", pct: 16, col: "c1", delta: "+$22" },
+        { name: "Other", pct: 14, col: "c5", delta: "lumpy" },
+      ],
+      rta: "$2,100 ready to assign",
+      rtaClass: "",
+      sub: "Two invoices are still expected this month. Don’t zero RTA until you’ve buffered tax withholding and slow weeks.",
+      subCompare: " Business spend is noisier than February — filter reimbursements before reading the donut.",
+      nba1: {
+        title: "Buffer for irregular weeks",
+        detail: "Consider a holding category for invoices so RTA doesn’t look artificially high.",
+        p1: "Add “Income holding”",
+        p2: "Remind me later",
+      },
+      budget: {
+        month: 'March 2026 · <span style="color:var(--accent)">Tools ▾</span> <span style="opacity:0.5">(AI suggestions, copy month…)</span>',
+        inc: "$5.1k",
+        asg: "$3.0k",
+        rta: "$2.1k",
+        flexI: 1.4,
+        flexA: 1.6,
+        flexR: 1.8,
+        hi: 100,
+        ha: 58,
+        hr: 55,
+        rows: [
+          { name: "Taxes (25%)", asg: "$800", avail: "$120", neg: false, pos: true },
+          { name: "Rent", asg: "$1,800", avail: "$0", neg: false, pos: false },
+          { name: "Software", asg: "$220", avail: "$15", neg: false, pos: true },
+        ],
+      },
+      week: [40, 55, 30, 95, 45, 50],
+      topCat: [
+        { h: 70, bg: "var(--chart-2)" },
+        { h: 55, bg: "var(--chart-3)" },
+        { h: 48, bg: "var(--chart-1)" },
+        { h: 42, bg: "var(--chart-4)" },
+      ],
+      weekLabel: "Lumpy weeks (invoice week spikes)",
+      catLabel: "Spend mix (business vs personal)",
+      txns: [
+        { day: "Today", payee: "Adobe", cat: "Software", acct: "Biz ··2201", amt: "−$54.99" },
+        { day: "Yesterday", payee: "Client deposit", cat: "Inflow", acct: "Biz ··2201", amt: "+$2,500.00" },
+      ],
+      p4: { rta: "$2.1k RTA", nbaT: "Invoice expected Friday", nbaD: "Don’t assign the last $800 until it clears.", nbaB: "View cash flow" },
+    },
+    stale: {
+      label: "Connected bank, stale sync",
+      blurb:
+        "<strong>Who:</strong> Relies on imports. <strong>Useful graph:</strong> warn when data is old so charts aren’t confidently wrong.",
+      slices: [
+        { name: "Groceries", pct: 24, col: "c1", delta: "stale" },
+        { name: "Housing", pct: 34, col: "c2", delta: "stale" },
+        { name: "Transit", pct: 9, col: "c3", delta: "stale" },
+        { name: "Dining", pct: 15, col: "c4", delta: "stale" },
+        { name: "Other", pct: 18, col: "c5", delta: "stale" },
+      ],
+      rta: "$640 left to assign",
+      rtaClass: "",
+      sub: "Charts reflect data through last sync (5 days ago). Pull fresh transactions before trusting category trends.",
+      subCompare: " Comparison vs last month is unreliable until you sync — several days missing.",
+      nba1: {
+        title: "Bank feed is 5 days behind",
+        detail: "Your donut is under-counting recent card swipes.",
+        p1: "Sync now",
+        p2: "Snooze",
+      },
+      budget: {
+        month: 'March 2026 · <span style="color:var(--accent)">Tools ▾</span> <span style="opacity:0.5">(AI suggestions, copy month…)</span>',
+        inc: "$4.2k",
+        asg: "$3.56k",
+        rta: "$640",
+        flexI: 1.2,
+        flexA: 2,
+        flexR: 0.6,
+        hi: 100,
+        ha: 75,
+        hr: 35,
+        rows: [
+          { name: "Groceries", asg: "$500", avail: "$42", neg: false, pos: true },
+          { name: "Rent", asg: "$1,800", avail: "$0", neg: false, pos: false },
+          { name: "Dining out", asg: "$200", avail: "−$18", neg: true, pos: false },
+        ],
+      },
+      week: [45, 50, 40, 48, 44, 42],
+      topCat: [
+        { h: 75, bg: "var(--chart-2)" },
+        { h: 58, bg: "var(--chart-1)" },
+        { h: 42, bg: "var(--chart-4)" },
+        { h: 28, bg: "var(--chart-3)" },
+      ],
+      weekLabel: "Last synced 5 days ago (bars may be low)",
+      catLabel: "Top categories (incomplete month)",
+      txns: [
+        { day: "Last synced Wed", payee: "…", cat: "…", acct: "—", amt: "—" },
+        { day: "Today", payee: "Pending import", cat: "—", acct: "—", amt: "—" },
+      ],
+      p4: { rta: "$640 RTA", nbaT: "Sync bank data", nbaD: "Last sync 5 days ago — charts are stale.", nbaB: "Sync now" },
+    },
+    debt_payoff: {
+      label: "Deep focus: paying off debt",
+      blurb:
+        "<strong>Who:</strong> wants the balance chart to hurt less every month. <strong>Useful graph:</strong> show interest-heavy categories and extra payments vs minimums — avalanche order visible in the budget rows, not just a single “debt” blob.",
+      slices: [
+        { name: "Debt payments", pct: 34, col: "c5", delta: "+$200 extra" },
+        { name: "Housing", pct: 28, col: "c2", delta: "flat" },
+        { name: "Groceries", pct: 18, col: "c1", delta: "+$10" },
+        { name: "Transport", pct: 9, col: "c3", delta: "flat" },
+        { name: "Everything else", pct: 11, col: "c4", delta: "trimmed" },
+      ],
+      rta: "$95 left to assign",
+      rtaClass: "warm",
+      sub: "Almost everything is spoken for. Any new dollars should probably answer: which APR drops next after the safety buffer you keep?",
+      subCompare: " Extra to Visa was up vs February — that’s the right shape if the goal is payoff.",
+      nba1: {
+        title: "Put the last $95 on the 22% card?",
+        detail: "Snowball would say smallest balance first; avalanche says this Visa. Pick the rule you’re following this quarter.",
+        p1: "Record extra payment",
+        p2: "See debt plan",
+      },
+      budget: {
+        month: 'March 2026 · <span style="color:var(--accent)">Tools ▾</span> <span style="opacity:0.5">(AI suggestions, copy month…)</span>',
+        inc: "$4.2k",
+        asg: "$4.1k",
+        rta: "$95",
+        flexI: 1.2,
+        flexA: 2.6,
+        flexR: 0.2,
+        hi: 100,
+        ha: 96,
+        hr: 18,
+        rows: [
+          { name: "Visa · 22% APR", asg: "$520", avail: "$0", neg: false, pos: false },
+          { name: "Car loan (min)", asg: "$310", avail: "$0", neg: false, pos: false },
+          { name: "Personal loan", asg: "$180", avail: "$0", neg: false, pos: false },
+        ],
+      },
+      week: [88, 82, 90, 85, 92, 80],
+      topCat: [
+        { h: 100, bg: "var(--chart-5)" },
+        { h: 65, bg: "var(--chart-2)" },
+        { h: 45, bg: "var(--chart-1)" },
+        { h: 30, bg: "var(--chart-3)" },
+      ],
+      weekLabel: "Heavy payment weeks (after payday)",
+      catLabel: "Debt vs life (while aggressive)",
+      txns: [
+        { day: "Today", payee: "Visa · extra principal", cat: "Debt", acct: "Checking ··4242", amt: "−$200.00" },
+        { day: "Yesterday", payee: "Car loan autopay", cat: "Debt", acct: "Checking ··4242", amt: "−$310.00" },
+      ],
+      p4: { rta: "$95 RTA", nbaT: "One more push this month?", nbaD: "$95 could zero a small medical line item.", nbaB: "Apply to debt" },
+    },
+    home_or_debt: {
+      label: "Deep focus: home projects vs debt tradeoff",
+      blurb:
+        "<strong>Who:</strong> has a real project (deck, HVAC, kitchen) competing with expensive debt. <strong>Useful graph:</strong> side-by-side <em>project sinking balance</em> vs <em>interest cost of waiting</em> on the card — the UI should surface “$1 here = $X/year there” without a spreadsheet.",
+      slices: [
+        { name: "Housing & utilities", pct: 32, col: "c2", delta: "flat" },
+        { name: "Debt (mins + some extra)", pct: 26, col: "c5", delta: "mins locked" },
+        { name: "Deck / reno sink", pct: 14, col: "c4", delta: "+$120" },
+        { name: "Groceries", pct: 16, col: "c1", delta: "+$8" },
+        { name: "Rest", pct: 12, col: "c3", delta: "mixed" },
+      ],
+      rta: "$520 left to assign",
+      rtaClass: "",
+      sub: "Classic tension: $520 could shave the card or jump-start the deck fund. The product should let you model both without losing the emotional win of the house.",
+      subCompare: " Reno bucket grew faster than extra debt in February — note the APR you’re carrying while doing that.",
+      nba1: {
+        title: "Deck fund vs 22% Visa: pick this month’s split",
+        detail: "Rough rule: don’t grow reno while rolling a balance at >15% unless the project prevents bigger loss (leak, safety).",
+        p1: "Split $520",
+        p2: "Simulate in Plan",
+      },
+      budget: {
+        month: 'March 2026 · <span style="color:var(--accent)">Tools ▾</span> <span style="opacity:0.5">(AI suggestions, copy month…)</span>',
+        inc: "$4.6k",
+        asg: "$4.08k",
+        rta: "$520",
+        flexI: 1.2,
+        flexA: 2.1,
+        flexR: 0.55,
+        hi: 100,
+        ha: 78,
+        hr: 38,
+        rows: [
+          { name: "Visa (22%)", asg: "$400", avail: "−$15", neg: true, pos: false },
+          { name: "Deck / backyard", asg: "$250", avail: "$180", neg: false, pos: true },
+          { name: "Emergency buffer", asg: "$500", avail: "$500", neg: false, pos: true },
+        ],
+      },
+      week: [55, 62, 58, 70, 60, 55],
+      topCat: [
+        { h: 78, bg: "var(--chart-2)" },
+        { h: 62, bg: "var(--chart-5)" },
+        { h: 52, bg: "var(--chart-4)" },
+        { h: 38, bg: "var(--chart-1)" },
+      ],
+      weekLabel: "Weeks when materials hit the card",
+      catLabel: "House project vs interest-bearing spend",
+      txns: [
+        { day: "Today", payee: "Home Depot", cat: "Deck / backyard", acct: "Visa ··8810", amt: "−$240.00" },
+        { day: "Yesterday", payee: "Visa payment", cat: "Debt", acct: "Checking ··4242", amt: "−$400.00" },
+      ],
+      p4: { rta: "$520 RTA", nbaT: "Reno paused until Visa?", nbaD: "You’re slightly over on Visa; deck still has $180 ready.", nbaB: "Rebalance" },
+    },
+    trip_fund: {
+      label: "Deep focus: budgeting for trips",
+      blurb:
+        "<strong>Who:</strong> won’t skip travel but refuses surprise-card debt. <strong>Useful graph:</strong> trip as a <em>first-class bucket</em> — funded monthly, with a countdown (months × $/mo) and optional “pause other sinks” when airfare drops.",
+      slices: [
+        { name: "Housing", pct: 30, col: "c2", delta: "flat" },
+        { name: "Life / groceries", pct: 24, col: "c1", delta: "+$12" },
+        { name: "Japan 2026 (sink)", pct: 18, col: "c3", delta: "+$100" },
+        { name: "Debt mins", pct: 15, col: "c5", delta: "flat" },
+        { name: "Fun & dining", pct: 13, col: "c4", delta: "−$20" },
+      ],
+      rta: "$275 left to assign",
+      rtaClass: "",
+      sub: "Trip math: $2.6k still needed, ~4 months → about $650/mo if nothing else moves — or stretch timeline and lower monthly pain.",
+      subCompare: " Trip funding steadier than dining vs last month — good if June flights are the deadline.",
+      nba1: {
+        title: "June trip: $922 saved · $2.6k to go",
+        detail: "At $100/mo you’ll be short; bump to $175/mo or move departure. Want a one-tap “make it work” suggestion?",
+        p1: "Adjust monthly trip $",
+        p2: "See calendar",
+      },
+      budget: {
+        month: 'March 2026 · <span style="color:var(--accent)">Tools ▾</span> <span style="opacity:0.5">(AI suggestions, copy month…)</span>',
+        inc: "$4.5k",
+        asg: "$4.22k",
+        rta: "$275",
+        flexI: 1.2,
+        flexA: 2.15,
+        flexR: 0.35,
+        hi: 100,
+        ha: 80,
+        hr: 30,
+        rows: [
+          { name: "Japan 2026", asg: "$400", avail: "$922", neg: false, pos: true },
+          { name: "Weekend trips (misc)", asg: "$80", avail: "$12", neg: false, pos: false },
+          { name: "Groceries", asg: "$550", avail: "$31", neg: false, pos: true },
+        ],
+      },
+      week: [50, 48, 55, 62, 58, 52],
+      topCat: [
+        { h: 70, bg: "var(--chart-2)" },
+        { h: 58, bg: "var(--chart-3)" },
+        { h: 50, bg: "var(--chart-1)" },
+        { h: 40, bg: "var(--chart-5)" },
+      ],
+      weekLabel: "Weeks with trip transfers vs normal spend",
+      catLabel: "Trip sink vs everything else",
+      txns: [
+        { day: "Today", payee: "To Japan sinking fund", cat: "Japan 2026", acct: "Checking ··4242", amt: "−$100.00" },
+        { day: "Yesterday", payee: "United Airlines", cat: "Japan 2026", acct: "Credit ··8810", amt: "−$412.00" },
+      ],
+      p4: { rta: "$275 RTA", nbaT: "Flight charged — true up fund", nbaD: "Move $312 from RTA or dining to Japan this week.", nbaB: "Cover from categories" },
+    },
+  };
+
+  function mergeSmall(slices, merge) {
+    if (!merge) return slices.map((s) => ({ ...s }));
+    const TH = 6;
+    const out = [];
+    let other = 0;
+    const otherCols = [];
+    for (const s of slices) {
+      if (s.pct < TH) {
+        other += s.pct;
+        otherCols.push(s.col);
+      } else out.push({ ...s });
+    }
+    if (other > 0) {
+      out.push({
+        name: "Other (small categories)",
+        pct: other,
+        col: "c5",
+        delta: "merged",
+      });
+    }
+    return out;
+  }
+
+  function conicGradient(slices) {
+    let a = 0;
+    const parts = [];
+    for (const s of slices) {
+      const w = (s.pct / 100) * 360;
+      const col = COL[s.col] || s.col;
+      parts.push(`${col} ${a}deg ${a + w}deg`);
+      a += w;
+    }
+    if (a < 360) parts.push(`${COL.c5} ${a}deg 360deg`);
+    return `conic-gradient(${parts.join(", ")})`;
+  }
+
+  function legendHTML(slices, frame) {
+    return slices
+      .map((s) => {
+        const col = COL[s.col] || s.col;
+        let line = s.name;
+        if (frame === "pctIncome") line += ` · ${s.pct}% of take-home`;
+        else if (frame === "story") line += ` · ${s.pct}%`;
+        if (frame === "compare" && s.delta) line += ` <span style="opacity:0.85">(${s.delta})</span>`;
+        return `<span><i style="background:${col}"></i>${line}</span>`;
+      })
+      .join("");
+  }
+
+  function catRowsHTML(rows) {
+    return rows
+      .map((r) => {
+        let color = "var(--text)";
+        if (r.neg) color = "#e88a7a";
+        else if (r.pos) color = "var(--accent)";
+        return `<div class="cat-row">
+          <span>${r.name}</span>
+          <span class="amt" style="text-align:right">${r.asg}</span>
+          <span class="spark" style="justify-content:center"><b></b><b></b><b></b><b></b><b></b></span>
+          <span class="amt" style="text-align:right;color:${color}">${r.avail}</span>
+        </div>`;
+      })
+      .join("");
+  }
+
+  function barsHTML(heights, colors) {
+    return heights
+      .map((h, i) => {
+        const bg = colors && colors[i] ? colors[i] : "";
+        const style = `height:${h}%;${bg ? "background:" + bg : ""}`;
+        return `<div style="${style}"></div>`;
+      })
+      .join("");
+  }
+
+  function txnsHTML(groups) {
+    const byDay = {};
+    for (const t of groups) {
+      if (!byDay[t.day]) byDay[t.day] = [];
+      byDay[t.day].push(t);
+    }
+    let html = "";
+    for (const day of Object.keys(byDay)) {
+      html += `<div class="timeline-day">${day}</div>`;
+      for (const t of byDay[day]) {
+        html += `<div class="txn">
+          <div class="left">
+            <span class="payee">${t.payee}</span>
+            <span class="meta"><span class="pill">${t.cat}</span> · ${t.acct}</span>
+          </div>
+          <span class="amt" style="color:${t.amt.startsWith("+") ? "var(--accent)" : "#e88a7a"}">${t.amt}</span>
+        </div>`;
+      }
+    }
+    return html;
+  }
+
+  function parseMoney(raw) {
+    if (raw == null) return NaN;
+    let t = String(raw).trim();
+    const neg = /^[\u2212-]/.test(t);
+    t = t.replace(/^[\u2212-]\s*/, "");
+    t = t.replace(/[$,\s]/g, "");
+    let mult = 1;
+    if (/k$/i.test(t)) {
+      mult = 1000;
+      t = t.replace(/k$/i, "");
+    }
+    const n = parseFloat(t);
+    if (Number.isNaN(n)) return NaN;
+    return (neg ? -1 : 1) * n * mult;
+  }
+
+  function deriveKpis(s) {
+    const inc = parseMoney(s.budget.inc);
+    const asg = parseMoney(s.budget.asg);
+    const rta = parseMoney(s.budget.rta);
+    const pct = inc > 0 && !Number.isNaN(asg) ? Math.round((asg / inc) * 100) : null;
+    const rtaState = Number.isNaN(rta) ? "neu" : rta < 0 ? "bad" : rta < 200 ? "warn" : "ok";
+    const attn =
+      s.nba1.title.length > 26 ? s.nba1.title.slice(0, 26).trim() + "…" : s.nba1.title;
+    return [
+      {
+        label: "Ready to assign",
+        value: s.budget.rta,
+        hint: rta < 0 ? "Over-assigned — rebalance categories" : "Still need a job this month",
+        state: rtaState,
+      },
+      {
+        label: "Assigned",
+        value: s.budget.asg,
+        hint: pct != null ? pct + "% of income · spoken for" : "Share of income spoken for",
+        state: "neu",
+      },
+      {
+        label: "Income",
+        value: s.budget.inc,
+        hint: "Recorded inflows (this month)",
+        state: "neu",
+      },
+      {
+        label: "Attention",
+        value: attn,
+        hint: "Next best action headline",
+        state: "warn",
+      },
+    ];
+  }
+
+  function kpiHtml(kpis) {
+    return kpis
+      .map(
+        (k) =>
+          `<div class="kpi-card state-${k.state}"><div class="k-label">${k.label}</div><div class="k-val">${k.value}</div><div class="k-hint">${k.hint}</div></div>`,
+      )
+      .join("");
+  }
+
+  function bridgeHtml(s) {
+    const inc = parseMoney(s.budget.inc);
+    const asg = parseMoney(s.budget.asg);
+    const rta = parseMoney(s.budget.rta);
+    if (!inc || inc <= 0 || Number.isNaN(inc)) {
+      return '<div class="bridge-seg gap" style="width:100%">Income not shown — cannot draw bridge</div>';
+    }
+    const asgW = Math.min(100, Math.max(0, (asg / inc) * 100));
+    if (!Number.isNaN(rta) && rta < 0) {
+      const overW = Math.min(38, Math.max(8, (-rta / inc) * 100));
+      const rest = Math.max(0, 100 - asgW - overW);
+      let h = "";
+      if (asgW > 0.5) {
+        h += `<div class="bridge-seg assigned" style="width:${asgW}%">${s.budget.asg}<br><span style="opacity:0.8;font-size:0.55rem">assigned</span></div>`;
+      }
+      h += `<div class="bridge-seg over" style="width:${overW}%">${s.budget.rta}<br><span style="opacity:0.8;font-size:0.55rem">over</span></div>`;
+      if (rest > 1) {
+        h += `<div class="bridge-seg gap" style="width:${rest}%"></div>`;
+      }
+      return h;
+    }
+    const rtaW = Number.isNaN(rta) ? 0 : Math.max(0, (rta / inc) * 100);
+    const gapW = Math.max(0, 100 - asgW - rtaW);
+    let h = "";
+    if (asgW > 0.5) {
+      h += `<div class="bridge-seg assigned" style="width:${asgW}%">${s.budget.asg}<br><span style="opacity:0.8;font-size:0.55rem">assigned</span></div>`;
+    }
+    if (rtaW > 0.5) {
+      h += `<div class="bridge-seg rta" style="width:${rtaW}%">${s.budget.rta}<br><span style="opacity:0.8;font-size:0.55rem">RTA</span></div>`;
+    }
+    if (gapW > 1.5) {
+      h += `<div class="bridge-seg gap" style="width:${gapW}%">timing / unbudgeted</div>`;
+    }
+    return h || '<div class="bridge-seg gap" style="width:100%">—</div>';
+  }
+
+  function bridgeLegendHtml(s, rtaNeg) {
+    let h = `<span><i style="background:var(--accent-dim)"></i>Assigned — ${s.budget.asg}</span>`;
+    if (rtaNeg) {
+      h += `<span><i style="background:#c44a3a"></i>Over-assigned — ${s.budget.rta}</span>`;
+    } else {
+      h += `<span><i style="background:var(--chart-4)"></i>Ready to assign — ${s.budget.rta}</span>`;
+    }
+    h += `<span><i style="background:rgba(255,255,255,0.08)"></i>Income base — ${s.budget.inc}</span>`;
+    return h;
+  }
+
+  function deriveInsights(s) {
+    if (s.insights) return s.insights;
+    const rta = parseMoney(s.budget.rta);
+    return [
+      {
+        q: "Is the plan mathematically closed?",
+        a:
+          rta < 0
+            ? `RTA is ${s.budget.rta}. You assigned more than inflow — fix this before debating debt vs trips.`
+            : `RTA is ${s.budget.rta}. Anything positive is the pool for debt snowballs, home sinks, or travel — pick intentionally.`,
+      },
+      {
+        q: "Why two charts?",
+        a: "The bridge answers <strong>jobs for dollars</strong> (YNAB-style). The donut answers <strong>where spending landed by category</strong>. Both are honest; they answer different questions.",
+      },
+      {
+        q: "What one action moves the needle?",
+        a: s.nba1.detail,
+      },
+    ];
+  }
+
+  function insightHtml(items) {
+    return items
+      .map(
+        (x) =>
+          `<div class="insight-card"><div class="iq">${x.q}</div><div class="ia">${x.a}</div></div>`,
+      )
+      .join("");
+  }
+
+  function p3Caption(s) {
+    if (s.p3Caption) return s.p3Caption;
+    return `Weekly rhythm: ${s.weekLabel.toLowerCase()}. Category tower: ${s.catLabel.toLowerCase()}. Filter chips (mock) map to how you actually think about money — debt, home, trips — while keeping one unified ledger.`;
+  }
+
+  function apply() {
+    const id = document.getElementById("pick-scenario").value;
+    const frame = document.querySelector('input[name="frame"]:checked').value;
+    const merge = document.getElementById("pick-merge").value === "merge";
+    const s = SCENARIOS[id];
+    const fr = FRAMES[frame];
+
+    const slices = mergeSmall(s.slices, merge);
+    const grad = conicGradient(slices);
+
+    document.getElementById("scenario-blurb-text").innerHTML = s.blurb;
+    document.getElementById("frame-hint").textContent = fr.hint;
+
+    document.getElementById("mock-view-steps").innerHTML =
+      "<strong>How to read this screen:</strong> (1) Scan KPIs. (2) Read the <em>bridge</em> for plan math and the <em>donut</em> for spend mix — side by side. (3) Use the three sanity checks. (4) Then open Budget or Activity if something looks off.";
+
+    const kpis = deriveKpis(s);
+    document.getElementById("mock-kpi-strip").innerHTML = kpiHtml(kpis);
+    const p4k = document.getElementById("mock-p4-kpis");
+    if (p4k) p4k.innerHTML = kpiHtml(kpis);
+
+    document.getElementById("mock-bridge-track").innerHTML = bridgeHtml(s);
+    const b4 = document.getElementById("mock-bridge-track-4");
+    if (b4) b4.innerHTML = bridgeHtml(s);
+
+    const rtaNeg = parseMoney(s.budget.rta) < 0;
+    document.getElementById("mock-bridge-legend").innerHTML = bridgeLegendHtml(s, rtaNeg);
+    document.getElementById("mock-insight-grid").innerHTML = insightHtml(deriveInsights(s));
+
+    const cap = document.getElementById("mock-p3-caption");
+    if (cap) cap.textContent = p3Caption(s);
+
+    document.getElementById("mock-chart-title-1").textContent = fr.title;
+    document.getElementById("mock-donut-1").style.background = grad;
+    const d4 = document.getElementById("mock-donut-4");
+    if (d4) d4.style.background = grad;
+
+    document.getElementById("mock-legend-1").innerHTML = legendHTML(slices, frame);
+
+    const big = document.getElementById("mock-rta-big");
+    big.textContent = s.rta;
+    big.className = "big" + (s.rtaClass ? " " + s.rtaClass : "");
+
+    let sub = s.sub;
+    if (frame === "compare" && s.subCompare) sub += s.subCompare;
+    document.getElementById("mock-rta-sub").textContent = sub;
+
+    document.getElementById("mock-nba-title-1").textContent = s.nba1.title;
+    document.getElementById("mock-nba-detail-1").textContent = s.nba1.detail;
+    document.getElementById("mock-nba-p1-1").textContent = s.nba1.p1;
+    document.getElementById("mock-nba-p2-1").textContent = s.nba1.p2;
+
+    const b = s.budget;
+    document.getElementById("mock-p2-month").innerHTML = b.month;
+    document.getElementById("mock-p2-seg-i").textContent = b.inc;
+    document.getElementById("mock-p2-seg-a").textContent = b.asg;
+    document.getElementById("mock-p2-seg-r").textContent = b.rta;
+    document.getElementById("mock-p2-seg-i").style.flex = b.flexI;
+    document.getElementById("mock-p2-seg-a").style.flex = b.flexA;
+    document.getElementById("mock-p2-seg-r").style.flex = b.flexR;
+    document.getElementById("mock-p2-seg-i").style.height = b.hi + "%";
+    document.getElementById("mock-p2-seg-a").style.height = b.ha + "%";
+    document.getElementById("mock-p2-seg-r").style.height = b.hr + "%";
+    const segR = document.getElementById("mock-p2-seg-r");
+    if (rtaNeg) {
+      segR.style.background = "#e88a7a";
+    } else {
+      segR.style.background = "";
+      segR.className = "rta-seg c";
+    }
+
+    document.getElementById("mock-p2-rows").innerHTML = catRowsHTML(b.rows);
+
+    document.getElementById("mock-p3-week-label").textContent = s.weekLabel;
+    document.getElementById("mock-p3-cat-label").textContent = s.catLabel;
+    document.getElementById("mock-p3-week-bars").innerHTML = barsHTML(s.week);
+    document.getElementById("mock-p3-cat-bars").innerHTML = barsHTML(
+      s.topCat.map((x) => x.h),
+      s.topCat.map((x) => x.bg),
+    );
+
+    document.getElementById("mock-p3-txns").innerHTML = txnsHTML(s.txns);
+
+    document.getElementById("mock-p4-rta").textContent = s.p4.rta;
+    document.getElementById("mock-p4-nba-title").textContent = s.p4.nbaT;
+    document.getElementById("mock-p4-nba-detail").textContent = s.p4.nbaD;
+    document.getElementById("mock-p4-nba-btn").textContent = s.p4.nbaB;
+
+    const p4rta = document.getElementById("mock-p4-rta");
+    p4rta.className = "big" + (s.rtaClass ? " " + s.rtaClass : "");
+    p4rta.style.fontSize = "1.05rem";
+    p4rta.style.marginTop = "0.35rem";
+  }
+
+  const sel = document.getElementById("pick-scenario");
+  for (const key of Object.keys(SCENARIOS)) {
+    const o = document.createElement("option");
+    o.value = key;
+    o.textContent = SCENARIOS[key].label;
+    sel.appendChild(o);
+  }
+
+  sel.addEventListener("change", apply);
+  document.getElementById("pick-merge").addEventListener("change", apply);
+  document.querySelectorAll('input[name="frame"]').forEach((r) => r.addEventListener("change", apply));
+
+  apply();
+})();
+  </script>
+
+</body>
+</html>

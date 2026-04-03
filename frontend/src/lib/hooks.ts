@@ -67,6 +67,19 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+/** FastAPI-style `detail` from a parsed JSON body (e.g. fetch + JSON.parse). */
+export function detailFromJsonBody(body: unknown): string | null {
+  if (body === null || typeof body !== "object") return null;
+  const d = (body as { detail?: unknown }).detail;
+  if (d === undefined) return null;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d) && d.length > 0) {
+    const first = d[0] as { msg?: string; loc?: (string | number)[] };
+    return String(first?.msg ?? first?.loc?.join(".") ?? JSON.stringify(first));
+  }
+  return String(d);
+}
+
 /** Resolved theme --chart-* colors for Recharts (client-only; falls back until mounted). */
 export function useChartColors(max = 8): string[] {
   const isClient = useIsClient();

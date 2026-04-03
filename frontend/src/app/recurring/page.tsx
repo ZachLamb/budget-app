@@ -3,12 +3,18 @@
 import { useState } from "react";
 import { AuthGuard } from "@/components/auth-guard";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { recurringApi, type RecurringTransaction, type RecurringCreate } from "@/lib/api/recurring";
+import {
+  recurringApi,
+  type RecurringTransaction,
+  type RecurringCreate,
+  type RecurringSuggestion,
+} from "@/lib/api/recurring";
 import { accountsApi, type Account } from "@/lib/api/accounts";
 import { payeesApi, type Payee } from "@/lib/api/payees";
 import { formatCurrency } from "@/lib/format";
 import { useFlatCategories, getApiErrorMessage, useIsClient } from "@/lib/hooks";
-import { Card, CardContent } from "@/components/ui/card";
+import { toastApiError } from "@/lib/toast-error";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,10 +22,11 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Trash2, Pencil } from "lucide-react";
-import { toast } from "sonner";
+import { Plus, Trash2, Pencil, Lightbulb, CircleHelp } from "lucide-react";
+import { appToast } from "@/lib/app-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
+import { CancelGuideDialog } from "@/components/cancel-guide-dialog";
 
 const FREQUENCIES = [
   { value: "weekly", label: "Weekly" },
@@ -123,6 +130,8 @@ function RecurringContent() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [addForm, setAddForm] = useState<RecurringCreate>({ ...EMPTY_FORM });
   const [editForm, setEditForm] = useState<RecurringCreate>({ ...EMPTY_FORM });
+  const [cancelGuideOpen, setCancelGuideOpen] = useState(false);
+  const [cancelGuidePayee, setCancelGuidePayee] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
   const isClient = useIsClient();
@@ -130,6 +139,11 @@ function RecurringContent() {
   const { data: items = [], isLoading, isError, error } = useQuery({
     queryKey: ["recurring"],
     queryFn: recurringApi.list,
+    enabled: isClient,
+  });
+  const { data: suggestions = [], isLoading: suggestionsLoading } = useQuery({
+    queryKey: ["recurring-suggestions", 90],
+    queryFn: () => recurringApi.suggestions(90),
     enabled: isClient,
   });
   const { data: accounts = [] } = useQuery({
@@ -149,11 +163,21 @@ function RecurringContent() {
     mutationFn: recurringApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["recurring"] });
-      toast.success("Recurring transaction created");
+      queryClient.invalidateQueries({ queryKey: ["recurring-suggestions"] });
+      appToast.success("Recurring transaction created");
       setAddOpen(false);
       setAddForm({ ...EMPTY_FORM });
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to create")),
+    onError: (e) => toastApiError("Failed to create", e),
+  });
+
+  const dismissSuggestionMutation = useMutation({
+    mutationFn: recurringApi.dismissSuggestion,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["recurring-suggestions"] });
+      appToast.success("Suggestion hidden");
+    },
+    onError: (e) => toastApiError("Failed to dismiss", e),
   });
 
   const updateMutation = useMutation({
@@ -161,20 +185,38 @@ function RecurringContent() {
       recurringApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["recurring"] });
-      toast.success("Updated");
+      appToast.success("Updated");
       setEditItem(null);
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to update")),
+    onError: (e) => toastApiError("Failed to update", e),
   });
 
   const deleteMutation = useMutation({
     mutationFn: recurringApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["recurring"] });
-      toast.success("Deleted");
+      appToast.success("Deleted");
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, "Failed to delete")),
+    onError: (e) => toastApiError("Failed to delete", e),
   });
+
+  const openCancelGuide = (payeeName: string) => {
+    setCancelGuidePayee(payeeName);
+    setCancelGuideOpen(true);
+  };
+
+  const applySuggestion = (s: RecurringSuggestion) => {
+    setAddForm({
+      payee_id: s.payee_id,
+      amount: s.suggested_amount,
+      frequency: s.suggested_frequency,
+      next_date: s.suggested_next_date,
+      category_id: s.category_id ?? undefined,
+      account_id: s.account_id ?? undefined,
+      is_subscription: true,
+    });
+    setAddOpen(true);
+  };
 
   const openEdit = (item: RecurringTransaction) => {
     setEditItem(item);
@@ -213,6 +255,70 @@ function RecurringContent() {
         </Dialog>
       </div>
 
+      {(suggestionsLoading || suggestions.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Lightbulb className="h-4 w-4 text-amber-500" />
+              Suggested from your spending
+            </CardTitle>
+            <CardDescription>
+              Heuristic matches from budget-account outflows (last 90 days). Confirm or dismiss; dismiss is saved for this household.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {suggestionsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading suggestions…</p>
+            ) : (
+              suggestions.map((s) => (
+                <div
+                  key={s.dedupe_key}
+                  className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{s.payee_name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      ~{s.suggested_frequency} · {s.occurrence_count} similar charges · last{" "}
+                      {new Date(s.last_date + "T12:00:00").toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <span className="font-mono text-sm tabular-nums">
+                      {formatCurrency(s.suggested_amount)}
+                    </span>
+                    <Badge variant="secondary" className="text-xs">
+                      {Math.round(s.confidence * 100)}% confidence
+                    </Badge>
+                    <Button type="button" size="sm" onClick={() => applySuggestion(s)}>
+                      Add as recurring
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={dismissSuggestionMutation.isPending}
+                      onClick={() => dismissSuggestionMutation.mutate(s.dedupe_key)}
+                    >
+                      Dismiss
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1 text-muted-foreground"
+                      onClick={() => openCancelGuide(s.payee_name)}
+                    >
+                      <CircleHelp className="h-3.5 w-3.5" />
+                      How to cancel
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Edit dialog */}
       <Dialog open={!!editItem} onOpenChange={(o) => { if (!o) setEditItem(null); }}>
         <DialogContent>
@@ -234,6 +340,15 @@ function RecurringContent() {
         title="Delete Recurring Transaction"
         description="This will permanently delete this recurring transaction."
         onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId); }}
+      />
+
+      <CancelGuideDialog
+        payeeName={cancelGuidePayee}
+        open={cancelGuideOpen}
+        onOpenChange={(o) => {
+          setCancelGuideOpen(o);
+          if (!o) setCancelGuidePayee(null);
+        }}
       />
 
       <Card>
@@ -270,7 +385,19 @@ function RecurringContent() {
                       {formatCurrency(Number(item.amount))}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="flex items-center justify-end gap-1 flex-wrap">
+                        {item.payee_name ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-1.5 text-xs text-muted-foreground gap-1"
+                            onClick={() => openCancelGuide(item.payee_name!)}
+                            title="Cancellation steps (curated + generic)"
+                          >
+                            <CircleHelp className="h-3 w-3" />
+                            Cancel help
+                          </Button>
+                        ) : null}
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(item)}>
                           <Pencil className="h-3 w-3" />
                         </Button>

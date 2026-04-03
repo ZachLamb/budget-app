@@ -17,6 +17,8 @@ _ALLOWED_PREFIXES = (
     "/api/auth/login",
     "/api/auth/google/exchange",
     "/api/ai/",
+    "/api/cycle-commitments",
+    "/api/settings/cycle-review",
 )
 
 

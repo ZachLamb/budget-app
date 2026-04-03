@@ -2,7 +2,6 @@ import api from "./client";
 
 export interface AiStatus {
   ollama_available: boolean;
-  claude_available: boolean;
   active_backend: string;
 }
 

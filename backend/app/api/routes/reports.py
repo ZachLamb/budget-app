@@ -2,7 +2,7 @@ from decimal import Decimal
 from datetime import date
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, extract, case
+from sqlalchemy import select, func, extract, case, literal_column
 from typing import Optional
 
 from app.database import get_db
@@ -72,9 +72,13 @@ async def spending_by_month(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):
+    # Use a single expression + literal format string. Repeating to_char(..., "YYYY-MM") with a
+    # bound format made GROUP BY/ORDER BY disagree under asyncpg (distinct $1/$2 params → PG 42803).
+    _month_fmt = literal_column("'YYYY-MM'")
+    month_key = func.to_char(Transaction.date, _month_fmt)
     query = (
         select(
-            func.to_char(Transaction.date, "YYYY-MM").label("month"),
+            month_key.label("month"),
             func.sum(
                 case(
                     (Transaction.amount < 0, Transaction.amount),
@@ -93,8 +97,8 @@ async def spending_by_month(
             Account.household_id == household_id,
             Transaction.parent_transaction_id.is_(None),
         )
-        .group_by(func.to_char(Transaction.date, "YYYY-MM"))
-        .order_by(func.to_char(Transaction.date, "YYYY-MM").desc())
+        .group_by(month_key)
+        .order_by(month_key.desc())
         .limit(months)
     )
 

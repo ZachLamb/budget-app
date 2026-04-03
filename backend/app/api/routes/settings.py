@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
 from app.api.deps import get_household_id
 from app.models import Household, Account
+from app.services.pay_cycle import VALID_FREQUENCIES, resolve_pay_cycle, PayCycleResolved
 
 logger = logging.getLogger(__name__)
+
+_VALID_BUDGET_FRAMING = frozenset({"strict", "reflective"})
 
 router = APIRouter()
 
@@ -213,6 +217,161 @@ async def get_plan_preferences(
         debt_strategy=household.debt_strategy,
         debt_extra_monthly=float(household.debt_extra_monthly) if household.debt_extra_monthly is not None else None,
     )
+
+
+class PayCycleDto(BaseModel):
+    date_from: str
+    date_to: str
+    next_pay_date: Optional[str] = None
+    label: str
+    is_fallback_30d: bool
+
+
+class PayScheduleResponse(BaseModel):
+    pay_frequency: Optional[str] = None
+    pay_last_confirmed_date: Optional[date] = None
+    budget_framing: str = "strict"
+    cycle: PayCycleDto
+    review_step: int = 0
+
+
+class CycleReviewUpdate(BaseModel):
+    step: int = Field(..., ge=0, le=3)
+
+
+class PayScheduleUpdate(BaseModel):
+    pay_frequency: Optional[str] = None
+    pay_last_confirmed_date: Optional[date] = None
+    budget_framing: Optional[str] = Field(default=None, max_length=20)
+
+
+def _sync_cycle_review_anchor(h: Household, c: PayCycleResolved) -> bool:
+    """Reset review step when the resolved pay-cycle start date changes."""
+    if h.cycle_review_cycle_start != c.date_from:
+        h.cycle_review_cycle_start = c.date_from
+        h.cycle_review_step = 0
+        return True
+    return False
+
+
+def _pay_schedule_to_response(h: Household, c: Optional[PayCycleResolved] = None) -> PayScheduleResponse:
+    resolved = c or resolve_pay_cycle(date.today(), h.pay_frequency, h.pay_last_confirmed_date)
+    framing = (h.budget_framing or "strict").strip().lower()
+    if framing not in _VALID_BUDGET_FRAMING:
+        framing = "strict"
+    step = int(h.cycle_review_step or 0)
+    if step < 0:
+        step = 0
+    if step > 3:
+        step = 3
+    return PayScheduleResponse(
+        pay_frequency=h.pay_frequency,
+        pay_last_confirmed_date=h.pay_last_confirmed_date,
+        budget_framing=framing,
+        cycle=PayCycleDto(
+            date_from=resolved.date_from.isoformat(),
+            date_to=resolved.date_to.isoformat(),
+            next_pay_date=resolved.next_pay_date.isoformat() if resolved.next_pay_date else None,
+            label=resolved.label,
+            is_fallback_30d=resolved.is_fallback_30d,
+        ),
+        review_step=step,
+    )
+
+
+@router.get("/pay-schedule", response_model=PayScheduleResponse)
+async def get_pay_schedule(
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Household).where(Household.id == household_id))
+    household = result.scalar_one_or_none()
+    if not household:
+        raise HTTPException(404, "Household not found")
+    c = resolve_pay_cycle(date.today(), household.pay_frequency, household.pay_last_confirmed_date)
+    if _sync_cycle_review_anchor(household, c):
+        await db.flush()
+    return _pay_schedule_to_response(household, c)
+
+
+@router.put("/pay-schedule", response_model=PayScheduleResponse)
+async def update_pay_schedule(
+    body: PayScheduleUpdate,
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Household).where(Household.id == household_id))
+    household = result.scalar_one_or_none()
+    if not household:
+        raise HTTPException(404, "Household not found")
+
+    if "pay_frequency" in body.model_fields_set:
+        f = body.pay_frequency
+        if f is not None:
+            fl = f.strip().lower()
+            if fl not in VALID_FREQUENCIES:
+                raise HTTPException(
+                    400,
+                    f"pay_frequency must be one of: {', '.join(sorted(VALID_FREQUENCIES))}",
+                )
+            household.pay_frequency = fl
+        else:
+            household.pay_frequency = None
+
+    if "pay_last_confirmed_date" in body.model_fields_set:
+        household.pay_last_confirmed_date = body.pay_last_confirmed_date
+
+    if "budget_framing" in body.model_fields_set:
+        if body.budget_framing is None:
+            household.budget_framing = "strict"
+        else:
+            bf = body.budget_framing.strip().lower()
+            if bf not in _VALID_BUDGET_FRAMING:
+                raise HTTPException(
+                    400,
+                    f"budget_framing must be one of: {', '.join(sorted(_VALID_BUDGET_FRAMING))}",
+                )
+            household.budget_framing = bf
+
+    freq = household.pay_frequency
+    last = household.pay_last_confirmed_date
+    if freq in ("weekly", "biweekly", "monthly") and last is None:
+        raise HTTPException(
+            400,
+            "pay_last_confirmed_date is required when pay_frequency is weekly, biweekly, or monthly.",
+        )
+    if freq is None and last is not None:
+        raise HTTPException(
+            400,
+            "Set pay_frequency or clear pay_last_confirmed_date.",
+        )
+
+    await db.commit()
+    await db.refresh(household)
+    c = resolve_pay_cycle(date.today(), household.pay_frequency, household.pay_last_confirmed_date)
+    if _sync_cycle_review_anchor(household, c):
+        await db.commit()
+        await db.refresh(household)
+    return _pay_schedule_to_response(household, c)
+
+
+@router.put("/cycle-review", response_model=PayScheduleResponse)
+async def update_cycle_review(
+    body: CycleReviewUpdate,
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Advance pay-cycle review steps (0–3); resets when the resolved cycle start changes."""
+    result = await db.execute(select(Household).where(Household.id == household_id))
+    household = result.scalar_one_or_none()
+    if not household:
+        raise HTTPException(404, "Household not found")
+    c = resolve_pay_cycle(date.today(), household.pay_frequency, household.pay_last_confirmed_date)
+    _sync_cycle_review_anchor(household, c)
+    household.cycle_review_step = body.step
+    await db.commit()
+    await db.refresh(household)
+    return _pay_schedule_to_response(household, c)
 
 
 @router.put("/plan-preferences", response_model=PlanPreferencesResponse)

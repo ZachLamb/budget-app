@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getAiBackendBaseUrl, readProxyJsonBody } from "@/lib/ai-proxy";
+import { getAiBackendBaseUrl, readProxyJsonBody, readUpstreamJsonSafe } from "@/lib/ai-proxy";
 
 export async function POST(req: NextRequest) {
   const parsed = await readProxyJsonBody(req);
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify(parsed.body),
   });
 
-  const data = await upstream.json();
+  const data = await readUpstreamJsonSafe(upstream);
   return new Response(JSON.stringify(data), {
     status: upstream.status,
     headers: { "Content-Type": "application/json" },
