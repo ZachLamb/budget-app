@@ -1,4 +1,6 @@
 .env
+# Local Claude permissions; never commit tokens or bearer secrets (see .cursor/rules).
+.claude/settings.local.json
 __pycache__/
 *.pyc
 .pytest_cache/

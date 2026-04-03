@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose:*)",
+      "Bash(curl -s http://localhost:8000/api/health)"
+    ]
+  },
+  "_comment": "Copy to settings.local.json (gitignored). Do not put API tokens or Bearer values in this file if you copy it into a gist or another repo."
+}
