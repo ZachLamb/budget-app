@@ -63,25 +63,65 @@ Each frame or keyframe tick: update **only** the mask path’s `stroke-dasharray
 ## 4. Integration (budget-app)
 
 - **Placement:** Client component or layer under `frontend/src/app/login/` (or shared `components/`) so the backdrop sits behind the centered card; preserve existing gradient or blend with it per visual review.
-- **Theming:** Trail and plane colors should follow light/dark tokens (e.g. muted primary / foreground at low opacity), not hard-coded mockup greens only.
 - **Feature flag (optional):** If needed for perf or QA, mirror the pattern used elsewhere (`NEXT_PUBLIC_*`); default **on** only if perf is acceptable on target devices.
+
+### 4.1 Sky phases (dawn, day, dusk, night) and tokens
+
+The product targets **four** backdrop moods, not only binary light/dark. The repo today only toggles `light` | `dark` (`ThemeProvider` + `.dark` on `html`); this spec defines how planes and **dotted trails** stay on-brand when those phases exist.
+
+**Contract (CSS custom properties):** Define login-backdrop tokens once; override them per phase. The SVG trail should use these variables (via `stroke="currentColor"` on a wrapper with `color`, or inline `style` from React reading CSS variables—avoid hard-coded mockup greens).
+
+| Token | Role |
+|--------|------|
+| `--login-sky-gradient` | Page background (or layered gradients) behind the card |
+| `--login-trail-stroke` | Dotted contrail color (include alpha in `oklch`/`hsl` if needed) |
+| `--login-trail-width` | Visible stroke width (mask stroke scales with this + margin) |
+| `--login-trail-dash` | Dot + gap pattern, e.g. `3 14` (can be one variable or two) |
+| `--login-plane-fill` | Paper plane fill |
+| `--login-plane-stroke` | Optional outline for contrast on bright skies |
+| `--login-plane-opacity` | Depth layering for multiple planes |
+
+**Phase selection (implementation order):**
+
+1. **MVP:** Map `light` → `day`, `dark` → `night` tokens so trails/planes always match the current theme toggle.
+2. **Full:** Set `data-login-sky="dawn" | "day" | "dusk" | "night"` on a login-only wrapper (or `html` when pathname is `/login`) from a small client hook: e.g. local clock hour buckets (document the ranges in code comments) or a later upgrade to sun times / geo. Dawn/dusk palettes sit **between** day and night for gradient and trail contrast (warmer/cooler tints, slightly different trail opacity).
+
+**Contrast:** Trail dots must stay readable on `--login-sky-gradient` for each phase. If the gradient is busy, lower trail opacity or add a hairline stroke via token; respect **`prefers-contrast: more`** with slightly thicker `--login-trail-width` and higher-contrast `--login-trail-stroke`.
 
 ## 5. Accessibility and quality
 
 - **`prefers-reduced-motion: reduce`:** Hide trails and pause or replace plane motion with static or nearly static treatment (e.g. single low-contrast static art).
+- **`prefers-contrast: more`:** Stronger trail/plane contrast (see §4.1).
 - **Pointer / focus:** Backdrop must be **`pointer-events: none`** (or equivalent) so it never steals clicks from the card.
 - **Performance:** Target smooth motion on mid-tier mobile; if needed, reduce plane count, simplify paths, or disable trails on small viewports.
+- **Print:** Hide or simplify animated backdrop under `@media print`.
 
-## 6. Testing and verification
+## 6. Edge cases and failure modes
 
-- **Manual:** Login page in light/dark; trail never appears in front of the plane; dots continuous in wake; loop restart without flash (if applicable).
-- **Reduced motion:** System setting on — trails off / motion simplified.
+| Situation | Expected behavior |
+|-----------|-------------------|
+| **`getTotalLength()` is 0** (bad `d`, collapsed path) | Skip that instance; no trail; log in dev only. |
+| **Loop restart** (`u` jumps 1 → 0) | Trail may “snap” empty→full; prefer **short crossfade** or **opacity dip** on reset, or **stagger** plane phases so not all reset together. |
+| **Closed path, `s < w`** | Wake wraps across seam—implement explicit rule: either **two trim segments** (math heavier) or **defer closed loops** until v2; document choice in implementation plan. |
+| **Tab hidden / `document.visibilityState`** | **Pause** `requestAnimationFrame` loops to avoid background CPU/battery drain. |
+| **SSR / hydration** | No motion until client mount; static first paint or empty layer to avoid layout shift if dimensions fixed. |
+| **Theme or `data-login-sky` changes mid-session** | Tokens update via CSS only—no cached RGB in JS for trail color unless refreshed on `MutationObserver` / effect deps. Prefer **`currentColor`** + parent `class`/`data-*` so SVG picks up new phase without prop drilling. |
+| **SVG + `var()` in attributes** | Prefer `currentColor` from a tinted wrapper or `style={{ color: 'var(--login-trail-stroke)' }}` on `<g>` / parent to maximize browser support for themed strokes. |
+| **Very small viewports** | Fewer planes or shorter wakes; optional `matchMedia` threshold. |
+| **GPU / `will-change`** | Use sparingly on the animated layer only if profiling shows jank. |
+
+## 7. Testing and verification
+
+- **Manual — sky phases:** For each of **dawn, day, dusk, night** (and `light`/`dark` until full hook exists): trail readable, dots not clipped in mask at tight turns, plane visible against gradient.
+- **Manual — binary theme:** Toggle light/dark; trail/plane colors update without flash of wrong theme.
+- **Reduced motion / high contrast:** As above.
+- **Tab switch:** Animation pauses when tab backgrounded (if using RAF).
 - **Automated (optional):** Smoke test that login still renders and demo/sign-in controls remain focusable; visual regression only if the project adds it.
 
-## 7. Reference mockup
+## 8. Reference mockup
 
 - `docs/mockups/trail-comparison.html` — Panel **A** demonstrates wake-only **dotted** trail (mask + compound trim) aligned with this spec; panels B/C are non-normative comparisons.
 
-## 8. Follow-up
+## 9. Follow-up
 
-- After spec review, produce an implementation plan (`writing-plans` / `docs/superpowers/plans/`) covering: component split, path data for each pattern, theme tokens, reduced-motion behavior, and test notes.
+- Implementation plan: `docs/superpowers/plans/2026-04-05-login-backdrop-plane-trail.md` (component split, path data, sky tokens, edge cases, tests).
