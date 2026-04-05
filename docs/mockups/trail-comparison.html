@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login backdrop — curved trail techniques (A / B / C)</title>
+  <style>
+    :root {
+      --bg: #0f1412;
+      --panel: #151c18;
+      --border: #2a3830;
+      --muted: #8fa89c;
+      --text: #e8f0eb;
+      --accent: #7dd3a8;
+      --trail: rgba(125, 211, 168, 0.55);
+      --plane: #f0fdf4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      padding: 1.5rem 1rem 3rem;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 650;
+      margin: 0 0 0.35rem;
+      letter-spacing: -0.02em;
+    }
+    .intro {
+      max-width: 900px;
+      margin: 0 auto 1.5rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .intro strong { color: var(--text); }
+    .grid {
+      display: grid;
+      gap: 1rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    @media (min-width: 900px) {
+      .grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .card h2 {
+      margin: 0;
+      padding: 0.75rem 1rem;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      border-bottom: 1px solid var(--border);
+    }
+    .card .body { padding: 0.65rem 0.75rem 0.85rem; font-size: 0.8rem; color: var(--muted); }
+    .card .body ul { margin: 0.35rem 0 0; padding-left: 1.1rem; }
+    .stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      background: linear-gradient(160deg, #0a100d 0%, #121a16 100%);
+    }
+    .stage svg, .stage canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    /* B/C stages need positioning for any overlay labels */
+    .badge {
+      position: absolute;
+      bottom: 6px;
+      right: 8px;
+      font-size: 10px;
+      color: var(--muted);
+      opacity: 0.85;
+    }
+  </style>
+</head>
+<body>
+  <h1>Curved contrail — technique comparison</h1>
+  <p class="intro">
+    Standalone mockup for brainstorming (not wired into the app). <strong>budget-app</strong> login currently has no background planes;
+    when you add them, these patterns map to the three options discussed: <strong>A</strong> shared geometry (path + stroke trim to the wake behind the plane),
+    <strong>B</strong> sampled polyline, <strong>C</strong> canvas fade. Path is a single illustrative S-curve; production would use your four flight patterns.
+    <strong>A</strong> uses arc-length math so dots/stroke only appear <em>after</em> the plane has passed (see panel copy).
+  </p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>A — Dotted wake (mask trim + dot pattern)</h2>
+      <div class="stage">
+        <svg id="svgA" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <defs>
+            <!-- White stroke = reveal; compound dash = same wake interval as solid variant -->
+            <mask
+              id="wakeMaskA"
+              maskUnits="userSpaceOnUse"
+              x="-80"
+              y="-80"
+              width="560"
+              height="460"
+            >
+              <rect x="-80" y="-80" width="560" height="460" fill="black" />
+              <path
+                id="pathAWakeTrim"
+                d="M -40 220 C 70 30, 180 280, 210 90 S 380 200, 440 60"
+                fill="none"
+                stroke="white"
+                stroke-width="14"
+                stroke-linecap="round"
+              />
+            </mask>
+          </defs>
+          <!-- Dots along full path; mask keeps only the wake behind the plane -->
+          <path
+            id="pathA"
+            d="M -40 220 C 70 30, 180 280, 210 90 S 380 200, 440 60"
+            fill="none"
+            stroke="var(--trail)"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-dasharray="3 14"
+            mask="url(#wakeMaskA)"
+          />
+          <polygon id="planeA" points="0,-5 7,0 0,5 -4,0" fill="var(--plane)" />
+        </svg>
+        <span class="badge">Mask + dotted stroke</span>
+      </div>
+      <div class="body">
+        <p><strong>Wake rule:</strong> only the subpath immediately <em>behind</em> the plane (last <code>w</code> units of arc length) is stroked. Nothing ahead of the nose, nothing on parts not yet visited.</p>
+        <p>With path length <code>L</code> and head at distance <code>s</code> from the start, use a compound <code>stroke-dasharray</code> (alternating dash, gap):</p>
+        <ul>
+          <li>If <code>s ≥ w</code>: <code>0, (s−w), w, (L−s)</code> → gap hides <code>[0,s−w)</code>, dash draws <code>[s−w, s]</code>, gap hides the rest.</li>
+          <li>If <code>s &lt; w</code>: <code>0, 0, s, (L−s)</code> → trail grows from the start as the plane accelerates onto the path.</li>
+        </ul>
+        <p><strong>Dots:</strong> the visible path uses a fixed <code>stroke-dasharray</code> (e.g. <code>3 14</code>). A <code>&lt;mask&gt;</code> holds a duplicate path with a <strong>thick white stroke</strong> and the <em>same</em> compound trim as above, so only the wake is opaque; the dotted line shows through there only.</p>
+        <p>This mockup drives <code>s</code> from one clock (here <code>requestAnimationFrame</code>); in production, drive the mask path’s trim from the same progress as <code>offset-distance</code> × <code>L</code>.</p>
+        <ul>
+          <li>Pure CSS: animate mask stroke dash + plane <code>offset-distance</code> in lockstep (verbose).</li>
+          <li>Widen <code>stroke-width</code> on the mask path if dots look clipped at turns.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>B — RAF sample → polyline</h2>
+      <div class="stage">
+        <canvas id="canvasB" width="400" height="300"></canvas>
+        <span class="badge">requestAnimationFrame</span>
+      </div>
+      <div class="body">
+        <p>JavaScript advances <code>t</code> along the same Bezier, pushes screen points into a ring buffer, draws a dotted polyline.</p>
+        <ul>
+          <li>Matches any motion source (CSS or JS)</li>
+          <li>~15 planes × sampling cost</li>
+          <li>Trail follows actual pixels</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>C — Canvas + fade buffer</h2>
+      <div class="stage">
+        <canvas id="canvasC" width="400" height="300"></canvas>
+        <span class="badge">alpha clear</span>
+      </div>
+      <div class="body">
+        <p>Each frame: fill with semi-transparent background to decay old pixels, stroke new segment. Soft “smoke” tail.</p>
+        <ul>
+          <li>Organic fade; great for glow</li>
+          <li>Day/night theming = stroke/fill colors</li>
+          <li>More tuning (fade rate, blur)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      // Same logical path as A (cubic Bezier + smooth continuation) for fair comparison
+      const p0 = { x: -40, y: 220 }, c1 = { x: 70, y: 30 }, c2 = { x: 180, y: 280 }, p1 = { x: 210, y: 90 };
+      // Matches SVG path A: … S 380 200, 440 60 (smooth cubic continuation)
+      const c3 = { x: 240, y: -100 }, c4 = { x: 380, y: 200 }, p2 = { x: 440, y: 60 };
+
+      function cubic(t, a, b, c, d) {
+        const u = 1 - t;
+        return u*u*u*a + 3*u*u*t*b + 3*u*t*t*c + t*t*t*d;
+      }
+      function pointAt(t) {
+        if (t < 0.5) {
+          const u = t / 0.5;
+          return {
+            x: cubic(u, p0.x, c1.x, c2.x, p1.x),
+            y: cubic(u, p0.y, c1.y, c2.y, p1.y),
+          };
+        }
+        const u = (t - 0.5) / 0.5;
+        return {
+          x: cubic(u, p1.x, c3.x, c4.x, p2.x),
+          y: cubic(u, p1.y, c3.y, c4.y, p2.y),
+        };
+      }
+
+      const W = 400, H = 300;
+
+      // --- A: dotted wake = visible path (dot dasharray) + mask path (wake trim only) ---
+      const pathA = document.getElementById("pathA");
+      const pathAWakeTrim = document.getElementById("pathAWakeTrim");
+      const planeA = document.getElementById("planeA");
+      const durA = 10000;
+      const trailFracA = 0.2;
+      let tStartA = performance.now();
+
+      function tickA(now) {
+        const L = pathA.getTotalLength();
+        const w = L * trailFracA;
+        const u = ((now - tStartA) % durA) / durA;
+        const s = u * L;
+        const dash =
+          s >= w
+            ? `0 ${s - w} ${w} ${Math.max(L - s, 0.001)}`
+            : `0 0 ${s} ${Math.max(L - s, 0.001)}`;
+        pathAWakeTrim.setAttribute("stroke-dasharray", dash);
+
+        const p = pathA.getPointAtLength(s);
+        const look = Math.min(6, L * 0.03);
+        const p2 = pathA.getPointAtLength(Math.min(s + look, L));
+        const deg = (Math.atan2(p2.y - p.y, p2.x - p.x) * 180) / Math.PI;
+        planeA.setAttribute("transform", `translate(${p.x},${p.y}) rotate(${deg})`);
+
+        requestAnimationFrame(tickA);
+      }
+      requestAnimationFrame(tickA);
+
+      // --- B ---
+      const canvasB = document.getElementById("canvasB");
+      const ctxB = canvasB.getContext("2d");
+      const historyB = [];
+      const maxB = 28;
+      let tB = 0;
+      const speedB = 0.00012;
+
+      function drawB() {
+        tB += speedB;
+        if (tB > 1) tB -= 1;
+        const pt = pointAt(tB);
+        const sx = pt.x;
+        const sy = pt.y;
+        historyB.push({ x: sx, y: sy });
+        if (historyB.length > maxB) historyB.shift();
+
+        ctxB.fillStyle = "#0a100d";
+        ctxB.fillRect(0, 0, W, H);
+
+        ctxB.strokeStyle = "rgba(125, 211, 168, 0.45)";
+        ctxB.lineWidth = 2;
+        ctxB.setLineDash([2, 8]);
+        ctxB.beginPath();
+        for (let i = 0; i < historyB.length; i++) {
+          const p = historyB[i];
+          if (i === 0) ctxB.moveTo(p.x, p.y);
+          else ctxB.lineTo(p.x, p.y);
+        }
+        ctxB.stroke();
+        ctxB.setLineDash([]);
+
+        ctxB.fillStyle = "#f0fdf4";
+        ctxB.beginPath();
+        ctxB.arc(sx, sy, 5, 0, Math.PI * 2);
+        ctxB.fill();
+
+        requestAnimationFrame(drawB);
+      }
+      drawB();
+
+      // --- C ---
+      const canvasC = document.getElementById("canvasC");
+      const ctxC = canvasC.getContext("2d");
+      let tC = 0;
+      const speedC = 0.00015;
+      let prev = pointAt(0);
+
+      function drawC() {
+        tC += speedC;
+        if (tC > 1) tC -= 1;
+        const pt = pointAt(tC);
+
+        ctxC.fillStyle = "rgba(10, 16, 13, 0.22)";
+        ctxC.fillRect(0, 0, W, H);
+
+        ctxC.strokeStyle = "rgba(125, 211, 168, 0.55)";
+        ctxC.lineWidth = 2.5;
+        ctxC.lineCap = "round";
+        ctxC.beginPath();
+        ctxC.moveTo(prev.x, prev.y);
+        ctxC.lineTo(pt.x, pt.y);
+        ctxC.stroke();
+
+        ctxC.fillStyle = "#f0fdf4";
+        ctxC.beginPath();
+        ctxC.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
+        ctxC.fill();
+
+        prev = pt;
+        requestAnimationFrame(drawC);
+      }
+      drawC();
+    })();
+  </script>
+</body>
+</html>
