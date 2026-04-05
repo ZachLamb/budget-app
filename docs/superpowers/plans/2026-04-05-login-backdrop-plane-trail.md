@@ -1,113 +1,185 @@
 # Login backdrop — planes + dotted wake (Option A) — Implementation plan
 
-> **For agentic workers:** Implement task-by-task; use checkboxes for tracking.
+> **For agentic workers:** Execute in **order per dependency graph** unless a wave is marked **parallel**. Use checkboxes. After any **parallel wave**, one owner merges, runs `npm run lint` + `npm run test:run` from `frontend/`, then continues.
 
-**Status:** Draft — aligns with `docs/superpowers/specs/2026-04-05-login-backdrop-plane-trail-design.md`.
+**Status:** Ready for implementation  
+**Spec:** `docs/superpowers/specs/2026-04-05-login-backdrop-plane-trail-design.md`  
+**Reference mockup:** `docs/mockups/trail-comparison.html` (panel A)
 
-**Goal:** Ship ambient paper planes on `/login` with **curved dotted contrails** (wake-only, mask + compound `stroke-dasharray` trim), styled for **dawn / day / dusk / night** via CSS tokens, with edge cases from §6 of the spec handled in code.
+**Goal:** `/login` shows ambient paper planes with **curved dotted contrails** (wake-only: mask + compound `stroke-dasharray`), themed via **`data-login-sky`** and **`--login-*` CSS variables** for **dawn / day / dusk / night**, with spec §6 edge cases implemented.
 
-**Tech stack:** Next.js App Router, React, Tailwind v4, existing `ThemeProvider` (`light` | `dark`).
-
-**Plan improvements (vs. a minimal “drop SVG on page”):**
-
-1. **Token-first styling** — Trails never use one-off hex colors; they read `--login-trail-stroke` (and related vars) so **four sky phases** and **prefers-contrast** stay maintainable.
-2. **Phased sky rollout** — MVP maps theme toggle → day/night tokens; full hook adds `data-login-sky` + hour buckets without rewriting SVG math.
-3. **Operational edge cases** — Visibility pause, hydration guard, degenerate paths, and loop-reset UX are explicit tasks—not discovered at QA.
+**Stack:** Next.js App Router, React 19, Tailwind v4, existing `ThemeProvider` in `frontend/src/lib/providers.tsx`.
 
 ---
 
-## Locked decisions
+## Dependency overview
 
-| Topic | Decision |
-|-------|----------|
-| Trail technique | **Option A** — dotted visible path + mask path with wake-only trim (spec §3.2). |
-| Closed loop paths | **Defer** until v2 unless a pattern strictly needs a loop; document “open paths only” in v1. |
-| Sky phase v1 source | **MVP:** `light` → day, `dark` → night. **Next:** `data-login-sky` from local hour ranges (commented thresholds); optional future sun API. |
-| SVG stroke theming | Prefer **`currentColor`** on trail/plane elements with `color: var(--login-trail-stroke)` on an ancestor `<g>` / wrapper `className` so theme toggles and `data-login-sky` swaps need **no JS color cache**. |
+```mermaid
+flowchart LR
+  subgraph wave1 [Wave 1 — parallel OK]
+    CSS[globals.css tokens]
+    SKY[login-sky-phase.ts + tests]
+  end
+  subgraph wave2 [Wave 2 — sequential]
+    COMP[login-backdrop.tsx]
+    PAGE[login/page.tsx wire-up]
+  end
+  subgraph wave3 [Wave 3 — parallel OK]
+    TST[login-backdrop tests optional]
+    MAN[manual QA checklist]
+  end
+  CSS --> COMP
+  SKY --> PAGE
+  COMP --> PAGE
+  PAGE --> wave3
+```
 
----
-
-## File structure (create / modify)
-
-| Path | Responsibility |
-|------|----------------|
-| `frontend/src/app/globals.css` | Login sky tokens: defaults + `[data-login-sky="…"]` overrides + `@media (prefers-contrast: more)` + `@media print` |
-| `frontend/src/app/login/page.tsx` | Compose backdrop + card; apply `data-login-sky` (when implemented) on wrapper |
-| `frontend/src/components/login/login-backdrop.tsx` (or `login/planes-backdrop.tsx`) | Client-only SVG layer, `pointer-events: none`, planes + trails |
-| `frontend/src/lib/login-sky-phase.ts` (optional) | `getLoginSkyPhase(date: Date, theme: 'light' \| 'dark'): SkyPhase` — hour buckets + theme fallback |
-| `docs/mockups/trail-comparison.html` | Optional: add a **second row** or note pointing to CSS token names (non-blocking) |
-
----
-
-## Phase 1 — CSS tokens and sky phases
-
-### Task 1: Define `--login-*` variables
-
-- [ ] In `globals.css`, add a **:root** block (or scoped under `.login-backdrop-root`) for:
-  - `--login-sky-gradient` (or split `--login-sky-gradient-start` / `end` if easier for Tailwind `bg-gradient-to-*`)
-  - `--login-trail-stroke`, `--login-trail-width`, `--login-trail-dash-gap` (two vars or one `stroke-dasharray` string)
-  - `--login-plane-fill`, `--login-plane-stroke` (optional), `--login-mask-stroke-width` (mask fat stroke = f(`--login-trail-width`))
-- [ ] Add **`[data-login-sky="dawn"]`**, **`day`**, **`dusk`**, **`night`** selectors with distinct OKLCH/HSL values tuned so **dotted trails** read clearly on each gradient (adjust opacity/tint, not only hue).
-- [ ] **MVP bridge:** When `data-login-sky` is absent, set variables from **`.dark` vs not** so existing app behavior matches **night** vs **day** until the hook lands.
-
-### Task 2: `prefers-contrast` and print
-
-- [ ] Under `@media (prefers-contrast: more)`, bump `--login-trail-width` and increase trail/plane contrast.
-- [ ] Under `@media print`, hide `.login-backdrop` (or entire animated layer).
+- **Wave 1:** `globals.css` and `lib/login-sky-phase.ts` touch **disjoint files** → safe for **two parallel agents**. Agree on **`SkyPhase`** type and **`data-login-sky`** attribute values (`dawn` | `day` | `dusk` | `night`) before starting (frozen below).
+- **Wave 2:** Single agent (or strict handoff): backdrop component **depends on** CSS variable names; page **depends on** backdrop + sky helper.
+- **Wave 3:** Optional tests can run parallel to manual QA; both need Wave 2 done.
 
 ---
 
-## Phase 2 — Backdrop component (Option A)
+## Frozen contract (do not drift between agents)
 
-### Task 3: SVG architecture
-
-- [ ] One client component, **fixed/inset** full viewport behind content, `z-index` below card, **`pointer-events: none`**.
-- [ ] Per plane instance: shared **`d`**, visible dotted path with `mask`, mask path with compound trim; plane marker (polygon or path) with tangent rotation.
-- [ ] Drive `s` from one timeline per plane (phase offset `u₀`); **mask** `stroke-dasharray` updated in `requestAnimationFrame` **or** CSS `@keyframes` if you accept verbosity.
-
-### Task 4: Edge cases in code
-
-- [ ] **Guard:** If `getTotalLength() < ε`, skip trail + optional skip plane for that instance.
-- [ ] **Visibility:** `document.visibilityState === 'hidden'` → **do not** schedule next RAF (pause); resume on `visibilitychange`.
-- [ ] **Hydration:** Start RAF / CSS animation only after `useEffect` mount (no SSR mismatch).
-- [ ] **Loop reset:** Stagger `u₀` across planes; optional **opacity** keyframe dip at loop boundary to soften snap (spec §6).
-- [ ] **Small width:** Optional `matchMedia('(max-width: …)')` to reduce plane count or `trailFrac`.
-
-### Task 5: Reduced motion
-
-- [ ] `usePrefersReducedMotion()` or `matchMedia('(prefers-reduced-motion: reduce)')` → hide trails, static or no planes per spec §5.
+| Item | Value |
+|------|--------|
+| `SkyPhase` literals | `'dawn' \| 'day' \| 'dusk' \| 'night'` |
+| DOM | Login root wrapper sets `data-login-sky={phase}` (in addition to `.dark` on `html` from theme) |
+| CSS variables | `--login-sky-gradient-from`, `--login-sky-gradient-to` **or** a single `--login-sky-gradient` usable in `style` / arbitrary Tailwind; `--login-trail-stroke`; `--login-trail-width`; `--login-trail-dash` (full `stroke-dasharray` string, e.g. `3 14`); `--login-plane-fill`; `--login-plane-stroke` (optional, `none` allowed); `--login-mask-stroke-width` (mask fat stroke, ~6× trail width baseline) |
+| SVG theming | Trail/plane use **`stroke="currentColor"`** / **`fill="currentColor"`** where applicable; parent `<g>` or wrapper sets `className` / `style={{ color: 'var(--login-trail-stroke)' }}` for trails; plane fill via separate wrapper or `fill` from `var(--login-plane-fill)` if `currentColor` insufficient |
+| Backdrop root class | `login-backdrop` (for `print` hiding and stacking) |
 
 ---
 
-## Phase 3 — Wire login page + sky hook
+## Wave 1 — parallel
 
-### Task 6: Layout and theme
+### Track A — CSS tokens (`frontend/src/app/globals.css`)
 
-- [ ] Replace or layer behind current `bg-gradient-to-br from-background to-muted` using **`--login-sky-gradient`** (Tailwind arbitrary gradient or inline `style`) so **page background** and **trail tokens** come from the same phase.
-- [ ] Pass **`theme`** from `useTheme()` into sky resolver for MVP (day/night) and full (four phases).
+**Owner:** Agent A — **only** `globals.css` (no TSX).
 
-### Task 7: `data-login-sky` hook (post-MVP)
+- [ ] **A1.** Define defaults on `:root` for all `--login-*` vars so the app never reads undefined (use **day**-like values for light default).
+- [ ] **A2.** Under `html.dark` (or `.dark` root as project uses), set **night**-aligned defaults when `data-login-sky` is **absent** (MVP bridge: dark theme ⇒ night palette, light ⇒ day palette).
+- [ ] **A3.** Add **`html[data-login-sky="dawn"]`**, `[data-login-sky="day"]`**, `[data-login-sky="dusk"]`**, `[data-login-sky="night"]`** — each overrides the same `--login-*` set. Tune OKLCH so **dotted trails** read on each gradient (spec §4.1).
+- [ ] **A4.** `@media (prefers-contrast: more)` — increase `--login-trail-width` and trail/plane contrast.
+- [ ] **A5.** `@media print { .login-backdrop { display: none; } }` (or `visibility: hidden`).
 
-- [ ] Implement `getLoginSkyPhase` (example hour buckets, **document in comments**): e.g. dawn 5–8, day 8–17, dusk 17–21, night 21–5 — **tune with design**.
-- [ ] Set `data-login-sky` on login wrapper; ensure toggling **light/dark** still updates tokens when using MVP bridge.
+**Acceptance:** No TS errors; toggling `data-login-sky` on a test div in DevTools visibly changes computed styles.
 
 ---
 
-## Phase 4 — Verification
+### Track B — Sky phase helper + unit tests
 
-### Task 8: Manual checklist
+**Owner:** Agent B — **only** `frontend/src/lib/login-sky-phase.ts` and `frontend/src/lib/login-sky-phase.test.ts` (create both).
 
-- [ ] **Dawn, day, dusk, night:** Trail dots visible, not clipped by mask at sharpest turn; plane readable.
-- [ ] **Light/dark toggle** on `/login`: colors update without stale stroke.
-- [ ] **prefers-reduced-motion:** No distracting motion.
-- [ ] **prefers-contrast: more:** Thicker / higher-contrast trail.
-- [ ] **Background tab:** CPU idle (DevTools Performance / no runaway RAF).
-- [ ] **Print preview:** Backdrop hidden.
+- [ ] **B1.** Export `type SkyPhase = 'dawn' | 'day' | 'dusk' | 'night'`.
+- [ ] **B2.** Export `getLoginSkyPhase(date: Date, theme: 'light' | 'dark'): SkyPhase`:
+  - Use **local hour** buckets (document ranges in file comment). **Default suggestion:** `night` 22–5, `dawn` 5–8, `day` 8–17, `dusk` 17–22 (local time); adjust after visual review.
+  - **MVP behavior:** When you want theme-only mode, document that callers may **override** by mapping `theme === 'dark' ? 'night' : 'day'` until four-phase UI is enabled — or add optional param `options?: { mode: 'clock' | 'theme' }` (pick one approach and test it).
+- [ ] **B3.** Vitest table tests: fixed `Date` + `theme` → expected phase.
+- [ ] **B4.** No imports from React; pure functions only.
 
-### Task 9: Automated (optional)
+**Acceptance:** `cd frontend && npm run test:run -- login-sky-phase` passes.
 
-- [ ] Component test: with reduced motion mocked, backdrop renders **no** animated paths (or static layer only).
-- [ ] Smoke: login page still has focusable controls (Testing Library).
+---
+
+### Copy-paste prompts for Wave 1 (Task tool)
+
+**Prompt A — CSS track**
+
+```text
+Repo: budget-app. Implement ONLY frontend/src/app/globals.css changes for the login sky design.
+
+Requirements:
+- Add --login-* CSS variables per docs/superpowers/plans/2026-04-05-login-backdrop-plane-trail.md "Frozen contract".
+- MVP: when data-login-sky is absent, html.dark uses night-like tokens; light uses day-like tokens.
+- Add html[data-login-sky="dawn"|"day"|"dusk"|"night"] overrides (four palettes, OKLCH).
+- prefers-contrast: more bumps trail width and contrast.
+- @media print hides .login-backdrop.
+
+Do not modify any .tsx/.ts files. Return summary and diff paths.
+```
+
+**Prompt B — Sky phase track**
+
+```text
+Repo: budget-app. Add frontend/src/lib/login-sky-phase.ts and frontend/src/lib/login-sky-phase.test.ts only.
+
+Export SkyPhase and getLoginSkyPhase(date, theme) with hour buckets (comment the ranges). Include Vitest tests with fixed Dates.
+
+Do not modify globals.css or login page. Run: cd frontend && npm run test:run -- login-sky-phase
+
+Return file contents summary and test output.
+```
+
+---
+
+## Wave 2 — sequential (single owner recommended)
+
+### Task C — `frontend/src/components/login/login-backdrop.tsx`
+
+**Prerequisites:** Wave 1 merged (CSS vars exist).
+
+- [ ] **C1.** `'use client'`; container `className="login-backdrop fixed inset-0 z-0 pointer-events-none overflow-hidden"` (z-index **below** card — page may use `relative z-10` on content).
+- [ ] **C2.** SVG `viewBox` covering logical space (e.g. `0 0 400 300` scaled with `preserveAspectRatio="xMidYMid slice"` and `w-full h-full`).
+- [ ] **C3.** Implement **Option A** per spec §3.2: for each plane, visible path with `stroke-dasharray` from **`var(--login-trail-dash)`** (via inline style on SVG root or CSS class), **mask** with duplicate path, white stroke, **`stroke-width` from `var(--login-mask-stroke-width)`**, compound trim updated each frame from shared `s`.
+- [ ] **C4.** **currentColor** pattern: wrap trail paths in `<g style={{ color: 'var(--login-trail-stroke)' }}>` with `stroke="currentColor"`.
+- [ ] **C5.** **≥2 planes**, different `path` `d` or same `d` with staggered phase `u0` and optional `opacity` / duration variance.
+- [ ] **C6.** **Edge cases:** `getTotalLength() < 2` skip; `visibilitychange` pause RAF; RAF starts in `useEffect` only; optional reduced plane count on `max-width` media query.
+- [ ] **C7.** **Reduced motion:** if `prefers-reduced-motion: reduce`, render nothing or static non-animated decor (spec §5).
+
+**Acceptance:** Visual smoke on `/login` after Task D; DevTools → no RAF when tab hidden.
+
+---
+
+### Task D — `frontend/src/app/login/page.tsx`
+
+**Prerequisites:** Task C done.
+
+- [ ] **D1.** Wrap page content in an outer `div` with `className="relative min-h-screen"` (or equivalent): **backdrop** first child, **card column** second with `relative z-10` (or higher).
+- [ ] **D2.** Background: use token-driven gradient (e.g. `style={{ background: linear-gradient(... var(--login-sky-gradient-from), var(--login-sky-gradient-to)) }}` or single var) — **remove** reliance on generic `from-background to-muted` for this page if spec calls for sky-specific gradient.
+- [ ] **D3.** `useTheme()` + `getLoginSkyPhase(new Date(), theme)`; set **`data-login-sky={phase}`** on the wrapper (or on `html` only if team prefers — **prefer wrapper** to avoid global side effects).
+- [ ] **D4.** Optional: `useEffect` + interval or `setTimeout` at next hour boundary to recompute phase (or keep simple: recompute on render + theme toggle only for v1 — document tradeoff).
+
+**Acceptance:** Toggling light/dark updates phase mapping; time-of-day changes attribute when interval/hook implemented.
+
+---
+
+## Wave 3 — parallel (post Wave 2)
+
+### Track E — Tests
+
+**Owner:** Agent E — `frontend/src/components/login/login-backdrop.test.tsx` (and mocks).
+
+- [ ] **E1.** Mock `matchMedia` for `prefers-reduced-motion: reduce` → backdrop renders **no** RAF-driven SVG (or empty).
+- [ ] **E2.** Smoke: default motion → component mounts without throw (use `vi.useFakeTimers` carefully if testing RAF).
+
+### Track F — Manual QA
+
+- [ ] **F1.** Four `data-login-sky` values + light/dark: trail readable, mask not clipping dots on sharpest path.
+- [ ] **F2.** Reduced motion, high contrast, background tab, print preview (spec §7).
+
+---
+
+## Verification commands (full frontend after Wave 2+)
+
+```bash
+cd frontend && npm run lint && npm run test:run && npm run build
+```
+
+Use **`npm run test:run -- login-sky`** for targeted iteration.
+
+---
+
+## Parallelization summary
+
+| Wave | Parallel? | Files touched |
+|------|-----------|----------------|
+| 1 | **Yes — 2 agents** | Agent A: `globals.css` only. Agent B: `login-sky-phase.ts` + `.test.ts` only. |
+| 2 | **No** | `login-backdrop.tsx` then `login/page.tsx` (same branch, same owner avoids conflicts). |
+| 3 | **Yes — soft** | Tests (E) vs manual QA (F); E touches only test files. |
+
+**Do not** run two agents on `login/page.tsx` and `login-backdrop.tsx` simultaneously — overlapping integration risk per `.cursor/rules/subagents-and-parallel-work.mdc`.
 
 ---
 
@@ -115,14 +187,15 @@
 
 | Risk | Mitigation |
 |------|------------|
-| SVG `stroke="var(--x)"` inconsistent across browsers | Use **`currentColor`** + parent `color` / `className`. |
-| Busy gradient eats low-opacity dots | Per-phase token tuning; slight trail opacity bump at dusk. |
-| Many planes + RAF jank | Cap count; pause when hidden; profile before `will-change`. |
+| SVG `var()` in attributes | Prefer **`currentColor`** + wrapper `color` (spec + frozen contract). |
+| Merge conflict after Wave 1 | Rebase before starting Wave 2; run lint/test once after merging A+B. |
+| RAF battery drain | **visibility** pause (Task C6). |
 
 ---
 
-## Out of scope (this plan)
+## Out of scope
 
-- Backend changes.
-- Loading-button plane animation (separate spec if merged later).
-- Sun-position API (future enhancement only).
+- Backend, auth, demo mode logic.
+- Closed-loop flight paths (defer v2).
+- Sun position API.
+- `docs/mockups/trail-comparison.html` updates (optional polish).

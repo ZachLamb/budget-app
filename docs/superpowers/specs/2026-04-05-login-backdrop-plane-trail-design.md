@@ -124,4 +124,4 @@ The product targets **four** backdrop moods, not only binary light/dark. The rep
 
 ## 9. Follow-up
 
-- Implementation plan: `docs/superpowers/plans/2026-04-05-login-backdrop-plane-trail.md` (component split, path data, sky tokens, edge cases, tests).
+- Implementation plan (waves + parallel Task prompts): `docs/superpowers/plans/2026-04-05-login-backdrop-plane-trail.md`.
