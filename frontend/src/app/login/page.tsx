@@ -2,7 +2,9 @@
 
 import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth } from "@/lib/providers";
+import { useAuth, useTheme } from "@/lib/providers";
+import { getLoginSkyPhase, type SkyPhase } from "@/lib/login-sky-phase";
+import { LoginBackdrop } from "@/components/login/login-backdrop";
 import { authApi, credentialToJSON } from "@/lib/api/auth";
 import { parseCreationOptions, parseRequestOptions, supportsPasskey } from "@/lib/webauthn";
 import { Button } from "@/components/ui/button";
@@ -29,6 +31,9 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 function LoginPageContent() {
+  const { theme } = useTheme();
+  const [skyPhase, setSkyPhase] = useState<SkyPhase>(() => getLoginSkyPhase(new Date(), theme));
+
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -48,6 +53,17 @@ function LoginPageContent() {
   useEffect(() => {
     setCanUsePasskey(supportsPasskey());
   }, []);
+
+  useEffect(() => {
+    setSkyPhase(getLoginSkyPhase(new Date(), theme));
+  }, [theme]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setSkyPhase(getLoginSkyPhase(new Date(), theme));
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [theme]);
 
   useEffect(() => {
     const error = searchParams.get("error");
@@ -140,7 +156,16 @@ function LoginPageContent() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted">
+    <div
+      data-login-sky={skyPhase}
+      className="relative flex min-h-screen flex-col items-center justify-center px-4"
+      style={{
+        backgroundImage:
+          "linear-gradient(to bottom right, var(--login-sky-gradient-from), var(--login-sky-gradient-to))",
+      }}
+    >
+      <LoginBackdrop />
+      <div className="relative z-10 flex w-full justify-center">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
@@ -290,6 +315,7 @@ function LoginPageContent() {
           </form>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
@@ -298,7 +324,14 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted">
+        <div
+          className="flex min-h-screen items-center justify-center px-4"
+          data-login-sky="day"
+          style={{
+            backgroundImage:
+              "linear-gradient(to bottom right, var(--login-sky-gradient-from), var(--login-sky-gradient-to))",
+          }}
+        >
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
         </div>
       }

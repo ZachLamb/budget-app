@@ -80,6 +80,16 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Login backdrop / sky (defaults ≈ day; overridden by [data-login-sky] on shell) */
+  --login-sky-gradient-from: oklch(0.97 0.02 250);
+  --login-sky-gradient-to: oklch(0.9 0.04 220);
+  --login-trail-stroke: oklch(0.42 0.1 175 / 0.55);
+  --login-trail-width: 2.5px;
+  --login-trail-dash: 3 14;
+  --login-plane-fill: oklch(0.32 0.06 250);
+  --login-plane-stroke: none;
+  --login-mask-stroke-width: 14px;
 }
 
 .dark {
@@ -114,6 +124,111 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* Login sky when no data-login-sky on ancestor (MVP bridge) */
+  --login-sky-gradient-from: oklch(0.2 0.04 270);
+  --login-sky-gradient-to: oklch(0.14 0.05 280);
+  --login-trail-stroke: oklch(0.82 0.12 165 / 0.45);
+  --login-trail-width: 2.5px;
+  --login-trail-dash: 3 14;
+  --login-plane-fill: oklch(0.92 0.02 250);
+  --login-plane-stroke: oklch(0.2 0.03 270 / 0.35);
+  --login-mask-stroke-width: 14px;
+}
+
+/* Time-of-day palettes (set data-login-sky on login page wrapper) */
+[data-login-sky="dawn"] {
+  --login-sky-gradient-from: oklch(0.88 0.06 55);
+  --login-sky-gradient-to: oklch(0.78 0.08 250);
+  --login-trail-stroke: oklch(0.4 0.08 200 / 0.5);
+  --login-trail-width: 2.5px;
+  --login-trail-dash: 3 14;
+  --login-plane-fill: oklch(0.38 0.07 260);
+  --login-plane-stroke: oklch(0.55 0.06 50 / 0.4);
+  --login-mask-stroke-width: 14px;
+}
+
+[data-login-sky="day"] {
+  --login-sky-gradient-from: oklch(0.97 0.02 250);
+  --login-sky-gradient-to: oklch(0.9 0.04 220);
+  --login-trail-stroke: oklch(0.42 0.1 175 / 0.55);
+  --login-trail-width: 2.5px;
+  --login-trail-dash: 3 14;
+  --login-plane-fill: oklch(0.32 0.06 250);
+  --login-plane-stroke: none;
+  --login-mask-stroke-width: 14px;
+}
+
+[data-login-sky="dusk"] {
+  --login-sky-gradient-from: oklch(0.55 0.12 35);
+  --login-sky-gradient-to: oklch(0.32 0.08 280);
+  --login-trail-stroke: oklch(0.85 0.1 50 / 0.42);
+  --login-trail-width: 2.5px;
+  --login-trail-dash: 3 14;
+  --login-plane-fill: oklch(0.88 0.04 40);
+  --login-plane-stroke: oklch(0.25 0.05 280 / 0.45);
+  --login-mask-stroke-width: 14px;
+}
+
+[data-login-sky="night"] {
+  --login-sky-gradient-from: oklch(0.22 0.05 270);
+  --login-sky-gradient-to: oklch(0.14 0.06 285);
+  --login-trail-stroke: oklch(0.78 0.1 170 / 0.4);
+  --login-trail-width: 2.5px;
+  --login-trail-dash: 3 14;
+  --login-plane-fill: oklch(0.9 0.02 260);
+  --login-plane-stroke: oklch(0.2 0.04 270 / 0.35);
+  --login-mask-stroke-width: 14px;
+}
+
+@media (prefers-contrast: more) {
+  [data-login-sky="dawn"],
+  [data-login-sky="day"],
+  [data-login-sky="dusk"],
+  [data-login-sky="night"],
+  :root,
+  .dark {
+    --login-trail-width: 3.5px;
+    --login-mask-stroke-width: 18px;
+  }
+
+  [data-login-sky="dawn"] {
+    --login-trail-stroke: oklch(0.28 0.1 200 / 0.75);
+    --login-plane-fill: oklch(0.22 0.08 260);
+  }
+  [data-login-sky="day"] {
+    --login-trail-stroke: oklch(0.28 0.12 175 / 0.75);
+    --login-plane-fill: oklch(0.2 0.08 250);
+  }
+  [data-login-sky="dusk"] {
+    --login-trail-stroke: oklch(0.92 0.12 50 / 0.65);
+    --login-plane-fill: oklch(0.95 0.03 40);
+  }
+  [data-login-sky="night"] {
+    --login-trail-stroke: oklch(0.92 0.08 170 / 0.6);
+    --login-plane-fill: oklch(0.98 0.02 260);
+  }
+}
+
+@media print {
+  .login-backdrop {
+    display: none !important;
+  }
+}
+
+/* SVG trail inherits color from parent g; dash + width from tokens */
+.login-backdrop-trail {
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-width: var(--login-trail-width);
+  stroke-dasharray: var(--login-trail-dash);
+}
+
+.login-backdrop-plane {
+  fill: var(--login-plane-fill);
+  stroke: var(--login-plane-stroke);
+  stroke-width: 0;
 }
 
 @layer base {
