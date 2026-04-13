@@ -52,6 +52,12 @@ def test_demo_allows_categorization_suggest_only() -> None:
     assert not is_demo_mutation_allowed("/api/categorization/apply-rules", "POST")
 
 
+def test_demo_allows_advisor_turn_post() -> None:
+    """`/api/ai/advisor-turn` is the single-call chat/action endpoint;
+    demo needs it allowed for the Advisor panel to work read-only."""
+    assert is_demo_ai_mutation_allowed("/api/ai/advisor-turn", "POST")
+
+
 def test_demo_ai_path_list_nonempty() -> None:
     assert len(_DEMO_AI_MUTATION_PATHS) >= 7
 

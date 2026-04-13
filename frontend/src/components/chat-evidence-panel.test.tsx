@@ -18,4 +18,27 @@ describe("ChatEvidencePanel", () => {
     expect(screen.getByTestId("chat-evidence-panel")).toBeInTheDocument();
     expect(screen.getByText(/Groceries/)).toBeInTheDocument();
   });
+
+  it("renders goal progress", () => {
+    render(
+      <ChatEvidencePanel
+        items={[
+          {
+            type: "goal_progress",
+            goals: [
+              {
+                name: "Emergency fund",
+                goal_type: "emergency_fund",
+                current_amount: 5000,
+                target_amount: 10000,
+                pct_complete: 50,
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText(/Goal progress/)).toBeInTheDocument();
+    expect(screen.getByText(/Emergency fund/)).toBeInTheDocument();
+  });
 });

@@ -19,5 +19,7 @@ frontend/.next/
 *.db
 *.sqlite
 .DS_Store
+# Cursor IDE plan scratchpad (keep local only)
+.cursor/plans/
 caddy_data/
 caddy_config/

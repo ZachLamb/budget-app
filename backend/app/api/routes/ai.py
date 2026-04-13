@@ -32,9 +32,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_household_id
+from app.config import get_settings
 from app.database import get_db
 from app.models import Category, Household, Transaction, Account
 from app.services.ai import llm_client
+from app.services.ai.household_rate_limit import enforce_household_ai_rate_limit
+from app.services.ai.json_extract import parse_llm_json_object
 from app.services.ai.action import (
     _find_account_for_execute_transaction,  # re-exported for backwards compat
     execute_parsed_action,
@@ -115,6 +118,20 @@ async def _require_ai_enabled(
     return household_id
 
 
+_base_ai_household = _require_ai_enabled
+
+
+async def _require_ai_enabled_rate_limited(
+    household_id: str = Depends(_base_ai_household),
+) -> str:
+    """Dependency: AI-enabled + per-household rate limit (service-layer, keyed on
+    household_id). Use this on AI routes that actually call the LLM; the chat-stream
+    and advisor-turn routes both go through here.
+    """
+    await enforce_household_ai_rate_limit(household_id, get_settings().ai_rate_limit_per_minute)
+    return household_id
+
+
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
 class ChatMessage(BaseModel):
@@ -124,6 +141,57 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
+
+
+class AdvisorTurnResponse(BaseModel):
+    """Single-call advisor: either a structured action to confirm or a chat reply."""
+
+    branch: Literal["action", "chat"]
+    model_source: str
+    action_type: Optional[str] = None
+    data: Optional[dict] = None
+    confirmation_text: Optional[str] = None
+    reply: Optional[str] = None
+    evidence: list[dict] = Field(default_factory=list)
+
+
+def normalize_advisor_turn_payload(
+    raw: dict,
+    *,
+    model_source: str,
+    evidence_list: list[dict],
+) -> AdvisorTurnResponse:
+    """Validate JSON from the LLM into AdvisorTurnResponse (no trust beyond shape)."""
+    branch = raw.get("branch")
+    if branch == "action":
+        at = raw.get("action_type")
+        if at not in ("add_transaction", "add_debt"):
+            raise ValueError("invalid action_type")
+        data = raw.get("data")
+        if not isinstance(data, dict):
+            data = {}
+        conf = str(raw.get("confirmation_text") or "").strip()
+        if not conf:
+            raise ValueError("missing confirmation_text")
+        return AdvisorTurnResponse(
+            branch="action",
+            model_source=model_source,
+            action_type=at,
+            data=data,
+            confirmation_text=conf,
+            evidence=[],
+        )
+    if branch == "chat":
+        reply = str(raw.get("reply") or "").strip()
+        if not reply:
+            raise ValueError("empty reply")
+        return AdvisorTurnResponse(
+            branch="chat",
+            model_source=model_source,
+            reply=reply,
+            evidence=list(evidence_list),
+        )
+    raise ValueError("invalid branch")
 
 
 class CategorySpendingLine(BaseModel):
@@ -137,6 +205,32 @@ class ChatEvidenceCategorySpending(BaseModel):
     lines: list[CategorySpendingLine] = Field(default_factory=list, max_length=25)
 
 
+class GoalProgressLine(BaseModel):
+    name: str = Field(..., max_length=200)
+    goal_type: str = Field(..., max_length=80)
+    current_amount: float = Field(..., ge=0)
+    target_amount: float = Field(..., ge=0)
+    pct_complete: float = Field(..., ge=0, le=100)
+
+
+class ChatEvidenceGoalProgress(BaseModel):
+    type: Literal["goal_progress"] = "goal_progress"
+    goals: list[GoalProgressLine] = Field(default_factory=list, max_length=8)
+
+
+class BudgetPaceLine(BaseModel):
+    category: str = Field(..., max_length=200)
+    budgeted: float = Field(..., ge=0)
+    spent: float = Field(..., ge=0)
+    remaining: float
+
+
+class ChatEvidenceBudgetPace(BaseModel):
+    type: Literal["budget_pace"] = "budget_pace"
+    month: str = Field(..., pattern=r"^\d{4}-\d{2}$")
+    lines: list[BudgetPaceLine] = Field(default_factory=list, max_length=12)
+
+
 def build_category_spending_evidence(
     month_key: str, rows: list[tuple[str, Decimal]]
 ) -> list[dict]:
@@ -148,10 +242,50 @@ def build_category_spending_evidence(
     return [item.model_dump()]
 
 
+def build_goal_progress_evidence_rows(
+    rows: list[tuple[str, str, Decimal, Decimal]],
+) -> Optional[dict]:
+    """Pure helper: (name, goal_type, current_amount, target_amount) tuples."""
+    if not rows:
+        return None
+    goal_lines: list[GoalProgressLine] = []
+    for name, gt, cur, tgt in rows[:8]:
+        tgt_f = float(tgt)
+        cur_f = float(cur)
+        pct = min(100.0, (cur_f / tgt_f * 100.0) if tgt_f > 0 else 0.0)
+        goal_lines.append(
+            GoalProgressLine(
+                name=name[:200],
+                goal_type=(gt or "goal")[:80],
+                current_amount=cur_f,
+                target_amount=tgt_f,
+                pct_complete=round(pct, 1),
+            )
+        )
+    return ChatEvidenceGoalProgress(goals=goal_lines).model_dump()
+
+
+def build_budget_pace_evidence_rows(month_key: str, rows: list[tuple[str, float, float]]) -> Optional[dict]:
+    """Pure helper: (category, budgeted, spent); remaining = budgeted - spent."""
+    if not rows:
+        return None
+    pace_lines: list[BudgetPaceLine] = []
+    for cat, bud, sp in rows[:12]:
+        pace_lines.append(
+            BudgetPaceLine(
+                category=cat[:200],
+                budgeted=bud,
+                spent=sp,
+                remaining=round(bud - sp, 2),
+            )
+        )
+    return ChatEvidenceBudgetPace(month=month_key, lines=pace_lines).model_dump()
+
+
 async def _build_chat_evidence_list(
     db: AsyncSession, household_id: str
 ) -> list[dict]:
-    """Display-only snippets mirroring category spend in the chat system prompt."""
+    """Display-only snippets: category spend, active goals, budget vs spent (budget accounts)."""
     today = date.today()
     month_start = today.replace(day=1)
     month_key = month_start.strftime("%Y-%m")
@@ -167,8 +301,62 @@ async def _build_chat_evidence_list(
         .order_by(func.sum(Transaction.amount))
         .limit(12)
     )
-    rows = list(spend_result.all())
-    return build_category_spending_evidence(month_key, rows)
+    cat_rows = list(spend_result.all())
+    out: list[dict] = []
+    out.extend(build_category_spending_evidence(month_key, cat_rows))
+
+    goals_result = await db.execute(
+        select(FinancialGoal.name, FinancialGoal.goal_type, FinancialGoal.current_amount, FinancialGoal.target_amount)
+        .where(FinancialGoal.household_id == household_id)
+        .where(FinancialGoal.is_completed == False)  # noqa: E712
+        .order_by(FinancialGoal.target_amount.desc())
+        .limit(8)
+    )
+    goal_tuples = [(n, gt, cur, tgt) for n, gt, cur, tgt in goals_result.all()]
+    goal_ev = build_goal_progress_evidence_rows(goal_tuples)
+    if goal_ev:
+        out.append(goal_ev)
+
+    from sqlalchemy import extract
+
+    budget_account_subq = (
+        select(Account.id)
+        .where(Account.household_id == household_id)
+        .where(Account.is_budget_account.is_(True))
+        .where(Account.closed_at.is_(None))
+        .scalar_subquery()
+    )
+    y, m = today.year, today.month
+    spent_by_cat: dict[str, Decimal] = {}
+    spent_result = await db.execute(
+        select(Transaction.category_id, func.sum(Transaction.amount))
+        .where(Transaction.account_id.in_(budget_account_subq))
+        .where(extract("year", Transaction.date) == y)
+        .where(extract("month", Transaction.date) == m)
+        .where(Transaction.amount < 0)
+        .where(Transaction.category_id.isnot(None))
+        .group_by(Transaction.category_id)
+    )
+    for cid, amt in spent_result.all():
+        spent_by_cat[cid] = abs(amt)
+
+    assign_result = await db.execute(
+        select(Category.name, BudgetAssignment.category_id, BudgetAssignment.assigned_amount)
+        .join(Category, BudgetAssignment.category_id == Category.id)
+        .where(BudgetAssignment.household_id == household_id)
+        .where(BudgetAssignment.month == month_key)
+    )
+    pace_rows: list[tuple[str, float, float]] = []
+    for cat_name, cat_id, assigned in assign_result.all():
+        sp = float(spent_by_cat.get(cat_id, Decimal("0")))
+        bud = float(assigned)
+        pace_rows.append((cat_name, bud, sp))
+    pace_rows.sort(key=lambda x: x[2] - x[1])
+    pace_ev = build_budget_pace_evidence_rows(month_key, pace_rows[:12])
+    if pace_ev:
+        out.append(pace_ev)
+
+    return out
 
 
 class InsightsResponse(BaseModel):
@@ -390,6 +578,92 @@ async def chat_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/advisor-turn", response_model=AdvisorTurnResponse)
+async def advisor_turn(
+    req: ChatRequest,
+    household_id: str = Depends(_require_ai_enabled_rate_limited),
+    db: AsyncSession = Depends(get_db),
+):
+    """One JSON LLM call: detect add_transaction / add_debt intent or return a chat reply.
+
+    Evidence panels are always assembled server-side (never from model output).
+    """
+    ctx = await build_financial_context(db, household_id)
+    evidence_list = await _build_chat_evidence_list(db, household_id)
+    system = _build_chat_system(ctx)
+    last_message, history = _build_chat_prompt(req)
+
+    history_text = ""
+    if history:
+        history_text = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in history[-6:])
+
+    if get_settings().demo_mode:
+        full_prompt = last_message
+        if history_text:
+            full_prompt = f"Previous conversation:\n{history_text}\n\nUser: {last_message}"
+        reply, src = await llm_client.complete_with_source(
+            full_prompt,
+            system=system,
+            max_tokens=2048,
+            log_label="advisor-turn",
+        )
+        if not reply:
+            raise HTTPException(503, _NO_AI_MSG)
+        return AdvisorTurnResponse(
+            branch="chat",
+            model_source=src,
+            reply=reply.strip(),
+            evidence=evidence_list,
+        )
+
+    prompt = f"""Today's date is {date.today().isoformat()}.
+
+Financial snapshot (facts — do not invent accounts, balances, or goals):
+{ctx}
+"""
+    if history_text:
+        prompt += f"""
+Conversation so far:
+{history_text}
+"""
+    prompt += f"""
+Latest user message:
+{last_message}
+
+Return ONLY a JSON object (no markdown fences) in exactly one of these forms:
+
+1) User clearly wants to record NEW data now (not a hypothetical):
+   {{"branch":"action","action_type":"add_transaction"|"add_debt","data":{{...}},"confirmation_text":"one clear sentence"}}
+   For add_transaction, data must include: account_name, payee_name, amount (positive number), date (YYYY-MM-DD), and optionally memo.
+   For add_debt, data must include: account_name, payee_name, amount (positive balance), and optionally due_date (YYYY-MM-DD).
+
+2) Otherwise (questions, advice, hypotheticals):
+   {{"branch":"chat","reply":"plain text only, 2-4 short paragraphs, no markdown headings"}}
+
+Use "action" sparingly — only when they are asking you to add something to their ledger."""
+
+    response, source = await llm_client.complete_with_source(
+        prompt,
+        system="You output a single JSON object only. No prose outside JSON.",
+        max_tokens=2048,
+        json_format=True,
+        log_label="advisor-turn",
+    )
+    if not response:
+        raise HTTPException(503, _NO_AI_MSG)
+    try:
+        parsed = parse_llm_json_object(response)
+        return normalize_advisor_turn_payload(parsed, model_source=source, evidence_list=evidence_list)
+    except Exception:
+        logger.warning("advisor-turn: failed to parse or validate LLM JSON", exc_info=True)
+        raise HTTPException(503, "The AI returned an unreadable response. Please try again.")
+
+
+# Note: `_build_budget_context` lives in app.services.ai.insights now — the
+# pre-extraction duplicate that 227b35a added inline has been skipped to
+# avoid two copies drifting. The advisor-turn route above does NOT need it.
 
 
 @router.post("/budget-insights", response_model=BudgetInsightsResponse)

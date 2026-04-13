@@ -25,6 +25,7 @@ _DEMO_AUTH_PREFIXES = (
 # route an explicit decision.
 _DEMO_AI_MUTATION_PATHS = frozenset({
     "/api/ai/chat/stream",
+    "/api/ai/advisor-turn",
     "/api/ai/insights",
     "/api/ai/budget-insights",
     "/api/ai/budget-suggestions",
