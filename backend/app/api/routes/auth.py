@@ -643,6 +643,13 @@ async def google_start(request: Request):
     settings = get_settings()
     if not settings.google_client_id:
         raise HTTPException(status_code=501, detail="Google sign-in is not configured")
+    if settings.demo_mode:
+        oauth_cookie_secure = not settings.frontend_url.startswith("http://localhost")
+        return _oauth_complete_redirect(
+            settings.frontend_url.rstrip("/"),
+            "/login?error=demo_oauth_disabled",
+            is_secure=oauth_cookie_secure,
+        )
     state = secrets.token_urlsafe(32)
     redirect_uri = _build_redirect_uri(request)
     params = {
@@ -731,6 +738,12 @@ async def google_callback(
         if not user:
             result = await db.execute(select(User).where(User.email == email))
             user = result.scalar_one_or_none()
+        if settings.demo_mode and not user:
+            return _oauth_complete_redirect(
+                frontend_url,
+                "/login?error=demo_oauth_signup_disabled",
+                is_secure=oauth_cookie_secure,
+            )
         if user:
             if not user.google_id:
                 user.google_id = google_id
