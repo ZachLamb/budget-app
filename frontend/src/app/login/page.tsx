@@ -21,6 +21,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_profile: "Google did not provide required profile information.",
   server_error:
     "Something went wrong on the server. If you just added Google sign-in, run the database migration (see backend/migrations/001_google_oauth.sql) and restart.",
+  demo_oauth_disabled:
+    'Google sign-in is turned off for the demo. Use "Try the Demo" or email sign-in.',
+  demo_oauth_signup_disabled:
+    'New Google accounts cannot be created in the demo. Use "Try the Demo" or an account that already exists on this server.',
 };
 
 function LoginPageContent() {
