@@ -8,6 +8,7 @@ OLLAMA_URL is empty, completions return nothing (callers show a clear error).
 
 import json
 import logging
+import time
 from typing import Optional, AsyncIterator
 
 import httpx
@@ -145,6 +146,7 @@ async def complete_with_source(
     max_tokens: int = 1024,
     *,
     json_format: bool = False,
+    log_label: Optional[str] = None,
 ) -> tuple[Optional[str], str]:
     """Send a prompt to Ollama (or demo canned data).
 
@@ -152,16 +154,29 @@ async def complete_with_source(
     switches Ollama into strict JSON mode so small local models can't drift
     into markdown fences or chatty prose around the payload.
 
+    Set ``log_label`` to record an INFO-level timing entry under that op
+    name. No prompts or responses are logged — just duration/source/ok.
+
     Returns (response_text, source_name): "demo", "ollama", or "unavailable".
     """
+    t0 = time.perf_counter()
     if get_settings().demo_mode:
-        return _demo_response(prompt), "demo"
+        text, source = _demo_response(prompt), "demo"
+    else:
+        result = await _try_ollama(
+            prompt, system, max_tokens=max_tokens, json_format=json_format
+        )
+        text, source = (result, "ollama") if result is not None else (None, "unavailable")
 
-    result = await _try_ollama(prompt, system, max_tokens=max_tokens, json_format=json_format)
-    if result is not None:
-        return result, "ollama"
-
-    return None, "unavailable"
+    if log_label:
+        logger.info(
+            "ai_llm op=%s duration_ms=%.0f source=%s ok=%s",
+            log_label,
+            (time.perf_counter() - t0) * 1000,
+            source,
+            text is not None,
+        )
+    return text, source
 
 
 async def complete(

@@ -57,6 +57,12 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_TOKEN"),
     )
 
+    # Per-household cap on AI route calls per rolling 60s window (0 = disabled).
+    # Complements the IP-keyed HTTP-middleware limit above: this one is
+    # service-layer, keyed on household_id, and protects against a single
+    # household's Ollama bill regardless of the source IP.
+    ai_rate_limit_per_minute: int = 120
+
     model_config = {"env_file": ".env"}
 
 

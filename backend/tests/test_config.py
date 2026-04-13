@@ -43,6 +43,13 @@ def test_settings_has_database_url() -> None:
     assert "postgresql" in s.database_url or "sqlite" in s.database_url
 
 
+def test_settings_has_ai_rate_limit_per_minute() -> None:
+    s = Settings()
+    assert hasattr(s, "ai_rate_limit_per_minute")
+    assert isinstance(s.ai_rate_limit_per_minute, int)
+    assert s.ai_rate_limit_per_minute >= 0
+
+
 def test_get_settings_rejects_cors_wildcard(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SECRET_KEY", "x" * 40)
     monkeypatch.setenv("CORS_ORIGINS", "*")

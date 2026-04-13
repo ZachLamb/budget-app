@@ -34,6 +34,22 @@ _DEMO_AI_MUTATION_PATHS = frozenset({
     "/api/ai/fsa-review",
 })
 
+# Non-AI mutation paths allowed by product policy in demo. The demo's
+# observe/diagnose/decide loop needs these: set a pay schedule, advance the
+# cycle-review step, add/patch cycle commitments, dismiss a recurring
+# suggestion. Dropping them accidentally broke the demo's guided tour.
+#
+# Exact paths stay exact; `cycle-commitments` uses prefix match because the
+# resource has `/{id}` sub-routes (PATCH/DELETE).
+_DEMO_NON_AI_MUTATION_PATHS = frozenset({
+    "/api/settings/pay-schedule",
+    "/api/settings/cycle-review",
+    "/api/recurring/suggestions/dismiss",
+})
+_DEMO_NON_AI_MUTATION_PREFIXES = (
+    "/api/cycle-commitments",
+)
+
 
 def is_demo_ai_mutation_allowed(path: str, method: str) -> bool:
     """Return True if this AI path may mutate in demo mode (POST/PUT/PATCH/DELETE).
@@ -49,6 +65,10 @@ def is_demo_mutation_allowed(path: str, method: str) -> bool:
         return True
     # LLM categorization suggest is read-only analysis (apply stays blocked below).
     if path == "/api/categorization/suggest" and method == "POST":
+        return True
+    if path in _DEMO_NON_AI_MUTATION_PATHS:
+        return True
+    if any(path.startswith(p) for p in _DEMO_NON_AI_MUTATION_PREFIXES):
         return True
     return is_demo_ai_mutation_allowed(path, method)
 

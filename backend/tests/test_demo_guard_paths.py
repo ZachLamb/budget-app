@@ -1,4 +1,4 @@
-"""Demo guard: auth + explicit AI mutation allowlist."""
+"""Demo guard: auth + explicit AI mutation allowlist + non-AI product-policy paths."""
 
 from app.middleware.demo_guard import (
     _DEMO_AI_MUTATION_PATHS,
@@ -34,10 +34,16 @@ def test_demo_ai_rejects_unknown_subpath_even_when_it_shares_a_prefix() -> None:
     assert not is_demo_ai_mutation_allowed("/api/ai/fsa-review/export", "POST")
 
 
-def test_demo_extended_read_only_no_cycle_or_pay_schedule() -> None:
-    assert not is_demo_mutation_allowed("/api/cycle-commitments", "POST")
-    assert not is_demo_mutation_allowed("/api/settings/pay-schedule", "PUT")
-    assert not is_demo_mutation_allowed("/api/recurring/suggestions/dismiss", "POST")
+def test_demo_non_ai_product_policy_paths_allowed() -> None:
+    """Non-AI paths the demo needs for its observe/diagnose/decide loop to work:
+    pay-schedule + cycle-commitments + cycle-review + recurring-suggestion
+    dismissal. Blocking these broke the demo's guided tour, so they stay
+    allowed even though the rest of the app is read-only."""
+    assert is_demo_mutation_allowed("/api/settings/pay-schedule", "PUT")
+    assert is_demo_mutation_allowed("/api/settings/cycle-review", "PUT")
+    assert is_demo_mutation_allowed("/api/cycle-commitments", "POST")
+    assert is_demo_mutation_allowed("/api/cycle-commitments/xyz", "PATCH")
+    assert is_demo_mutation_allowed("/api/recurring/suggestions/dismiss", "POST")
 
 
 def test_demo_allows_categorization_suggest_only() -> None:
@@ -66,3 +72,9 @@ def test_every_demo_allowlisted_path_resolves_to_a_real_route() -> None:
         f"app.routes: {sorted(missing)}. Either the route was renamed/removed "
         f"or the allowlist entry has a typo."
     )
+
+
+def test_demo_blocks_random_api_mutations() -> None:
+    """Anything outside the explicit allowlists stays blocked."""
+    assert not is_demo_mutation_allowed("/api/transactions", "POST")
+    assert not is_demo_mutation_allowed("/api/accounts/abc", "DELETE")
