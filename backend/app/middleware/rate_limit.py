@@ -1,14 +1,26 @@
-"""Simple in-memory rate limiting (per server process). Complement with edge proxy limits in production."""
+"""Per-path, per-IP rate limiting middleware.
+
+Backed by a pluggable store (in-memory for dev, Upstash Redis over HTTP for
+deployments that need shared buckets across workers/replicas). Pick by
+setting ``UPSTASH_REDIS_REST_URL`` + ``UPSTASH_REDIS_REST_TOKEN``.
+
+X-Forwarded-For is only trusted when the immediate peer is in the
+``TRUSTED_PROXIES`` allowlist. This prevents arbitrary clients from
+spoofing their IP to sidestep the per-IP cap (or to DoS a single shared
+bucket by setting ``X-Forwarded-For: unknown``).
+"""
 from __future__ import annotations
 
+import ipaddress
 import json
-import time
-from collections import defaultdict, deque
-from typing import Deque, Dict, List, Tuple
+from typing import List, Optional, Tuple
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+
+from app.config import get_settings
+from app.middleware.rate_limit_store import RateLimitStore, build_store
 
 # (path prefix, max_hits, window_seconds)
 # AI routes have a tight per-IP cap: each POST can hold a worker for up to the
@@ -24,43 +36,69 @@ _RULES: List[Tuple[str, int, int]] = [
     ("/api/ai/", 20, 60),
 ]
 
-_MAX_TRACKED_KEYS = 50_000
+
+def _parse_trusted_proxies(raw: str) -> List[ipaddress._BaseNetwork]:
+    """Parse a comma-separated IP/CIDR list into network objects."""
+    nets: List[ipaddress._BaseNetwork] = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(entry, strict=False))
+        except ValueError:
+            # Malformed entries silently drop — better than crashing startup;
+            # operator sees the behavior in access logs.
+            continue
+    return nets
 
 
-def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip() or "unknown"
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+def _peer_in_trusted(peer: Optional[str], trusted: List[ipaddress._BaseNetwork]) -> bool:
+    if not peer or not trusted:
+        return False
+    try:
+        ip = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    return any(ip in net for net in trusted)
+
+
+def client_ip_for_limit(request: Request, trusted: List[ipaddress._BaseNetwork]) -> str:
+    """Pick the client IP for rate-limit bucketing.
+
+    - If the peer is in the trusted-proxy list, honor the first ``X-Forwarded-For``.
+    - Otherwise ignore XFF and use the direct peer address.
+    - Fall back to ``"unknown"`` only as a last resort — buckets under that
+      key are shared, so this should be rare.
+    """
+    peer = request.client.host if request.client else None
+    if _peer_in_trusted(peer, trusted):
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            candidate = forwarded.split(",")[0].strip()
+            if candidate:
+                return candidate
+    return peer or "unknown"
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """429 when a client exceeds per-route sliding-window limits."""
 
-    def __init__(self, app):
+    def __init__(
+        self,
+        app,
+        *,
+        store: Optional[RateLimitStore] = None,
+        trusted_proxies: Optional[str] = None,
+    ) -> None:
         super().__init__(app)
-        self._hits: Dict[str, Deque[float]] = defaultdict(deque)
-
-    def _prune(self, key: str, window: float, now: float) -> None:
-        dq = self._hits[key]
-        while dq and dq[0] < now - window:
-            dq.popleft()
-        if not dq:
-            del self._hits[key]
-
-    def _over_limit(self, key: str, max_hits: int, window: int) -> bool:
-        if len(self._hits) > _MAX_TRACKED_KEYS and key not in self._hits:
-            return False
-        now = time.monotonic()
-        window_f = float(window)
-        self._prune(key, window_f, now)
-        dq = self._hits[key]
-        if len(dq) >= max_hits:
-            return True
-        dq.append(now)
-        return False
+        settings = get_settings()
+        self._store = store or build_store(
+            rest_url=settings.upstash_redis_rest_url,
+            rest_token=settings.upstash_redis_rest_token,
+        )
+        raw = settings.trusted_proxies if trusted_proxies is None else trusted_proxies
+        self._trusted_proxies = _parse_trusted_proxies(raw)
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -70,9 +108,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         for prefix, max_hits, window in _RULES:
             if path.startswith(prefix):
-                ip = _client_ip(request)
-                key = f"{prefix}:{ip}"
-                if self._over_limit(key, max_hits, window):
+                ip = client_ip_for_limit(request, self._trusted_proxies)
+                key = f"rl:{prefix}:{ip}"
+                over = await self._store.check_and_increment(key, max_hits, window)
+                if over:
                     return Response(
                         content=json.dumps({"detail": "Too many requests. Try again shortly."}),
                         status_code=429,

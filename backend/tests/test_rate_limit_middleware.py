@@ -3,7 +3,8 @@
 These cover the behaviors the middleware's route rules depend on:
 - POSTs past the per-IP cap return 429
 - GETs are never limited (method filter)
-- separate IPs get separate buckets
+- separate IPs get separate buckets when XFF comes from a trusted peer
+- X-Forwarded-For is IGNORED when the peer is not in the trusted-proxy list
 - more-specific prefixes win over the generic "/api/ai/" prefix when rules
   overlap (e.g. "/api/auth/login" is tighter than "/api/auth/")
 """
@@ -17,14 +18,20 @@ from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
 from app.middleware.rate_limit import RateLimitMiddleware, _RULES
+from app.middleware.rate_limit_store import InMemoryStore
 
 
 async def _ok(_: Request) -> PlainTextResponse:
     return PlainTextResponse("ok")
 
 
-def _build_app() -> Starlette:
-    """Mount a handful of routes that fall under different rate-limit prefixes."""
+def _build_app(*, trusted_proxies: str = "127.0.0.1") -> Starlette:
+    """Mount a handful of routes that fall under different rate-limit prefixes.
+
+    Default trusts loopback so tests can spoof X-Forwarded-For through httpx's
+    ASGI transport. Tests that want to verify XFF-ignoring behavior pass
+    ``trusted_proxies=""``.
+    """
     app = Starlette(
         routes=[
             Route("/api/auth/login", _ok, methods=["POST", "GET"]),
@@ -32,7 +39,12 @@ def _build_app() -> Starlette:
             Route("/api/ai/insights", _ok, methods=["POST"]),
         ]
     )
-    app.add_middleware(RateLimitMiddleware)
+    # Fresh store per app so tests don't cross-contaminate.
+    app.add_middleware(
+        RateLimitMiddleware,
+        store=InMemoryStore(),
+        trusted_proxies=trusted_proxies,
+    )
     return app
 
 
@@ -110,4 +122,30 @@ async def test_login_prefix_takes_precedence_over_bare_auth_prefix() -> None:
             )
             assert resp.status_code == 200
         resp = await client.post("/api/auth/login", headers={"x-forwarded-for": "3.3.3.3"})
+        assert resp.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_xff_is_ignored_when_peer_is_not_a_trusted_proxy() -> None:
+    """Without a trusted-proxy allowlist entry, XFF must not partition buckets.
+
+    Two different X-Forwarded-For values from the same (untrusted) peer share
+    the same bucket, so flooding with rotating XFF cannot bypass the limit.
+    """
+    # Empty trusted list → XFF ignored, all requests key on the peer IP.
+    app = _build_app(trusted_proxies="")
+    cap = _rule_cap("/api/ai/")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Spoof one XFF per request up to cap — should still trip the limiter.
+        for i in range(cap):
+            resp = await client.post(
+                "/api/ai/insights",
+                headers={"x-forwarded-for": f"10.0.0.{i}"},
+            )
+            assert resp.status_code == 200
+        resp = await client.post(
+            "/api/ai/insights",
+            headers={"x-forwarded-for": "10.0.0.254"},
+        )
         assert resp.status_code == 429

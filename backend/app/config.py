@@ -31,6 +31,18 @@ class Settings(BaseSettings):
     # Demo mode: seeds fake data, mocks AI, enables read-only guard
     demo_mode: bool = False
 
+    # Comma-separated allowlist of IPs/CIDRs that are trusted to set
+    # X-Forwarded-For (e.g. your reverse proxy). When empty, XFF is
+    # ignored and the direct peer IP is used — prevents header spoofing
+    # from untrusted clients.
+    trusted_proxies: str = ""
+
+    # Optional Upstash Redis (HTTP REST) for rate-limit state. When both
+    # are set, the rate limiter shares buckets across workers/replicas.
+    # When empty, the limiter falls back to per-instance in-memory state.
+    upstash_redis_rest_url: str = ""
+    upstash_redis_rest_token: str = ""
+
     model_config = {"env_file": ".env"}
 
 

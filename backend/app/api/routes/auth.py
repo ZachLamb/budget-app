@@ -123,16 +123,32 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == data.email.strip().lower()))
+    from app.services.auth import lockout
+
+    email = data.email.strip().lower()
+    # Per-email lockout layer on top of the IP-keyed rate limit: after N
+    # failed attempts an IP-rotating attacker still can't keep grinding on a
+    # single account. The 429 is intentionally vague about remaining
+    # attempts so probing the threshold doesn't become a signal.
+    if await lockout.is_login_locked(email):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed attempts. Try again in a few minutes.",
+        )
+
+    result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
     if not user or user.password_hash is None:
         # Run a cheap deterministic hash to reduce obvious timing differences without
         # requiring bcrypt initialization during module import.
         hashlib.sha256((data.password or "").encode("utf-8")).hexdigest()
+        await lockout.record_login_failure(email)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not pwd_context.verify(data.password, user.password_hash):
+        await lockout.record_login_failure(email)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    await lockout.clear_login_failures(email)
     token = _create_token(user.id)
     return TokenResponse(
         access_token=token,
