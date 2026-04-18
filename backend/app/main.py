@@ -9,6 +9,8 @@ from app.database import engine, Base, async_session
 from app.api.routes import router as api_router
 from app.api.routes.upload import router as upload_router
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.rate_limit_store import build_store
+from app.services.auth import lockout as _auth_lockout
 from app.tasks.scheduler import start_scheduler, stop_scheduler
 
 
@@ -244,7 +246,21 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-app.add_middleware(RateLimitMiddleware)
+# Build one rate-limit store at import and share it across the middleware
+# and the lockout service so we only hold one Upstash HTTP client per worker.
+# Exposing it on app.state lets /api/health probe it without re-reading env.
+_rate_limit_store = build_store(
+    rest_url=get_settings().upstash_redis_rest_url,
+    rest_token=get_settings().upstash_redis_rest_token,
+)
+app.state.rate_limit_store = _rate_limit_store
+_auth_lockout.set_store(_rate_limit_store)
+import logging as _logging  # noqa: E402 — deliberately late to group with the banner below
+_logging.getLogger(__name__).info(
+    "rate-limit store: %s", _rate_limit_store.backend_name
+)
+
+app.add_middleware(RateLimitMiddleware, store=_rate_limit_store)
 
 if get_settings().demo_mode:
     from app.middleware.demo_guard import DemoGuardMiddleware
@@ -256,9 +272,28 @@ app.include_router(upload_router, prefix="/api/upload", tags=["upload"])
 
 @app.get("/api/health")
 async def health():
+    components: dict = {"db": "ok", "rate_limit_store": _rate_limit_store.backend_name}
+    status = "ok"
+
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
-        return {"status": "ok"}
     except Exception:
-        return {"status": "degraded", "db": "unreachable"}
+        components["db"] = "unreachable"
+        status = "degraded"
+
+    # In-memory always pings True; this only adds real network cost when
+    # Upstash is configured.
+    try:
+        ok = await _rate_limit_store.ping()
+    except Exception:
+        ok = False
+    if not ok:
+        # A missing Redis isn't fatal (the middleware fails open) but it
+        # means limits are not shared across workers — worth surfacing.
+        components["rate_limit_store_status"] = "unavailable"
+        status = "degraded" if status == "ok" else status
+    else:
+        components["rate_limit_store_status"] = "ok"
+
+    return {"status": status, **components}

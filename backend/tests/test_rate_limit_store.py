@@ -65,3 +65,11 @@ def test_build_store_falls_back_to_memory_when_url_is_empty() -> None:
 def test_build_store_falls_back_to_memory_when_token_is_empty() -> None:
     store = build_store(rest_url="https://example.upstash.io", rest_token="")
     assert isinstance(store, InMemoryStore)
+
+
+@pytest.mark.asyncio
+async def test_memory_store_reports_backend_name_and_pings_true() -> None:
+    """/api/health reads these; regressions here would silently mislabel the store."""
+    store = InMemoryStore()
+    assert store.backend_name == "memory"
+    assert await store.ping() is True

@@ -49,6 +49,15 @@ class RateLimitStore(Protocol):
     async def counter_delete(self, key: str) -> None:
         ...
 
+    @property
+    def backend_name(self) -> str:
+        """Short string for startup logs and /api/health, e.g. "memory" or "upstash"."""
+        ...
+
+    async def ping(self) -> bool:
+        """Cheap liveness probe. True when the backend is reachable."""
+        ...
+
 
 # ── In-memory (per-process) ───────────────────────────────────────────────────
 
@@ -109,6 +118,14 @@ class InMemoryStore:
 
     async def counter_delete(self, key: str) -> None:
         self._counters.pop(key, None)
+
+    @property
+    def backend_name(self) -> str:
+        return "memory"
+
+    async def ping(self) -> bool:
+        # In-process storage is "reachable" iff the process is alive.
+        return True
 
 
 # ── Upstash Redis (HTTP REST) ─────────────────────────────────────────────────
@@ -193,6 +210,21 @@ class UpstashStore:
             resp.raise_for_status()
         except Exception as e:
             logger.warning("Upstash counter_delete failed (%s); continuing", e)
+
+    @property
+    def backend_name(self) -> str:
+        return "upstash"
+
+    async def ping(self) -> bool:
+        client = self._client_or_create()
+        try:
+            resp = await client.post(self._url, json=["PING"])
+            resp.raise_for_status()
+            # Upstash returns {"result": "PONG"} for PING.
+            return (resp.json() or {}).get("result") == "PONG"
+        except Exception as e:
+            logger.warning("Upstash ping failed: %s", e)
+            return False
 
     async def aclose(self) -> None:
         if self._client is not None:

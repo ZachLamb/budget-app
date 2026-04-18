@@ -45,10 +45,20 @@ def _get_store() -> RateLimitStore:
     return _store_singleton
 
 
-def set_store_for_tests(store: Optional[RateLimitStore]) -> None:
-    """Swap (or clear) the module-level store. Tests only."""
+def set_store(store: Optional[RateLimitStore]) -> None:
+    """Swap (or clear) the module-level store.
+
+    Called at app startup to share the single process-wide store with the
+    rate-limit middleware (so we don't open two Upstash HTTP clients for
+    the same credentials). Tests also call this to inject a fresh
+    in-memory store between cases.
+    """
     global _store_singleton
     _store_singleton = store
+
+
+# Back-compat alias — older tests may reach for set_store_for_tests.
+set_store_for_tests = set_store
 
 
 def _key(email: str) -> str:

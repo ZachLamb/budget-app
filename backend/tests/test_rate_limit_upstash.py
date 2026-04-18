@@ -98,6 +98,28 @@ async def test_counter_get_reads_numeric_string_count() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ping_returns_true_on_pong_and_false_on_error() -> None:
+    """Used by /api/health. A flaky PING must not be reported as healthy."""
+    def pong_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": "PONG"})
+
+    def sad_handler(_: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("unreachable")
+
+    store_ok = _make_store_with_handler(pong_handler)
+    assert await store_ok.ping() is True
+
+    store_bad = _make_store_with_handler(sad_handler)
+    assert await store_bad.ping() is False
+
+
+def test_upstash_backend_name_constant() -> None:
+    from app.middleware.rate_limit_store import UpstashStore
+
+    assert UpstashStore("https://x.upstash.io", "tok").backend_name == "upstash"
+
+
+@pytest.mark.asyncio
 async def test_counter_delete_sends_del_command() -> None:
     seen: list[httpx.Request] = []
 
