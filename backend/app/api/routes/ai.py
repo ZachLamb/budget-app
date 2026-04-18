@@ -1044,18 +1044,30 @@ async def suggest_interest_rates(
         lines.append(f"  - Name: \"{a.name}\", Type: {a.account_type}, Balance: ${bal:,.2f}")
 
     context = "\n".join(lines)
-    prompt = f"""The following are credit card or loan accounts. Based on the account name and type,
-estimate a typical APR (annual interest rate) and typical minimum monthly payment for each.
-Use common knowledge about card types — e.g. Chase Freedom ~24.99%, store cards ~29.99%,
-mortgages ~7%, auto loans ~6-8%, personal loans ~10-15%.
-Round APR to 2 decimal places as a percentage (e.g. 24.99).
+    prompt = f"""The following are credit card or loan accounts. Give a
+plausible starting-point estimate of APR and minimum monthly payment for
+each, as a STARTING POINT the user will verify against their statement.
+
+Use broad ranges only — you cannot know the user's actual rate:
+- Credit cards (general purpose): 18-26%
+- Store cards / retail cards: 27-32%
+- Mortgages: 5-8%
+- Auto loans: 5-10%
+- Personal loans / unsecured installment: 9-18%
+- Student loans (federal): 4-8%; student loans (private): 8-15%
+
+Pick a midpoint of the relevant range for each account. Do not quote
+specific issuer rates, promotional rates, or introductory APRs — those
+depend on the user's credit profile and statement, which you don't have.
+Round APR to 2 decimal places as a percentage (e.g. 22.50).
+
 For minimum payment use the greater of $25 or 2% of balance.
 
 Accounts:
 {context}
 
 Return JSON:
-{{"suggestions": [{{"account_name": "...", "apr_percent": 24.99, "min_payment": 35.00, "reasoning": "one line"}}]}}
+{{"suggestions": [{{"account_name": "...", "apr_percent": 22.50, "min_payment": 35.00, "reasoning": "one line — start with 'Typical range for ...'"}}]}}
 No other text."""
 
     response, source = await llm_client.complete_with_source(prompt, json_format=True)
@@ -1089,7 +1101,12 @@ No other text."""
     return InterestRateSuggestionsResponse(
         suggestions=suggestions,
         model_source=source,
-        note="These are estimates based on typical rates for your card types. Please verify and correct them.",
+        note=(
+            "These are rough starting-point estimates only. Your actual APR depends on "
+            "your credit profile, card product, and any promotional period — always check "
+            "your statement or cardholder agreement and correct these values before relying "
+            "on the payoff plan."
+        ),
     )
 
 
@@ -1121,9 +1138,18 @@ Common FSA-eligible merchant patterns:
 
 NOT FSA-eligible (do not flag these):
 - Cosmetic procedures, teeth whitening
-- Gym memberships (unless prescribed)
+- Gym memberships / wellness / fitness programs (unless prescribed via LMN)
 - General groceries, even from pharmacies
 - Vitamins/supplements (unless prescribed)
+- Childcare, daycare, elder care — those belong to DCFSA, not a standard
+  healthcare FSA; do NOT flag them here
+- Haircare / beauty / personal grooming (even from Hims / Hers)
+
+Plan-type note: assume a standard Healthcare FSA (HCFSA). Limited-purpose
+FSA (LPFSA) covers only dental + vision, so if you are less sure a medical
+expense is HCFSA-eligible, lean 'medium' or 'low'. The user is shown a
+plan-type disclaimer in the UI; do not pretend to distinguish plan types
+yourself.
 
 Assign confidence levels:
 - high: clearly medical (doctor, dentist, pharmacy prescription, hospital)
@@ -1149,13 +1175,19 @@ _FSA_HINT_KEYWORDS = (
     # Online & retail vision/health
     "1800contacts", "warby", "zenni", "costco optical",
     # Telehealth & clinics
-    "minute clinic", "teladoc", "mdlive", "nurx", "hims", "hers",
+    "minute clinic", "teladoc", "mdlive", "nurx",
     "planned parenthood",
     # Specific treatments & equipment
     "physical therapy", "speech therapy", "occupational therapy",
     "invisalign", "cpap", "braces", "dme",
-    # Broad matches (category names / generic payees)
-    "wellness", "fitness", "care", "surgeon", "surgery", "radiology", "imaging",
+    # Broad-but-bounded medical terms (kept), followed by deliberately
+    # dropped over-broad terms with the reason recorded:
+    # - "care": matches childcare/daycare/elder care (NOT FSA-eligible — those
+    #   are DCFSA/other plans). False positives here caused real misfiled claims.
+    # - "wellness"/"fitness": wellness programs and gyms are NOT FSA-eligible
+    #   absent a prescription / Letter of Medical Necessity.
+    # - "hims"/"hers": primarily haircare/beauty; some telehealth, too broad.
+    "surgeon", "surgery", "radiology", "imaging",
 )
 
 

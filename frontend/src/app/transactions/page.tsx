@@ -12,7 +12,7 @@ import {
   type TransactionList,
 } from "@/lib/api/transactions";
 import { accountsApi, type Account } from "@/lib/api/accounts";
-import { reportsApi } from "@/lib/api/reports";
+import { reportsApi, type LlmSuggestion } from "@/lib/api/reports";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Upload, Search, ChevronLeft, ChevronRight, Trash2, Pencil, Download, ArrowLeftRight, SplitSquareHorizontal, CheckCircle, Circle, FileText, MoreHorizontal, Stethoscope, ChevronDown, ChevronUp, Loader2, ArrowUpDown, Check, X, Undo2, MessageSquare } from "lucide-react";
+import { Plus, Upload, Search, ChevronLeft, ChevronRight, Trash2, Pencil, Download, ArrowLeftRight, SplitSquareHorizontal, CheckCircle, Circle, MoreHorizontal, Stethoscope, ChevronDown, ChevronUp, Loader2, ArrowUpDown, Check, X, Undo2, MessageSquare, Sparkles } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { appToast } from "@/lib/app-toast";
 import api from "@/lib/api/client";
@@ -33,6 +33,8 @@ import { toastApiError, toastPlainError } from "@/lib/toast-error";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
 import Link from "next/link";
+import { isDemoMode } from "@/lib/demo-mode";
+import { AI_COPY } from "@/lib/ai-copy";
 
 type TransactionSplitLinePayload = {
   amount: number;
@@ -63,6 +65,10 @@ function TransactionsContent() {
   const [fsaSortCol, setFsaSortCol] = useState<"date" | "amount" | "confidence">("date");
   const [fsaSortDir, setFsaSortDir] = useState<"asc" | "desc">("desc");
   const [fsaShowDismissed, setFsaShowDismissed] = useState(false);
+  const [fsaIncludeAllOutflows, setFsaIncludeAllOutflows] = useState(false);
+  const [categoryReviewOpen, setCategoryReviewOpen] = useState(false);
+  const [llmCategorySuggestions, setLlmCategorySuggestions] = useState<LlmSuggestion[]>([]);
+  const [categoryReviewOverrides, setCategoryReviewOverrides] = useState<Record<string, string>>({});
   const fileRef = useRef<HTMLInputElement>(null);
 
   const queryClient = useQueryClient();
@@ -84,10 +90,15 @@ function TransactionsContent() {
   });
   const { allCategories } = useFlatCategories();
   const { data: fsaData, isLoading: fsaLoading, isFetching: fsaFetching, isError: fsaError, refetch: fsaRefetch } = useQuery({
-    queryKey: ["fsa-review", fsaDateFrom, fsaDateTo],
-    queryFn: () => aiApi.getFsaReview({ date_from: fsaDateFrom, date_to: fsaDateTo }),
-    enabled: false,
-    staleTime: 5 * 60 * 1000,
+    queryKey: ["fsa-review", fsaDateFrom, fsaDateTo, fsaIncludeAllOutflows],
+    queryFn: () =>
+      aiApi.getFsaReview({
+        date_from: fsaDateFrom,
+        date_to: fsaDateTo,
+        include_all_outflows: fsaIncludeAllOutflows,
+      }),
+    enabled: isClient && fsaOpen,
+    staleTime: 60 * 1000,
   });
 
   const filteredFsa = useMemo(() => {
@@ -129,6 +140,55 @@ function TransactionsContent() {
     mutationFn: ({ txnId, status }: { txnId: string; status: "pending" | "claimed" | "dismissed" }) =>
       aiApi.updateFsaItemStatus(txnId, status),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["fsa-review"] }),
+    onError: (e) => toastApiError("Could not update FSA status", e),
+  });
+
+  const suggestCategoriesMutation = useMutation({
+    mutationFn: () =>
+      reportsApi.suggestCategories({
+        account_id: filters.account_id,
+        date_from: filters.date_from,
+        date_to: filters.date_to,
+        search: filters.search?.trim() || undefined,
+        limit: 50,
+      }),
+    onSuccess: (data) => {
+      setCategoryReviewOverrides({});
+      setLlmCategorySuggestions(data.suggestions);
+      setCategoryReviewOpen(true);
+      if (data.suggestions.length === 0) {
+        appToast.info("No uncategorized transactions to suggest for.");
+      }
+    },
+    onError: (e) => toastApiError("Failed to get AI category suggestions", e),
+  });
+
+  const applyCategorySuggestionsMutation = useMutation({
+    mutationFn: reportsApi.applySuggestions,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      setLlmCategorySuggestions([]);
+      setCategoryReviewOverrides({});
+      setCategoryReviewOpen(false);
+      appToast.success(`Applied ${data.applied} suggestion${data.applied === 1 ? "" : "s"}.`);
+    },
+    onError: (e) => toastApiError("Failed to apply categories", e),
+  });
+
+  const applyOneCategorySuggestionMutation = useMutation({
+    mutationFn: (payload: { transaction_id: string; category_id: string }) =>
+      reportsApi.applySuggestions([payload]),
+    onSuccess: (data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      setLlmCategorySuggestions((prev) => prev.filter((s) => s.transaction_id !== vars.transaction_id));
+      setCategoryReviewOverrides((o) => {
+        const next = { ...o };
+        delete next[vars.transaction_id];
+        return next;
+      });
+      appToast.success(data.applied > 0 ? "Category applied." : "Nothing to apply.");
+    },
+    onError: (e) => toastApiError("Failed to apply category", e),
   });
 
   const { data: txnData, isLoading, isError, error } = useQuery({
@@ -157,6 +217,17 @@ function TransactionsContent() {
       setEditTxn(null);
     },
     onError: (e) => toastApiError("Failed to update transaction", e),
+  });
+
+  const inlineCategoryMutation = useMutation({
+    mutationFn: ({ id, category_id }: { id: string; category_id: string | null }) =>
+      transactionsApi.update(id, { category_id }),
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      setLlmCategorySuggestions((prev) => prev.filter((s) => s.transaction_id !== vars.id));
+    },
+    onError: (e) => toastApiError("Could not update category", e),
   });
 
   const deleteMutation = useMutation({
@@ -303,6 +374,17 @@ function TransactionsContent() {
 
   const totalPages = txnData ? Math.ceil(txnData.total / txnData.page_size) : 1;
 
+  const categorySuggestionByTxnId = useMemo(() => {
+    const m = new Map<string, LlmSuggestion>();
+    for (const s of llmCategorySuggestions) {
+      m.set(s.transaction_id, s);
+    }
+    return m;
+  }, [llmCategorySuggestions]);
+
+  const getReviewCategoryId = (s: LlmSuggestion) =>
+    categoryReviewOverrides[s.transaction_id] ?? s.suggested_category_id;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -313,6 +395,16 @@ function TransactionsContent() {
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="hidden sm:inline-flex"
+            disabled={suggestCategoriesMutation.isPending}
+            onClick={() => suggestCategoriesMutation.mutate()}
+          >
+            <Sparkles className="mr-2 h-4 w-4" />
+            {suggestCategoriesMutation.isPending ? "Suggesting…" : "Suggest categories"}
+          </Button>
           <Button variant="outline" size="sm" className="hidden sm:inline-flex" asChild>
             <Link
               href={`/?ai_open=1&ai_prompt=${encodeURIComponent(
@@ -340,6 +432,23 @@ function TransactionsContent() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                disabled={suggestCategoriesMutation.isPending}
+                onClick={() => suggestCategoriesMutation.mutate()}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                {suggestCategoriesMutation.isPending ? "Suggesting…" : "Suggest categories"}
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link
+                  href={`/?ai_open=1&ai_prompt=${encodeURIComponent(
+                    "Help me categorize uncategorized transactions and suggest rules for similar payees.",
+                  )}`}
+                >
+                  <MessageSquare className="mr-2 h-4 w-4" /> Ask AI
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleExport}>
                 <Download className="mr-2 h-4 w-4" /> Export
               </DropdownMenuItem>
@@ -636,6 +745,113 @@ function TransactionsContent() {
         onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId); }}
       />
 
+      <Dialog open={categoryReviewOpen} onOpenChange={setCategoryReviewOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+            <DialogHeader>
+            <DialogTitle>AI category suggestions</DialogTitle>
+            <p className="text-sm text-muted-foreground font-normal">
+              Uses uncategorized transactions matching your current filters (account, date range, search), up to 50.
+              Review and change categories before applying. {AI_COPY.educationalDisclaimer}
+            </p>
+          </DialogHeader>
+          {llmCategorySuggestions.length === 0 ? (
+            <p className="text-muted-foreground py-4 text-sm">No suggestions in this batch.</p>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              <div className="max-h-[min(24rem,50vh)] space-y-2 overflow-y-auto pr-1">
+                {llmCategorySuggestions.map((s) => (
+                  <div
+                    key={s.transaction_id}
+                    className="flex flex-col gap-2 rounded-md border border-border/80 bg-muted/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-sm">{s.payee_name}</p>
+                      <p className="text-xs text-muted-foreground">Suggested: {s.category_name}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Select
+                        value={getReviewCategoryId(s)}
+                        onValueChange={(v) =>
+                          setCategoryReviewOverrides((o) => ({ ...o, [s.transaction_id]: v }))
+                        }
+                      >
+                        <SelectTrigger className="h-8 w-[min(100%,14rem)] text-xs">
+                          <SelectValue placeholder="Category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {allCategories.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.groupName} &gt; {c.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="h-8 text-xs"
+                        disabled={isDemoMode || applyOneCategorySuggestionMutation.isPending}
+                        title={isDemoMode ? "Demo is read-only" : undefined}
+                        onClick={() => {
+                          if (isDemoMode) return;
+                          applyOneCategorySuggestionMutation.mutate({
+                            transaction_id: s.transaction_id,
+                            category_id: getReviewCategoryId(s),
+                          });
+                        }}
+                      >
+                        Apply
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() =>
+                          setLlmCategorySuggestions((prev) => prev.filter((x) => x.transaction_id !== s.transaction_id))
+                        }
+                        aria-label="Remove from list"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2 border-t pt-3">
+                <Button
+                  type="button"
+                  className="flex-1 sm:flex-none"
+                  disabled={
+                    isDemoMode ||
+                    applyCategorySuggestionsMutation.isPending ||
+                    applyOneCategorySuggestionMutation.isPending ||
+                    llmCategorySuggestions.length === 0
+                  }
+                  title={isDemoMode ? "Demo is read-only" : undefined}
+                  onClick={() => {
+                    if (isDemoMode) return;
+                    applyCategorySuggestionsMutation.mutate(
+                      llmCategorySuggestions.map((s) => ({
+                        transaction_id: s.transaction_id,
+                        category_id: getReviewCategoryId(s),
+                      })),
+                    );
+                  }}
+                >
+                  <Check className="mr-2 h-4 w-4" />
+                  Apply all ({llmCategorySuggestions.length})
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setCategoryReviewOpen(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* FSA Reimbursement Review */}
       <Card>
         <CardHeader>
@@ -653,7 +869,14 @@ function TransactionsContent() {
         {fsaOpen && (
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Scan your transactions to find purchases that may be eligible for FSA reimbursement.
+              When this section is open, we scan recent outflows for health-related payees (or all outflows if you choose below).
+              Adjust dates and click Scan again to refresh.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Results assume a standard Healthcare FSA (HCFSA). Rules differ for
+              Limited-Purpose FSA (dental/vision only), Dependent-Care FSA
+              (childcare), and HSA. Always verify eligible items with your plan
+              administrator (IRS Pub 502) before filing a claim.
             </p>
             <div className="flex flex-wrap items-end gap-3">
               <div className="space-y-1">
@@ -664,18 +887,36 @@ function TransactionsContent() {
                 <Label className="text-xs">To</Label>
                 <Input type="date" className="w-40" value={fsaDateTo} onChange={(e) => setFsaDateTo(e.target.value)} />
               </div>
+              <label className="flex max-w-xs cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="rounded border-input"
+                  checked={fsaIncludeAllOutflows}
+                  onChange={(e) => setFsaIncludeAllOutflows(e.target.checked)}
+                />
+                Scan all outflows (slower; skips keyword pre-filter)
+              </label>
               <Button
                 size="sm"
                 onClick={() => fsaRefetch()}
                 disabled={fsaFetching}
               >
                 {fsaFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Stethoscope className="mr-2 h-4 w-4" />}
-                Scan Transactions
+                Scan now
               </Button>
             </div>
 
+            {(fsaLoading || fsaFetching) && !fsaData ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                Running FSA scan…
+              </p>
+            ) : null}
+
             {fsaError && (
-              <p className="text-sm text-destructive">Failed to scan transactions. Check that AI is enabled in Settings.</p>
+              <p className="text-sm text-destructive">
+                Failed to scan transactions. Check that AI is enabled in Settings and your LLM is reachable.
+              </p>
             )}
 
             {fsaData && !fsaFetching && (
@@ -688,9 +929,18 @@ function TransactionsContent() {
                     <span className="font-semibold">{fsaData.eligible_transactions.length}</span> potentially eligible
                     {fsaData.eligible_transactions.length === 1 ? " transaction" : " transactions"} totaling{" "}
                     <span className="font-semibold font-mono">{formatCurrency(fsaData.total_potential_amount)}</span>
-                    {" "}across {fsaData.scan_count} scanned.
+                    {" "}across {fsaData.scan_count} scanned
+                    {(fsaData.candidate_count ?? 0) > 0 ? (
+                      <> ({fsaData.candidate_count} sent to AI)</>
+                    ) : null}
+                    .
                     {fsaData.parse_errors > 0 && (
-                      <span className="text-yellow-600 ml-2">({fsaData.parse_errors} batch{fsaData.parse_errors > 1 ? "es" : ""} failed to parse)</span>
+                      <span className="text-yellow-600 ml-2">({fsaData.parse_errors} batch{fsaData.parse_errors > 1 ? "es" : ""} failed to parse — try again or check the model output.)</span>
+                    )}
+                    {(fsaData.llm_batch_failures ?? 0) > 0 && (
+                      <span className="text-destructive ml-2">
+                        ({fsaData.llm_batch_failures} AI batch{fsaData.llm_batch_failures > 1 ? "es" : ""} returned no response — is Ollama running?)
+                      </span>
                     )}
                   </p>
                   {fsaData.eligible_transactions.length > 0 && (
@@ -700,8 +950,34 @@ function TransactionsContent() {
                   )}
                 </div>
 
+                {fsaData.eligible_transactions.length === 0 &&
+                  (fsaData.scan_count ?? 0) > 0 &&
+                  (fsaData.llm_batch_failures ?? 0) === 0 &&
+                  (fsaData.parse_errors ?? 0) === 0 &&
+                  (fsaData.candidate_count ?? 0) === 0 &&
+                  (fsaData.prefilter_skipped_count ?? 0) > 0 ? (
+                  <p className="text-sm text-muted-foreground rounded-md border border-dashed p-3">
+                    No transactions matched the health-keyword pre-filter. Try widening the date range, enable &quot;Scan all outflows&quot; for a
+                    broader (slower) pass, or ensure medical payees/notes contain common terms (pharmacy, dental, copay, etc.).
+                  </p>
+                ) : null}
+
+                {fsaData.eligible_transactions.length === 0 &&
+                  (fsaData.candidate_count ?? 0) > 0 &&
+                  (fsaData.llm_batch_failures ?? 0) > 0 &&
+                  (fsaData.parse_errors ?? 0) === 0 ? (
+                  <p className="text-sm text-destructive rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                    The AI did not return results for this scan. Enable Ollama in Settings or retry. If the problem persists, check server logs.
+                  </p>
+                ) : null}
+
                 {fsaData.eligible_transactions.length > 0 && (
                   <>
+                    {isDemoMode ? (
+                      <p className="text-xs text-muted-foreground mb-2">
+                        Demo is read-only — you can scan and export, but marking claimed or dismissed requires your own account.
+                      </p>
+                    ) : null}
                     <div className="flex flex-wrap items-center gap-3">
                       <Label className="text-xs whitespace-nowrap">Confidence:</Label>
                       <Select value={fsaConfFilter} onValueChange={(v) => setFsaConfFilter(v as typeof fsaConfFilter)}>
@@ -737,6 +1013,23 @@ function TransactionsContent() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
+                        {filteredFsa.length === 0 && fsaData.eligible_transactions.length > 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-6">
+                              No transactions match the current filter.{" "}
+                              <button
+                                type="button"
+                                className="text-primary underline"
+                                onClick={() => {
+                                  setFsaConfFilter("all");
+                                  setFsaShowDismissed(true);
+                                }}
+                              >
+                                Clear filters
+                              </button>
+                            </TableCell>
+                          </TableRow>
+                        ) : null}
                         {filteredFsa.map((t) => (
                           <TableRow key={t.transaction_id} className={cn(t.status === "dismissed" && "opacity-50")}>
                             <TableCell className="text-sm">{new Date(t.date).toLocaleDateString()}</TableCell>
@@ -761,25 +1054,46 @@ function TransactionsContent() {
                                   </Badge>
                                 ) : t.status === "dismissed" ? (
                                   <button
-                                    title="Undo dismiss"
-                                    className="text-muted-foreground hover:text-foreground"
-                                    onClick={() => fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "pending" })}
+                                    type="button"
+                                    title={isDemoMode ? "Demo is read-only" : "Undo dismiss"}
+                                    disabled={isDemoMode}
+                                    className={cn(
+                                      "text-muted-foreground hover:text-foreground",
+                                      isDemoMode && "opacity-50 cursor-not-allowed hover:text-muted-foreground",
+                                    )}
+                                    onClick={() =>
+                                      !isDemoMode && fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "pending" })
+                                    }
                                   >
                                     <Undo2 className="h-4 w-4" />
                                   </button>
                                 ) : (
                                   <>
                                     <button
-                                      title="Mark as claimed"
-                                      className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-200"
-                                      onClick={() => fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "claimed" })}
+                                      type="button"
+                                      title={isDemoMode ? "Demo is read-only" : "Mark as claimed"}
+                                      disabled={isDemoMode}
+                                      className={cn(
+                                        "text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-200",
+                                        isDemoMode && "opacity-50 cursor-not-allowed hover:text-green-600 dark:hover:text-green-400",
+                                      )}
+                                      onClick={() =>
+                                        !isDemoMode && fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "claimed" })
+                                      }
                                     >
                                       <Check className="h-4 w-4" />
                                     </button>
                                     <button
-                                      title="Dismiss"
-                                      className="text-muted-foreground hover:text-destructive"
-                                      onClick={() => fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "dismissed" })}
+                                      type="button"
+                                      title={isDemoMode ? "Demo is read-only" : "Dismiss"}
+                                      disabled={isDemoMode}
+                                      className={cn(
+                                        "text-muted-foreground hover:text-destructive",
+                                        isDemoMode && "opacity-50 cursor-not-allowed hover:text-muted-foreground",
+                                      )}
+                                      onClick={() =>
+                                        !isDemoMode && fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "dismissed" })
+                                      }
                                     >
                                       <X className="h-4 w-4" />
                                     </button>
@@ -794,7 +1108,7 @@ function TransactionsContent() {
                   </>
                 )}
                 <p className="text-xs text-muted-foreground mt-3">
-                  These are estimates based on payee names. Verify eligibility with your FSA plan administrator before submitting claims.
+                  Heuristic scan plus AI guesses—not a substitute for your plan documents or administrator. The API may cap how many recent outflows are scanned; totals can be incomplete. {AI_COPY.educationalDisclaimer}
                 </p>
               </>
             )}
@@ -869,7 +1183,57 @@ function TransactionsContent() {
                           {txn.is_split && <Badge variant="outline" className="ml-1 text-xs">Split</Badge>}
                         </button>
                       </TableCell>
-                      <TableCell>{txn.category_name ? <Badge variant="secondary">{txn.category_name}</Badge> : <span className="text-xs text-muted-foreground">Uncategorized</span>}</TableCell>
+                      <TableCell className="align-top max-w-[min(18rem,40vw)]">
+                        {!txn.is_split && !txn.transfer_pair_id ? (
+                          <div className="flex flex-col gap-1.5 py-0.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Select
+                                value={txn.category_id || "uncategorized"}
+                                onValueChange={(v) => {
+                                  const cid = v === "uncategorized" ? null : v;
+                                  inlineCategoryMutation.mutate({ id: txn.id, category_id: cid });
+                                }}
+                                disabled={isDemoMode || inlineCategoryMutation.isPending}
+                              >
+                                <SelectTrigger className="h-8 w-full min-w-40 max-w-56 text-xs">
+                                  <SelectValue placeholder="Uncategorized" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="uncategorized">Uncategorized</SelectItem>
+                                  {allCategories.map((c) => (
+                                    <SelectItem key={c.id} value={c.id}>
+                                      {c.groupName} &gt; {c.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {categorySuggestionByTxnId.has(txn.id) && !isDemoMode ? (
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  className="h-7 shrink-0 px-2 text-[10px] font-normal"
+                                  title="Apply AI-suggested category"
+                                  disabled={inlineCategoryMutation.isPending}
+                                  onClick={() => {
+                                    const sug = categorySuggestionByTxnId.get(txn.id)!;
+                                    inlineCategoryMutation.mutate({
+                                      id: txn.id,
+                                      category_id: sug.suggested_category_id,
+                                    });
+                                  }}
+                                >
+                                  AI: {categorySuggestionByTxnId.get(txn.id)!.category_name}
+                                </Button>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : txn.category_name ? (
+                          <Badge variant="secondary">{txn.category_name}</Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Uncategorized</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground max-w-32 truncate">{txn.notes || ""}</TableCell>
                       <TableCell className={cn("text-right font-mono", Number(txn.amount) >= 0 ? "text-green-600" : "text-red-600")}>{formatCurrency(Number(txn.amount))}</TableCell>
                       <TableCell>
