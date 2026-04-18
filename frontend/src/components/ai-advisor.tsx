@@ -573,15 +573,22 @@ function AiAdvisorInner() {
                       <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-0">
                         Review details
                       </legend>
-                    {m.editData && Object.entries(m.editData).map(([key, val]) => (
-                      <div key={key} className="flex items-center gap-2">
-                        <label className="text-xs text-muted-foreground capitalize w-24 shrink-0" htmlFor={`ai-action-${i}-${key}`}>
-                          {key.replace(/_/g, " ")}
-                        </label>
-                        {key === "date" || key === "due_date" ? (
+                    {m.editData && Object.entries(m.editData).map(([key, val]) => {
+                      const isDate = key === "date" || key === "due_date";
+                      // Known numeric fields in action payloads — browser
+                      // gives us number/decimal keypad on mobile and blocks
+                      // obvious non-numeric typos like "fifty bucks".
+                      const isNumeric = /^(amount|budget_limit|amount_limit|percent|percentage|apr|balance|minimum_payment|min_payment)$/.test(key);
+                      return (
+                        <div key={key} className="flex items-center gap-2">
+                          <label className="text-xs text-muted-foreground capitalize w-24 shrink-0" htmlFor={`ai-action-${i}-${key}`}>
+                            {key.replace(/_/g, " ")}
+                          </label>
                           <input
                             id={`ai-action-${i}-${key}`}
-                            type="date"
+                            type={isDate ? "date" : isNumeric ? "number" : "text"}
+                            inputMode={isNumeric ? "decimal" : undefined}
+                            step={isNumeric ? "0.01" : undefined}
                             className="rounded border bg-background px-2 py-0.5 text-xs flex-1"
                             value={val}
                             disabled={isDemoMode}
@@ -596,27 +603,9 @@ function AiAdvisorInner() {
                               });
                             }}
                           />
-                        ) : (
-                          <input
-                            id={`ai-action-${i}-${key}`}
-                            type="text"
-                            className="rounded border bg-background px-2 py-0.5 text-xs flex-1"
-                            value={val}
-                            disabled={isDemoMode}
-                            onChange={(e) => {
-                              setMessages((prev) => {
-                                const copy = [...prev];
-                                copy[i] = {
-                                  ...copy[i],
-                                  editData: { ...copy[i].editData, [key]: e.target.value },
-                                };
-                                return copy;
-                              });
-                            }}
-                          />
-                        )}
-                      </div>
-                    ))}
+                        </div>
+                      );
+                    })}
                     </fieldset>
                     {isDemoMode ? (
                       <p className="text-xs text-muted-foreground">Demo is read-only — sign up to confirm account changes.</p>

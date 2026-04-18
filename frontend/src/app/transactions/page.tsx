@@ -366,9 +366,16 @@ function TransactionsContent() {
 
   const startSplit = (txn: Transaction) => {
     setSplitTxn(txn);
+    // Seed an even 2-way split: both lines get half of the transaction
+    // amount so the user only has to adjust one side. This is closer to
+    // the typical "split a joint charge" intent than "100% on line 1,
+    // $0 on line 2" was.
+    const total = Number(txn.amount);
+    const half = Math.round((total / 2) * 100) / 100;
     setSplitItems([
-      { amount: Number(txn.amount), category_id: "", notes: "" },
-      { amount: 0, category_id: "", notes: "" },
+      { amount: half, category_id: "", notes: "" },
+      // Put the rounding remainder on the second line so sums exactly match.
+      { amount: Math.round((total - half) * 100) / 100, category_id: "", notes: "" },
     ]);
   };
 
@@ -646,42 +653,65 @@ function TransactionsContent() {
           <DialogHeader><DialogTitle>Split Transaction ({splitTxn && formatCurrency(Number(splitTxn.amount))})</DialogTitle></DialogHeader>
           <div className="space-y-4">
             {splitItems.map((item, i) => (
-              <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
-                <div className="space-y-1">
-                  <Label className="text-xs">Amount</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={item.amount || ""}
-                    onChange={(e) => {
+              <div key={i} className="space-y-1">
+                <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Amount</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={item.amount || ""}
+                      onChange={(e) => {
+                        const next = [...splitItems];
+                        next[i] = { ...next[i], amount: parseFloat(e.target.value) || 0 };
+                        setSplitItems(next);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Category</Label>
+                    <Select value={item.category_id || "none"} onValueChange={(v) => {
                       const next = [...splitItems];
-                      next[i] = { ...next[i], amount: parseFloat(e.target.value) || 0 };
+                      next[i] = { ...next[i], category_id: v === "none" ? "" : v };
                       setSplitItems(next);
-                    }}
-                  />
+                    }}>
+                      <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Uncategorized</SelectItem>
+                        {allCategories.map((c) => <SelectItem key={c.id} value={c.id}>{c.groupName} &gt; {c.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {splitItems.length > 2 && (
+                    <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setSplitItems(splitItems.filter((_, idx) => idx !== i))}>
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  )}
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Category</Label>
-                  <Select value={item.category_id || "none"} onValueChange={(v) => {
-                    const next = [...splitItems];
-                    next[i] = { ...next[i], category_id: v === "none" ? "" : v };
-                    setSplitItems(next);
-                  }}>
-                    <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Uncategorized</SelectItem>
-                      {allCategories.map((c) => <SelectItem key={c.id} value={c.id}>{c.groupName} &gt; {c.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {splitItems.length > 2 && (
-                  <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setSplitItems(splitItems.filter((_, idx) => idx !== i))}>
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
+                {!item.category_id && item.amount !== 0 && (
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                    This split will save as uncategorized. Pick a category or it will be hidden from budget reports.
+                  </p>
                 )}
               </div>
             ))}
-            <Button variant="outline" size="sm" onClick={() => setSplitItems([...splitItems, { amount: 0, category_id: "", notes: "" }])}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                // Default the new line's amount to whatever is still
+                // unaccounted for, so the common "split A + B + C where the
+                // remainder goes to the last line" flow doesn't require any
+                // math from the user.
+                const remaining =
+                  Number(splitTxn?.amount || 0) - splitItems.reduce((s, x) => s + x.amount, 0);
+                const seeded = Math.round(remaining * 100) / 100;
+                setSplitItems([
+                  ...splitItems,
+                  { amount: seeded, category_id: "", notes: "" },
+                ]);
+              }}
+            >
               <Plus className="mr-2 h-3 w-3" /> Add Split
             </Button>
             {(() => {

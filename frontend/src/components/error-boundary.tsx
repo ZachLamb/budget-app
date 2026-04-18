@@ -13,21 +13,41 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  /**
+   * Number of times "Try again" has been clicked for the current mount.
+   * After the threshold we hide the retry button and push the user toward
+   * a full reload — retrying the same subtree against a stable failure
+   * cause (bad localStorage value, missing env, etc.) only flashes the
+   * same error repeatedly.
+   */
+  retries: number;
 }
+
+const MAX_RETRIES = 2;
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, retries: 0 };
   }
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Pick<State, "hasError" | "error"> {
     return { hasError: true, error };
   }
+
+  private handleRetry = () => {
+    this.setState((prev) => ({
+      hasError: false,
+      error: null,
+      retries: prev.retries + 1,
+    }));
+  };
 
   render() {
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback;
+
+      const retryExhausted = this.state.retries >= MAX_RETRIES;
 
       return (
         <div className="flex items-center justify-center p-8">
@@ -36,16 +56,21 @@ export class ErrorBoundary extends Component<Props, State> {
               <AlertTriangle className="h-10 w-10 text-destructive mx-auto" />
               <h2 className="text-lg font-semibold">Something went wrong</h2>
               <p className="text-sm text-muted-foreground">
-                {this.state.error?.message || "An unexpected error occurred."}
+                {retryExhausted
+                  ? "This keeps failing. A full reload may clear it — if it persists, please report it."
+                  : "Something broke while rendering this screen. You can try again or reload the page."}
               </p>
+              {process.env.NODE_ENV === "development" && this.state.error?.message ? (
+                <p className="text-xs font-mono text-muted-foreground break-all">
+                  {this.state.error.message}
+                </p>
+              ) : null}
               <div className="flex flex-wrap items-center justify-center gap-2">
+                {!retryExhausted && (
+                  <Button onClick={this.handleRetry}>Try again</Button>
+                )}
                 <Button
-                  onClick={() => this.setState({ hasError: false, error: null })}
-                >
-                  Try again
-                </Button>
-                <Button
-                  variant="outline"
+                  variant={retryExhausted ? "default" : "outline"}
                   onClick={() => typeof window !== "undefined" && window.location.reload()}
                 >
                   Reload page
