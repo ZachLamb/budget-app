@@ -8,6 +8,7 @@ from app.config import get_settings
 from app.database import engine, Base, async_session
 from app.api.routes import router as api_router
 from app.api.routes.upload import router as upload_router
+from app.middleware.rate_limit import RateLimitMiddleware
 from app.tasks.scheduler import start_scheduler, stop_scheduler
 
 
@@ -185,22 +186,29 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             _log.warning("%s skipped or failed: %s", label, e)
 
-    # Mark any in_progress sync logs as error — they were orphaned by a prior crash/restart
+    # Mark stale in_progress sync logs as error — they were orphaned by a
+    # prior crash/restart. Only touch rows older than 15 minutes so a live
+    # sync running in a sibling worker (staggered restart, multi-replica)
+    # isn't clobbered into a false failure.
     try:
-        from sqlalchemy import select, update
+        from datetime import timedelta
+        from sqlalchemy import update
         from app.models import SyncLog
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(minutes=15)
         async with async_session() as db:
             await db.execute(
                 update(SyncLog)
                 .where(SyncLog.status == "in_progress")
+                .where(SyncLog.started_at < cutoff)
                 .values(
                     status="error",
                     error_message="Interrupted by server restart",
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=now,
                 )
             )
             await db.commit()
-            _log.info("Cleaned up orphaned in_progress sync logs")
+            _log.info("Checked for orphaned in_progress sync logs (cutoff=%s)", cutoff.isoformat())
     except Exception as e:
         _log.warning("Failed to clean up orphaned sync logs: %s", e)
 
@@ -235,6 +243,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+app.add_middleware(RateLimitMiddleware)
 
 if get_settings().demo_mode:
     from app.middleware.demo_guard import DemoGuardMiddleware

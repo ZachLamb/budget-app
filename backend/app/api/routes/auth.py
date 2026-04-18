@@ -152,7 +152,13 @@ _passkey_registration_challenges: dict[str, tuple[dict, float]] = {}
 _passkey_auth_challenges: dict[str, float] = {}
 _passkey_add_challenges: dict[str, tuple[str, float]] = {}  # challenge_b64 -> (user_id, timestamp)
 
-_OAUTH_LOGIN_CODE_TTL = 600.0
+# One-time OAuth login code handed back via the `/auth/callback?code=…` redirect.
+# Short TTL because the browser redirect is immediate; 10-minute windows left a
+# long replay opportunity for a code that lands in browser history, Referer
+# headers, and proxy logs. Phase-2 work should move this value out of the URL
+# (HttpOnly cookie handoff) and into a shared store (Redis) to survive
+# multi-worker deploys.
+_OAUTH_LOGIN_CODE_TTL = 60.0
 _oauth_login_codes: dict[str, tuple[str, float]] = {}  # code -> (user_id, issued_ts)
 
 
