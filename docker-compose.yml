@@ -58,7 +58,9 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # entrypoint.sh runs `alembic upgrade head` first, then execs uvicorn
+    # with any extra args — `--reload` below is for the dev container only.
+    command: ["--reload"]
 
   frontend:
     build: ./frontend
