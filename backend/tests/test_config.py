@@ -50,3 +50,29 @@ def test_get_settings_rejects_cors_wildcard(monkeypatch: pytest.MonkeyPatch) -> 
     with pytest.raises(RuntimeError, match="CORS_ORIGINS"):
         get_settings()
     get_settings.cache_clear()
+
+
+def test_upstash_url_reads_upstash_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("KV_REST_API_URL", raising=False)
+    monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "https://u.example")
+    assert Settings().upstash_redis_rest_url == "https://u.example"
+
+
+def test_upstash_url_falls_back_to_vercel_kv_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Vercel Marketplace provisions Redis under KV_REST_API_URL; backend must pick it up."""
+    monkeypatch.delenv("UPSTASH_REDIS_REST_URL", raising=False)
+    monkeypatch.setenv("KV_REST_API_URL", "https://kv.example")
+    assert Settings().upstash_redis_rest_url == "https://kv.example"
+
+
+def test_upstash_token_falls_back_to_vercel_kv_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("UPSTASH_REDIS_REST_TOKEN", raising=False)
+    monkeypatch.setenv("KV_REST_API_TOKEN", "tok-kv")
+    assert Settings().upstash_redis_rest_token == "tok-kv"
+
+
+def test_upstash_primary_name_wins_over_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When both names are set, UPSTASH_* takes precedence over KV_REST_API_*."""
+    monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "https://primary.example")
+    monkeypatch.setenv("KV_REST_API_URL", "https://alias.example")
+    assert Settings().upstash_redis_rest_url == "https://primary.example"
