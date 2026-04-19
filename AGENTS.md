@@ -62,8 +62,7 @@ cd backend && alembic stamp head
 #   Marks the current schema as baselined without re-running DDL.
 ```
 
-The older `backend/migrations/*.sql` files are historical notes; do not
-edit them. `app/main.py` no longer runs inline migrations.
+`app/main.py` no longer runs inline migrations.
 
 ## Conventions
 

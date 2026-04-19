@@ -13,11 +13,6 @@ Configuration lives in:
   (psycopg2) because Alembic's offline/autogenerate paths don't support asyncpg.
 - `backend/alembic/versions/` — one file per revision, chained by `down_revision`.
 
-The legacy hand-written SQL under `backend/migrations/00{1..6}_*.sql` is kept
-as a historical paper trail. It is **no longer executed at runtime** — everything
-those files did is either already in the baseline revision or now encoded on the
-ORM models.
-
 ## Day-to-day commands
 
 All commands run from `backend/` with the project's venv active and the same
