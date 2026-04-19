@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from "axios";
 
-import api from "./client";
+import api, { handleResponseError } from "./client";
 
 beforeEach(() => {
   localStorage.clear();
@@ -30,22 +30,10 @@ async function runRequestInterceptors(
   return current;
 }
 
-/** Run the response interceptor's error handler and capture the rejection.
- *
- * We pick the LAST rejected handler registered on `api.interceptors.response`
- * — that's the one client.ts wires up. Newer axios versions may register
- * their own default handlers earlier in the chain (e.g. for error
- * normalization); iterating all of them would let those rewrites clobber
- * the `code` we're asserting against. */
+/** Invoke the exported interceptor directly — no axios-internal traversal. */
 async function runErrorInterceptor(err: Partial<AxiosError>) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handlers = (api.interceptors.response as any).handlers.filter(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (h: any) => h && h.rejected,
-  );
-  const h = handlers[handlers.length - 1];
   try {
-    return await h.rejected(err);
+    return await handleResponseError(err);
   } catch (e) {
     return e as AxiosError;
   }
