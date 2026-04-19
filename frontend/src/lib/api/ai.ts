@@ -1,4 +1,5 @@
 import api from "./client";
+import { LLM_HTTP_TIMEOUT_MS } from "./llm-timeout";
 
 export interface AiStatus {
   ollama_available: boolean;
@@ -13,11 +14,6 @@ export interface InsightsResponse {
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
-}
-
-export interface ChatResponse {
-  reply: string;
-  model_source: string;
 }
 
 export interface SpendingTrend {
@@ -84,19 +80,35 @@ export interface FsaReviewResponse {
   scan_count: number;
   model_source: string;
   parse_errors: number;
+  llm_batch_failures: number;
+  candidate_count: number;
+  prefilter_skipped_count: number;
 }
 
 export const aiApi = {
   status: () => api.get<AiStatus>("/ai/status").then((r) => r.data),
-  getInsights: () => api.post<InsightsResponse>("/ai/insights").then((r) => r.data),
-  getBudgetInsights: () => api.post<BudgetInsightsResponse>("/ai/budget-insights").then((r) => r.data),
-  getBudgetSuggestions: () => api.post<BudgetSuggestionsResponse>("/ai/budget-suggestions").then((r) => r.data),
-  getDebtPlanSuggestion: () => api.post<DebtPlanSuggestion>("/ai/debt-plan-suggestion").then((r) => r.data),
-  suggestInterestRates: () => api.post<InterestRateSuggestionsResponse>("/ai/suggest-interest-rates").then((r) => r.data),
-  chat: (messages: ChatMessage[]) =>
-    api.post<ChatResponse>("/ai/chat", { messages }).then((r) => r.data),
-  getFsaReview: (params?: { date_from?: string; date_to?: string }) =>
-    api.post<FsaReviewResponse>("/ai/fsa-review", params ?? {}).then((r) => r.data),
+  getInsights: () =>
+    api.post<InsightsResponse>("/ai/insights", undefined, { timeout: LLM_HTTP_TIMEOUT_MS }).then((r) => r.data),
+  getBudgetInsights: () =>
+    api
+      .post<BudgetInsightsResponse>("/ai/budget-insights", undefined, { timeout: LLM_HTTP_TIMEOUT_MS })
+      .then((r) => r.data),
+  getBudgetSuggestions: () =>
+    api
+      .post<BudgetSuggestionsResponse>("/ai/budget-suggestions", undefined, { timeout: LLM_HTTP_TIMEOUT_MS })
+      .then((r) => r.data),
+  getDebtPlanSuggestion: () =>
+    api
+      .post<DebtPlanSuggestion>("/ai/debt-plan-suggestion", undefined, { timeout: LLM_HTTP_TIMEOUT_MS })
+      .then((r) => r.data),
+  suggestInterestRates: () =>
+    api
+      .post<InterestRateSuggestionsResponse>("/ai/suggest-interest-rates", undefined, {
+        timeout: LLM_HTTP_TIMEOUT_MS,
+      })
+      .then((r) => r.data),
+  getFsaReview: (params?: { date_from?: string; date_to?: string; include_all_outflows?: boolean }) =>
+    api.post<FsaReviewResponse>("/ai/fsa-review", params ?? {}, { timeout: LLM_HTTP_TIMEOUT_MS }).then((r) => r.data),
   updateFsaItemStatus: (transactionId: string, status: "pending" | "claimed" | "dismissed") =>
     api.patch<{ status: string }>(`/ai/fsa-review/items/${transactionId}`, { status }).then((r) => r.data),
 };
