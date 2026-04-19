@@ -27,6 +27,7 @@ import { appToast } from "@/lib/app-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
 import { CancelGuideDialog } from "@/components/cancel-guide-dialog";
+import { isDemoMode } from "@/lib/demo-mode";
 
 const FREQUENCIES = [
   { value: "weekly", label: "Weekly" },
@@ -51,9 +52,10 @@ interface RecurringFormProps {
   onSubmit: (e: React.FormEvent) => void;
   isPending: boolean;
   submitLabel: string;
+  readOnly?: boolean;
 }
 
-function RecurringForm({ form, setForm, payees, accounts, allCategories, onSubmit, isPending, submitLabel }: RecurringFormProps) {
+function RecurringForm({ form, setForm, payees, accounts, allCategories, onSubmit, isPending, submitLabel, readOnly }: RecurringFormProps) {
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="space-y-2">
@@ -119,7 +121,9 @@ function RecurringForm({ form, setForm, payees, accounts, allCategories, onSubmi
         />
         <Label htmlFor="is_subscription">Subscription</Label>
       </div>
-      <Button type="submit" className="w-full" disabled={isPending}>{submitLabel}</Button>
+      <Button type="submit" className="w-full" disabled={isPending || readOnly} title={readOnly ? "Demo is read-only" : undefined}>
+        {submitLabel}
+      </Button>
     </form>
   );
 }
@@ -239,7 +243,9 @@ function RecurringContent() {
         <h1 className="text-3xl font-bold">Recurring Transactions</h1>
         <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) setAddForm({ ...EMPTY_FORM }); }}>
           <DialogTrigger asChild>
-            <Button><Plus className="mr-2 h-4 w-4" /> Add</Button>
+            <Button disabled={isDemoMode} title={isDemoMode ? "Demo is read-only" : undefined}>
+              <Plus className="mr-2 h-4 w-4" /> Add
+            </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Add Recurring Transaction</DialogTitle></DialogHeader>
@@ -250,6 +256,7 @@ function RecurringContent() {
               onSubmit={(e) => { e.preventDefault(); createMutation.mutate(addForm); }}
               isPending={createMutation.isPending}
               submitLabel="Add Recurring"
+              readOnly={isDemoMode}
             />
           </DialogContent>
         </Dialog>
@@ -264,6 +271,7 @@ function RecurringContent() {
             </CardTitle>
             <CardDescription>
               Heuristic matches from budget-account outflows (last 90 days). Confirm or dismiss; dismiss is saved for this household.
+              {isDemoMode ? " Editing is disabled in the demo." : ""}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -289,14 +297,21 @@ function RecurringContent() {
                     <Badge variant="secondary" className="text-xs">
                       {Math.round(s.confidence * 100)}% confidence
                     </Badge>
-                    <Button type="button" size="sm" onClick={() => applySuggestion(s)}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isDemoMode}
+                      title={isDemoMode ? "Demo is read-only" : undefined}
+                      onClick={() => applySuggestion(s)}
+                    >
                       Add as recurring
                     </Button>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      disabled={dismissSuggestionMutation.isPending}
+                      disabled={dismissSuggestionMutation.isPending || isDemoMode}
+                      title={isDemoMode ? "Demo is read-only" : undefined}
                       onClick={() => dismissSuggestionMutation.mutate(s.dedupe_key)}
                     >
                       Dismiss
@@ -330,6 +345,7 @@ function RecurringContent() {
             onSubmit={(e) => { e.preventDefault(); if (editItem) updateMutation.mutate({ id: editItem.id, data: editForm }); }}
             isPending={updateMutation.isPending}
             submitLabel="Save Changes"
+            readOnly={isDemoMode}
           />
         </DialogContent>
       </Dialog>
@@ -398,10 +414,24 @@ function RecurringContent() {
                             Cancel help
                           </Button>
                         ) : null}
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(item)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={isDemoMode}
+                          title={isDemoMode ? "Demo is read-only" : undefined}
+                          onClick={() => openEdit(item)}
+                        >
                           <Pencil className="h-3 w-3" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(item.id)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive hover:text-destructive"
+                          disabled={isDemoMode}
+                          title={isDemoMode ? "Demo is read-only" : undefined}
+                          onClick={() => setDeleteId(item.id)}
+                        >
                           <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>

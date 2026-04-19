@@ -123,16 +123,32 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == data.email.strip().lower()))
+    from app.services.auth import lockout
+
+    email = data.email.strip().lower()
+    # Per-email lockout layer on top of the IP-keyed rate limit: after N
+    # failed attempts an IP-rotating attacker still can't keep grinding on a
+    # single account. The 429 is intentionally vague about remaining
+    # attempts so probing the threshold doesn't become a signal.
+    if await lockout.is_login_locked(email):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed attempts. Try again in a few minutes.",
+        )
+
+    result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
     if not user or user.password_hash is None:
         # Run a cheap deterministic hash to reduce obvious timing differences without
         # requiring bcrypt initialization during module import.
         hashlib.sha256((data.password or "").encode("utf-8")).hexdigest()
+        await lockout.record_login_failure(email)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not pwd_context.verify(data.password, user.password_hash):
+        await lockout.record_login_failure(email)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    await lockout.clear_login_failures(email)
     token = _create_token(user.id)
     return TokenResponse(
         access_token=token,
@@ -152,7 +168,13 @@ _passkey_registration_challenges: dict[str, tuple[dict, float]] = {}
 _passkey_auth_challenges: dict[str, float] = {}
 _passkey_add_challenges: dict[str, tuple[str, float]] = {}  # challenge_b64 -> (user_id, timestamp)
 
-_OAUTH_LOGIN_CODE_TTL = 600.0
+# One-time OAuth login code handed back via the `/auth/callback?code=…` redirect.
+# Short TTL because the browser redirect is immediate; 10-minute windows left a
+# long replay opportunity for a code that lands in browser history, Referer
+# headers, and proxy logs. Phase-2 work should move this value out of the URL
+# (HttpOnly cookie handoff) and into a shared store (Redis) to survive
+# multi-worker deploys.
+_OAUTH_LOGIN_CODE_TTL = 60.0
 _oauth_login_codes: dict[str, tuple[str, float]] = {}  # code -> (user_id, issued_ts)
 
 

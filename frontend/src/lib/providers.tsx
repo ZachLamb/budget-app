@@ -40,6 +40,8 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
           .catch(() => {
             localStorage.removeItem("token");
             localStorage.removeItem("user");
+            setToken(null);
+            setUser(null);
           })
           .finally(() => setLoading(false));
       } else {
@@ -128,6 +130,26 @@ function extractErrorMessage(error: unknown): string {
   return String(error);
 }
 
+/**
+ * Mutation-cache onError handler. Extracted for direct unit testing.
+ * Skips 401s (auth interceptor handles those) and defers to per-mutation
+ * `onError` if the caller defined one (avoids double-toasting).
+ */
+export function handleMutationError(
+  error: unknown,
+  mutation: { options: { onError?: unknown } },
+): void {
+  const axiosErr = error as Error & { response?: { status?: number } };
+  if (axiosErr?.response?.status === 401) return;
+  if (mutation.options.onError) return;
+  toastErrorDiagnostic(
+    "Action failed",
+    extractErrorMessage(error),
+    error as Error,
+    { duration: 8000 },
+  );
+}
+
 /** Human-readable fragment for query error toasts (e.g. paySchedule → "pay schedule"). */
 function formatQueryResourceLabel(queryKey: readonly unknown[]): string {
   const raw = queryKey[0];
@@ -155,11 +177,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
           },
         }),
         mutationCache: new MutationCache({
-          onError: (error) => {
-            const axiosErr = error as Error & { response?: { status?: number } };
-            if (axiosErr?.response?.status === 401) return;
-            toastErrorDiagnostic("Action failed", extractErrorMessage(error), error, { duration: 8000 });
-          },
+          onError: (error, _variables, _context, mutation) =>
+            handleMutationError(error, mutation),
         }),
         defaultOptions: {
           queries: {

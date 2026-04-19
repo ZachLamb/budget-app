@@ -1,5 +1,6 @@
 import logging
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -30,6 +31,31 @@ class Settings(BaseSettings):
 
     # Demo mode: seeds fake data, mocks AI, enables read-only guard
     demo_mode: bool = False
+
+    # Comma-separated allowlist of IPs/CIDRs that are trusted to set
+    # X-Forwarded-For (e.g. your reverse proxy). When empty, XFF is
+    # ignored and the direct peer IP is used — prevents header spoofing
+    # from untrusted clients.
+    trusted_proxies: str = ""
+
+    # Optional Upstash Redis (HTTP REST) for rate-limit state. When both
+    # are set, the rate limiter shares buckets across workers/replicas.
+    # When empty, the limiter falls back to per-instance in-memory state.
+    #
+    # Accepts either naming so we work with raw Upstash credentials
+    # (UPSTASH_REDIS_REST_*) and with the Vercel Marketplace integration,
+    # which provisions the same REST endpoint under KV_REST_API_*
+    # (legacy Vercel KV naming). If a Vercel-linked env re-syncs later,
+    # the KV_* names stick — we can't rename them without getting
+    # overwritten.
+    upstash_redis_rest_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("UPSTASH_REDIS_REST_URL", "KV_REST_API_URL"),
+    )
+    upstash_redis_rest_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_TOKEN"),
+    )
 
     model_config = {"env_file": ".env"}
 

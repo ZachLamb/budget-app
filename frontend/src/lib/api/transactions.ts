@@ -53,7 +53,12 @@ export const transactionsApi = {
     api.get<TransactionList>("/transactions", { params: filters }).then((r) => r.data),
   get: (id: string) => api.get<Transaction>(`/transactions/${id}`).then((r) => r.data),
   create: (data: TransactionCreate) => api.post<Transaction>("/transactions", data).then((r) => r.data),
-  update: (id: string, data: Partial<TransactionCreate>) =>
-    api.put<Transaction>(`/transactions/${id}`, data).then((r) => r.data),
+  // `category_id: null` clears the category. Drop the field from the base
+  // partial before re-adding it — otherwise the intersection narrows to
+  // `string | undefined` and loses `null`.
+  update: (
+    id: string,
+    data: Partial<Omit<TransactionCreate, "category_id">> & { category_id?: string | null },
+  ) => api.put<Transaction>(`/transactions/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/transactions/${id}`),
 };

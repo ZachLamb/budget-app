@@ -8,7 +8,7 @@ payoff strategies with month-by-month projections.
 
 import math
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -63,7 +63,7 @@ class DebtPayoffResult(BaseModel):
 
 
 class PayoffPlanResponse(BaseModel):
-    strategy: str           # avalanche | snowball
+    strategy: str           # avalanche | snowball | hybrid
     extra_monthly: Decimal
     total_months: int
     total_interest: Decimal
@@ -72,8 +72,9 @@ class PayoffPlanResponse(BaseModel):
 
 
 class PayoffPlanRequest(BaseModel):
-    strategy: str = "avalanche"   # avalanche | snowball
+    strategy: str = "avalanche"   # avalanche | snowball | hybrid
     extra_monthly: Decimal = Decimal("0")
+    priority_account_ids: Optional[List[str]] = None
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -128,6 +129,29 @@ def _build_schedule(
     return schedule, total_interest
 
 
+def hybrid_order_debts(
+    debts: list[dict],
+    priority_account_ids: Optional[List[str]],
+) -> list[dict]:
+    """Hybrid payoff order: optional explicit account id list first, then by APR desc, balance asc tie-break."""
+    if not debts:
+        return []
+    by_id = {d["id"]: d for d in debts}
+    if not priority_account_ids:
+        out = list(debts)
+        out.sort(key=lambda d: (-d["apr"], d["balance"]))
+        return out
+    seen: set[str] = set()
+    ordered: list[dict] = []
+    for pid in priority_account_ids:
+        if pid in by_id and pid not in seen:
+            ordered.append(by_id[pid])
+            seen.add(pid)
+    rest = [d for d in debts if d["id"] not in seen]
+    rest.sort(key=lambda d: (-d["apr"], d["balance"]))
+    return ordered + rest
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @router.get("/accounts", response_model=list[DebtAccount])
@@ -165,13 +189,16 @@ async def calculate_payoff_plan(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):
-    """Calculate a debt payoff plan using avalanche or snowball strategy.
+    """Calculate a debt payoff plan using avalanche, snowball, or hybrid ordering.
 
     Avalanche: pay off highest-interest debt first (minimises total interest).
     Snowball: pay off lowest-balance debt first (psychological momentum).
+    Hybrid: highest APR first; ties (same APR) use smaller balance first. Optional
+    ``priority_account_ids`` (debt account UUIDs) overrides initial ordering; any
+    missing ids are appended using the hybrid tie-break sort.
     """
-    if req.strategy not in ("avalanche", "snowball"):
-        raise HTTPException(400, "strategy must be 'avalanche' or 'snowball'")
+    if req.strategy not in ("avalanche", "snowball", "hybrid"):
+        raise HTTPException(400, "strategy must be 'avalanche', 'snowball', or 'hybrid'")
 
     # Load debt accounts
     result = await db.execute(
@@ -209,8 +236,10 @@ async def calculate_payoff_plan(
     # Sort by strategy
     if req.strategy == "avalanche":
         debts.sort(key=lambda d: d["apr"], reverse=True)
-    else:
+    elif req.strategy == "snowball":
         debts.sort(key=lambda d: d["balance"])
+    else:
+        debts = hybrid_order_debts(debts, req.priority_account_ids)
 
     # Simulate month-by-month with rolling snowball/avalanche extra
     from datetime import date

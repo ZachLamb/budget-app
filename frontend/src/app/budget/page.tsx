@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { formatCurrency, getMonthString, formatMonthDisplay, navigateMonth } from "@/lib/format";
 import { getApiErrorMessage, useIsClient } from "@/lib/hooks";
 import { toastApiError, toastPlainError } from "@/lib/toast-error";
+import { AI_COPY } from "@/lib/ai-copy";
 
 function AssignedCell({
   categoryId,
@@ -294,6 +295,7 @@ function AiSuggestionsPanel({
         </div>
       </CardHeader>
       <CardContent className="pt-0 space-y-2">
+        <p className="text-xs text-muted-foreground">{AI_COPY.educationalDisclaimer} Suggestions are model-generated from history—not a guarantee of affordability.</p>
         {visible.map((s) => (
           <div key={s.category_id} className="flex items-start gap-3 rounded-lg border p-3">
             <div className="flex-1 min-w-0">
@@ -414,7 +416,8 @@ function SpendingPatternsPanel({ month }: { month: string }) {
       {open && (
         <CardContent className="pt-0 space-y-4">
           <p className="text-xs text-muted-foreground">
-            Category trends compare this month to your recent average. Narrative bullets load only when AI is enabled—everything else is plain math.
+            Category trends compare this month to your recent average. Narrative bullets load only when AI is enabled—everything else is plain math.{" "}
+            {AI_COPY.educationalDisclaimer}
           </p>
           <div className="flex justify-end">
             <Button

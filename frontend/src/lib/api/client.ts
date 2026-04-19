@@ -28,23 +28,35 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-api.interceptors.response.use(
-  (r) => r,
-  (err) => {
-    if (err.response?.status === 401 && typeof window !== "undefined") {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-      window.location.href = "/login";
-    }
-    // Surface the server's detail message so toast/error handlers show something useful
-    if (err.code === "ECONNABORTED" || err.code === "ERR_CANCELED") {
-      err.message = "Request timed out. Please try again.";
-    } else if (err.response?.data?.detail) {
-      const detail = err.response.data.detail;
-      err.message = typeof detail === "string" ? detail : JSON.stringify(detail);
-    }
-    return Promise.reject(err);
+/**
+ * Response error handler. Exported so tests can invoke it directly
+ * without reaching into axios's interceptor-handler internals — newer
+ * axios registers its own handlers that can rewrite `err.code` during
+ * normalization, which makes the "pick the last registered rejected
+ * handler" trick unreliable across versions.
+ */
+export function handleResponseError(err: {
+  response?: { status?: number; data?: { detail?: unknown } };
+  code?: string;
+  message?: string;
+}): Promise<never> {
+  if (err.response?.status === 401 && typeof window !== "undefined") {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    window.location.href = "/login";
   }
-);
+  // Surface the server's detail message so toast/error handlers show something useful
+  if (err.code === "ECONNABORTED") {
+    err.message = "Request timed out. Please try again.";
+  } else if (err.code === "ERR_CANCELED") {
+    err.message = "Request canceled.";
+  } else if (err.response?.data?.detail) {
+    const detail = err.response.data.detail;
+    err.message = typeof detail === "string" ? detail : JSON.stringify(detail);
+  }
+  return Promise.reject(err);
+}
+
+api.interceptors.response.use((r) => r, handleResponseError);
 
 export default api;

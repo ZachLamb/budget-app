@@ -12,7 +12,13 @@ from sqlalchemy import select
 from app.database import get_db
 from app.api.deps import get_household_id
 from app.models import Household, Account
-from app.services.pay_cycle import VALID_FREQUENCIES, resolve_pay_cycle, PayCycleResolved, utc_today
+from app.services.pay_cycle import (
+    VALID_FREQUENCIES,
+    is_valid_semimonthly_anchor,
+    resolve_pay_cycle,
+    PayCycleResolved,
+    utc_today,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +206,7 @@ class PlanPreferencesUpdate(BaseModel):
     debt_extra_monthly: Optional[float] = None
 
 
-_VALID_STRATEGIES = {"avalanche", "snowball"}
+_VALID_STRATEGIES = {"avalanche", "snowball", "hybrid"}
 
 
 @router.get("/plan-preferences", response_model=PlanPreferencesResponse)
@@ -335,10 +341,15 @@ async def update_pay_schedule(
 
     freq = household.pay_frequency
     last = household.pay_last_confirmed_date
-    if freq in ("weekly", "biweekly", "monthly") and last is None:
+    if freq in ("weekly", "biweekly", "monthly", "semimonthly") and last is None:
         raise HTTPException(
             400,
-            "pay_last_confirmed_date is required when pay_frequency is weekly, biweekly, or monthly.",
+            "pay_last_confirmed_date is required when pay_frequency is weekly, biweekly, monthly, or semi-monthly.",
+        )
+    if freq == "semimonthly" and last is not None and not is_valid_semimonthly_anchor(last):
+        raise HTTPException(
+            400,
+            "For semi-monthly (15th and last calendar day), last payday must be the 15th or the last day of a month.",
         )
     if freq is None and last is not None:
         raise HTTPException(

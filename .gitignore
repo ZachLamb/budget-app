@@ -1,4 +1,7 @@
 .env
+.env.*
+!.env.example
+!.env.demo
 .worktrees/
 # Local Claude permissions; never commit tokens or bearer secrets (see .cursor/rules).
 .claude/settings.local.json

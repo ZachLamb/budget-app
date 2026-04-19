@@ -7,7 +7,7 @@ import { rulesApi, type Rule, type RuleCreate } from "@/lib/api/rules";
 import { reportsApi, type LlmSuggestion } from "@/lib/api/reports";
 import { useFlatCategories, getApiErrorMessage, useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -89,7 +89,10 @@ function RulesContent() {
   });
 
   const suggestMutation = useMutation({
-    mutationFn: reportsApi.suggestCategories,
+    // Wrapped so `.mutate()` is callable with no args — the underlying
+    // fetcher accepts optional filters; on this page we always want the
+    // "recent uncategorized" default batch.
+    mutationFn: () => reportsApi.suggestCategories(),
     onSuccess: (data) => {
       setSuggestions(data.suggestions);
       setSuggestOpen(true);

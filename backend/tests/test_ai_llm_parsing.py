@@ -32,6 +32,18 @@ def test_parse_debt_plan_strips_markdown_fence() -> None:
     assert out.model_source == "ollama"
 
 
+def test_parse_debt_plan_hybrid_strategy_preserved() -> None:
+    raw = '{"strategy": "hybrid", "rationale": "x", "priority_order": ["A"], "monthly_extra": 0}'
+    out = parse_debt_plan_suggestion_from_llm_response(raw, "ollama")
+    assert out.strategy == "hybrid"
+
+
+def test_parse_debt_plan_unknown_strategy_defaults_avalanche() -> None:
+    raw = '{"strategy": "magic", "rationale": "r", "priority_order": [], "monthly_extra": 0}'
+    out = parse_debt_plan_suggestion_from_llm_response(raw, "ollama")
+    assert out.strategy == "avalanche"
+
+
 def test_parse_debt_plan_string_priority_order_does_not_split_chars() -> None:
     raw = '{"strategy": "avalanche", "rationale": "r", "priority_order": "One big string", "monthly_extra": 0}'
     out = parse_debt_plan_suggestion_from_llm_response(raw, "ollama")

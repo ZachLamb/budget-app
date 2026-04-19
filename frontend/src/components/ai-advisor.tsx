@@ -20,6 +20,8 @@ import Link from "next/link";
 import { parseChatEvidence, type ChatEvidenceItem } from "@/lib/ai-evidence";
 import { AI_COPY } from "@/lib/ai-copy";
 import { ChatEvidencePanel } from "@/components/chat-evidence-panel";
+import { useAuth } from "@/lib/providers";
+import { isDemoMode } from "@/lib/demo-mode";
 
 const SUGGESTIONS = [
   "How can I pay off my debt faster?",
@@ -60,6 +62,7 @@ interface Message extends ChatMessage {
 
 function AiAdvisorInner() {
   const isClient = useIsClient();
+  const { token } = useAuth();
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
@@ -80,7 +83,13 @@ function AiAdvisorInner() {
     const prompt = searchParams.get("ai_prompt");
     if (!shouldOpen && !prompt) return;
     if (shouldOpen) setOpen(true);
-    if (prompt) setInput(decodeURIComponent(prompt));
+    if (prompt) {
+      try {
+        setInput(decodeURIComponent(prompt));
+      } catch {
+        setInput(prompt);
+      }
+    }
     router.replace(pathname, { scroll: false });
   }, [searchParams, pathname, router]);
 
@@ -94,7 +103,7 @@ function AiAdvisorInner() {
   const { data: status } = useQuery({
     queryKey: ["aiStatus"],
     queryFn: aiApi.status,
-    enabled: isClient && (aiSettings?.ai_enabled ?? true),
+    enabled: isClient && !!token && (aiSettings?.ai_enabled ?? true),
     staleTime: 60_000,
   });
 
@@ -103,6 +112,15 @@ function AiAdvisorInner() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
+
+  // Abort any in-flight SSE stream when the component unmounts (e.g. user
+  // navigates away mid-stream). Without this, the backend keeps generating
+  // and setState fires on an unmounted tree.
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const closePanel = useCallback(() => {
     setOpen(false);
@@ -123,6 +141,18 @@ function AiAdvisorInner() {
   }, [open, closePanel]);
 
   const executeAction = useCallback(async (msgIdx: number, actionType: string, data: Record<string, unknown>) => {
+    // Defense in depth: the Confirm button is already disabled in demo mode,
+    // but if anything ever bypasses the button (keyboard, programmatic) the
+    // demo user should still get a clear read-only message instead of a 403
+    // error leaking from the API call.
+    if (isDemoMode) {
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[msgIdx] = { ...copy[msgIdx], actionStatus: "cancelled" };
+        return [...copy, { role: "assistant", content: "This is a read-only demo — sign up to confirm account changes." }];
+      });
+      return;
+    }
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     try {
       const resp = await fetch("/api/ai/execute-action", {
@@ -285,7 +315,11 @@ function AiAdvisorInner() {
         throw new Error(msg);
       }
 
-      const reader = resp.body!.getReader();
+      if (!resp.body) {
+        throw new Error("No response body from AI stream");
+      }
+
+      const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
 
@@ -409,6 +443,9 @@ function AiAdvisorInner() {
             </div>
             <div>
               <p id="ai-advisor-title" className="text-sm font-semibold leading-none">AI Financial Advisor</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5 max-w-[200px] leading-snug">
+                {AI_COPY.educationalDisclaimer}
+              </p>
               <div className="flex items-center gap-1 mt-0.5">
                 {modelSource ? (
                   <SourceBadge source={modelSource} />
@@ -430,6 +467,7 @@ function AiAdvisorInner() {
                 className="h-7 w-7 text-muted-foreground hover:text-foreground"
                 onClick={clearChat}
                 title="Clear chat"
+                aria-label="Clear chat history"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
@@ -447,7 +485,7 @@ function AiAdvisorInner() {
         </div>
 
         {/* Messages */}
-        <ScrollArea className="flex-1 px-4 py-3 overflow-y-auto">
+        <ScrollArea className="flex-1 px-4 py-3 overflow-y-auto" aria-live="polite">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full min-h-[280px] gap-4">
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
@@ -531,17 +569,29 @@ function AiAdvisorInner() {
                         </ul>
                       </div>
                     )}
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Review details</p>
-                    {m.editData && Object.entries(m.editData).map(([key, val]) => (
-                      <div key={key} className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground capitalize w-24 shrink-0">
-                          {key.replace(/_/g, " ")}
-                        </span>
-                        {key === "date" || key === "due_date" ? (
+                    <fieldset className="space-y-2 border-0 p-0 m-0 min-w-0">
+                      <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-0">
+                        Review details
+                      </legend>
+                    {m.editData && Object.entries(m.editData).map(([key, val]) => {
+                      const isDate = key === "date" || key === "due_date";
+                      // Known numeric fields in action payloads — browser
+                      // gives us number/decimal keypad on mobile and blocks
+                      // obvious non-numeric typos like "fifty bucks".
+                      const isNumeric = /^(amount|budget_limit|amount_limit|percent|percentage|apr|balance|minimum_payment|min_payment)$/.test(key);
+                      return (
+                        <div key={key} className="flex items-center gap-2">
+                          <label className="text-xs text-muted-foreground capitalize w-24 shrink-0" htmlFor={`ai-action-${i}-${key}`}>
+                            {key.replace(/_/g, " ")}
+                          </label>
                           <input
-                            type="date"
+                            id={`ai-action-${i}-${key}`}
+                            type={isDate ? "date" : isNumeric ? "number" : "text"}
+                            inputMode={isNumeric ? "decimal" : undefined}
+                            step={isNumeric ? "0.01" : undefined}
                             className="rounded border bg-background px-2 py-0.5 text-xs flex-1"
                             value={val}
+                            disabled={isDemoMode}
                             onChange={(e) => {
                               setMessages((prev) => {
                                 const copy = [...prev];
@@ -553,30 +603,19 @@ function AiAdvisorInner() {
                               });
                             }}
                           />
-                        ) : (
-                          <input
-                            type="text"
-                            className="rounded border bg-background px-2 py-0.5 text-xs flex-1"
-                            value={val}
-                            onChange={(e) => {
-                              setMessages((prev) => {
-                                const copy = [...prev];
-                                copy[i] = {
-                                  ...copy[i],
-                                  editData: { ...copy[i].editData, [key]: e.target.value },
-                                };
-                                return copy;
-                              });
-                            }}
-                          />
-                        )}
-                      </div>
-                    ))}
+                        </div>
+                      );
+                    })}
+                    </fieldset>
+                    {isDemoMode ? (
+                      <p className="text-xs text-muted-foreground">Demo is read-only — sign up to confirm account changes.</p>
+                    ) : null}
                     <div className="flex gap-2 pt-1">
                       <Button
                         size="sm"
                         className="h-7 text-xs"
-                        disabled={executingActionIdx !== null}
+                        disabled={executingActionIdx !== null || isDemoMode}
+                        title={isDemoMode ? "Demo is read-only" : undefined}
                         onClick={() => {
                           if (!m.pendingAction || executingActionIdx !== null) return;
                           const mergedData = { ...m.pendingAction.data, ...m.editData };
@@ -640,6 +679,8 @@ function AiAdvisorInner() {
             />
             <Button
               size="icon"
+              type="button"
+              aria-label={streaming ? "Sending message" : "Send message"}
               onClick={send}
               disabled={!input.trim() || !aiAvailable || streaming}
               className="h-10 w-10 rounded-xl shrink-0"

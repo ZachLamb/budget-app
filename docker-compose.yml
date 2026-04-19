@@ -43,6 +43,14 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      # Shared rate-limit / lockout state (optional). When unset, falls back
+      # to per-instance in-memory storage. The Vercel Marketplace Upstash
+      # integration names its vars KV_REST_API_*; we prefer UPSTASH_* and
+      # fall back to the KV_* naming so either works without renames.
+      UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-${KV_REST_API_URL:-}}
+      UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-${KV_REST_API_TOKEN:-}}
+      # IP/CIDR allowlist for proxies permitted to set X-Forwarded-For.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
     ports:
       - "8000:8000"
     depends_on:
@@ -50,7 +58,9 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # entrypoint.sh runs `alembic upgrade head` first, then execs uvicorn
+    # with any extra args — `--reload` below is for the dev container only.
+    command: ["--reload"]
 
   frontend:
     build: ./frontend

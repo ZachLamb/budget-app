@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AuthGuard } from "@/components/auth-guard";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { accountsApi, type Account, type AccountCreate } from "@/lib/api/accounts";
+import { accountsApi, type Account } from "@/lib/api/accounts";
 import { syncApi } from "@/lib/api/sync";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";

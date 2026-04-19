@@ -6,8 +6,7 @@
  */
 
 import { readdirSync, readFileSync } from "fs";
-import { resolve, join } from "path";
-import { globSync } from "fs";
+import { join } from "path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const UI_DIR = join(ROOT, "src/components/ui");

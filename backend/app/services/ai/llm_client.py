@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
 # Connect timeout for Ollama — if it doesn't connect within this window, skip it.
 # Keep short so failures don't block the request.
 _OLLAMA_CONNECT_TIMEOUT = 2.0
-_OLLAMA_READ_TIMEOUT = 30.0
-_OLLAMA_STREAM_TIMEOUT = 60.0
+# Non-streaming completions (insights, budget suggestions, etc.) — local models often need >30s.
+_OLLAMA_READ_TIMEOUT = 120.0
+_OLLAMA_STREAM_TIMEOUT = 120.0
 
 
 def has_any_backend() -> bool:
@@ -32,6 +33,11 @@ def has_any_backend() -> bool:
 
 
 # ── Demo mode canned responses ────────────────────────────────────────────────
+
+_DEMO_LABEL = (
+    "[Demo sample — figures below are illustrative, not from your household.]\n\n"
+)
+
 
 _DEMO_RESPONSES = {
     "insight": (
@@ -73,13 +79,13 @@ def _demo_response(prompt: str) -> str:
     if "action" in p or "parse" in p or "execute" in p:
         return _DEMO_RESPONSES["action"]
     if "debt" in p or "payoff" in p or "paydown" in p:
-        return _DEMO_RESPONSES["debt"]
+        return _DEMO_LABEL + _DEMO_RESPONSES["debt"]
     if "budget" in p or "suggest" in p or "assign" in p:
-        return _DEMO_RESPONSES["budget"]
+        return _DEMO_LABEL + _DEMO_RESPONSES["budget"]
     if "insight" in p or "spending" in p or "analyz" in p or "pattern" in p:
-        return _DEMO_RESPONSES["insight"]
+        return _DEMO_LABEL + _DEMO_RESPONSES["insight"]
     # Default: friendly financial advice for chat
-    return (
+    return _DEMO_LABEL + (
         "Great question! Based on your financial picture, you're in solid shape. "
         "Your emergency fund is over halfway to your $15,000 goal, and your debt-to-income "
         "ratio is manageable. I'd suggest focusing on the Chase Visa first since it has the "
@@ -91,7 +97,13 @@ def _demo_response(prompt: str) -> str:
 
 # ── Non-streaming ──────────────────────────────────────────────────────────────
 
-async def _try_ollama(prompt: str, system: Optional[str] = None, max_tokens: int = 1024) -> Optional[str]:
+async def _try_ollama(
+    prompt: str,
+    system: Optional[str] = None,
+    max_tokens: int = 1024,
+    *,
+    json_format: bool = False,
+) -> Optional[str]:
     settings = get_settings()
     if not settings.ollama_url:
         return None
@@ -101,12 +113,16 @@ async def _try_ollama(prompt: str, system: Optional[str] = None, max_tokens: int
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    payload = {
+    payload: dict = {
         "model": settings.ollama_model,
         "messages": messages,
         "stream": False,
         "options": {"temperature": 0.3, "num_predict": max_tokens},
     }
+    if json_format:
+        # Ollama's JSON mode — the server will only emit parseable JSON. Small
+        # local models otherwise drift into markdown fences or prose.
+        payload["format"] = "json"
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(_OLLAMA_READ_TIMEOUT, connect=_OLLAMA_CONNECT_TIMEOUT)
@@ -124,25 +140,41 @@ async def _try_ollama(prompt: str, system: Optional[str] = None, max_tokens: int
 
 
 async def complete_with_source(
-    prompt: str, system: Optional[str] = None, max_tokens: int = 1024
+    prompt: str,
+    system: Optional[str] = None,
+    max_tokens: int = 1024,
+    *,
+    json_format: bool = False,
 ) -> tuple[Optional[str], str]:
     """Send a prompt to Ollama (or demo canned data).
+
+    Set ``json_format=True`` when the caller expects a JSON response — this
+    switches Ollama into strict JSON mode so small local models can't drift
+    into markdown fences or chatty prose around the payload.
 
     Returns (response_text, source_name): "demo", "ollama", or "unavailable".
     """
     if get_settings().demo_mode:
         return _demo_response(prompt), "demo"
 
-    result = await _try_ollama(prompt, system, max_tokens=max_tokens)
+    result = await _try_ollama(prompt, system, max_tokens=max_tokens, json_format=json_format)
     if result is not None:
         return result, "ollama"
 
     return None, "unavailable"
 
 
-async def complete(prompt: str, system: Optional[str] = None, max_tokens: int = 1024) -> Optional[str]:
+async def complete(
+    prompt: str,
+    system: Optional[str] = None,
+    max_tokens: int = 1024,
+    *,
+    json_format: bool = False,
+) -> Optional[str]:
     """Convenience wrapper — returns text only (discards source label)."""
-    text, _ = await complete_with_source(prompt, system, max_tokens=max_tokens)
+    text, _ = await complete_with_source(
+        prompt, system, max_tokens=max_tokens, json_format=json_format
+    )
     return text
 
 

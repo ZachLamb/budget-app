@@ -1,6 +1,8 @@
 import { useMemo, useState, useEffect, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { categoriesApi, type CategoryGroup, type Category } from "@/lib/api/categories";
+import { configApi, type AppConfig } from "@/lib/api/config";
+import { isDemoMode as buildTimeDemoMode } from "@/lib/demo-mode";
 import { resolveChartSeriesColors } from "@/lib/ux-plan-logic";
 
 const noopSubscribe = () => () => {};
@@ -78,6 +80,48 @@ export function detailFromJsonBody(body: unknown): string | null {
     return String(first?.msg ?? first?.loc?.join(".") ?? JSON.stringify(first));
   }
   return String(d);
+}
+
+/**
+ * Server-sourced app config (demo_mode, auth_methods).
+ *
+ * The backend is authoritative — prefer this over NEXT_PUBLIC_DEMO_MODE
+ * (which is baked at build time and drifts from runtime state). Staled
+ * long because this value changes only on a deploy/restart and misses
+ * would trigger re-fetches across the tree.
+ */
+export function useAppConfig() {
+  const isClient = useIsClient();
+  return useQuery<AppConfig>({
+    queryKey: ["appConfig"],
+    queryFn: configApi.get,
+    enabled: isClient,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+}
+
+/**
+ * Single source of truth for "is this UI currently rendering against a
+ * demo backend?" — server-authoritative.
+ *
+ * Returns a stable object with:
+ *   - `isDemo`: the server's view of DEMO_MODE (falls back to the
+ *     build-time `NEXT_PUBLIC_DEMO_MODE` until the query resolves, so
+ *     consumers don't flash "full UI" for one frame on demo deploys).
+ *   - `loading`: whether the server truth is still pending.
+ *   - `readOnlyMessage`: canonical copy for disabled controls /
+ *     tooltip text so every surface uses the same wording.
+ */
+export function useDemoGuard() {
+  const { data, isLoading } = useAppConfig();
+  const isDemo = data ? data.demo_mode : buildTimeDemoMode;
+  return {
+    isDemo,
+    loading: isLoading,
+    readOnlyMessage:
+      "Demo is read-only — run your own copy locally to make changes.",
+  } as const;
 }
 
 /** Resolved theme --chart-* colors for Recharts (client-only; falls back until mounted). */
