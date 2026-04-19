@@ -17,6 +17,7 @@ eyeball against `frontend/src/lib/api/*`.
 """
 from __future__ import annotations
 
+import difflib
 import json
 import os
 from pathlib import Path
@@ -81,9 +82,18 @@ def test_openapi_shape_matches_snapshot() -> None:
 
     saved_str = _SNAPSHOT_PATH.read_text().rstrip("\n")
     if saved_str != current_str:
-        # Helpful failure message — keep the actual diff small by pointing
-        # to the file and the refresh command rather than printing 10kB
-        # of JSON into the test output.
+        # Print the first ~60 lines of the diff so CI logs make it obvious
+        # what drifted. Truncating keeps the failure readable; the full
+        # diff is always visible locally after regenerating the snapshot.
+        diff = difflib.unified_diff(
+            saved_str.splitlines(),
+            current_str.splitlines(),
+            fromfile="snapshot",
+            tofile="current",
+            lineterm="",
+            n=2,
+        )
+        head = "\n".join(list(diff)[:80])
         raise AssertionError(
             "OpenAPI shape drift vs "
             f"{_SNAPSHOT_PATH.relative_to(Path.cwd())}.\n"
@@ -92,5 +102,7 @@ def test_openapi_shape_matches_snapshot() -> None:
             "    UPDATE_SNAPSHOTS=1 python -m pytest "
             "tests/test_openapi_shape.py\n"
             "Then eyeball the diff against frontend/src/lib/api/* before "
-            "committing."
+            "committing.\n\n"
+            "First 80 lines of the drift:\n"
+            f"{head}"
         )

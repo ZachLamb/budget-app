@@ -171,9 +171,16 @@ export function NotificationBell({ className }: { className?: string }) {
 
   useEffect(() => {
     if (!open) return;
-    setNowMs(Date.now());
+    // Defer the "fresh nowMs on open" update to a task so it's not a
+    // synchronous setState in the effect body — the cascading-render
+    // pattern the hooks plugin warns about. setInterval handles the
+    // every-30s refresh afterward.
+    const id0 = window.setTimeout(() => setNowMs(Date.now()), 0);
     const id = window.setInterval(() => setNowMs(Date.now()), 30_000);
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearTimeout(id0);
+      window.clearInterval(id);
+    };
   }, [open]);
 
   const { unreadItems, readItems } = useMemo(() => {
