@@ -28,8 +28,7 @@ import {
   KeyRound, Trash2, Link2, ExternalLink, Loader2, CheckCircle2, AlertCircle, RefreshCw, Sparkles,
   CalendarDays,
 } from "lucide-react";
-import { useIsClient, getApiErrorMessage } from "@/lib/hooks";
-import { isDemoMode } from "@/lib/demo-mode";
+import { useIsClient, getApiErrorMessage, useDemoGuard } from "@/lib/hooks";
 import {
   isSemiMonthlyPayAnchor,
   payFrequencyNeedsLastPaydate,
@@ -300,6 +299,7 @@ function SimplefinSetupDialog({
 }
 
 function SettingsContent() {
+  const { isDemo } = useDemoGuard();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -440,7 +440,7 @@ function SettingsContent() {
           </CardTitle>
           <CardDescription>
             Anchor spending summaries to your paycheck cycle. Calendar-month budgeting on the Budget page is unchanged.
-            {isDemoMode ? " Pay schedule changes are disabled in the demo." : ""}
+            {isDemo ? " Pay schedule changes are disabled in the demo." : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -462,7 +462,7 @@ function SettingsContent() {
                 <Select
                   value={payFreqDraft || "unset"}
                   onValueChange={(v) => setPayFreqDraft(v === "unset" ? "" : v)}
-                  disabled={isDemoMode}
+                  disabled={isDemo}
                 >
                   <SelectTrigger id="pay-frequency">
                     <SelectValue placeholder="Not set (use 30-day window)" />
@@ -486,7 +486,7 @@ function SettingsContent() {
                   autoComplete="off"
                   value={payLastDraft}
                   onChange={(e) => setPayLastDraft(e.target.value)}
-                  disabled={isDemoMode || !payFreqDraft || payFreqDraft === "irregular"}
+                  disabled={isDemo || !payFreqDraft || payFreqDraft === "irregular"}
                   aria-invalid={payLastFieldError ? true : undefined}
                   aria-describedby={
                     payLastFieldError
@@ -511,7 +511,7 @@ function SettingsContent() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="budget-framing">Dashboard emphasis</Label>
-                <Select value={framingDraft} onValueChange={setFramingDraft} disabled={isDemoMode}>
+                <Select value={framingDraft} onValueChange={setFramingDraft} disabled={isDemo}>
                   <SelectTrigger id="budget-framing">
                     <SelectValue />
                   </SelectTrigger>
@@ -524,8 +524,8 @@ function SettingsContent() {
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
-                  disabled={payScheduleMutation.isPending || isDemoMode}
-                  title={isDemoMode ? "Demo is read-only" : undefined}
+                  disabled={payScheduleMutation.isPending || isDemo}
+                  title={isDemo ? "Demo is read-only" : undefined}
                   onClick={() => {
                     const freq =
                       !payFreqDraft || payFreqDraft === "unset" ? null : payFreqDraft;

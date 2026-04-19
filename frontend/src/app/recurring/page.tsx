@@ -27,7 +27,7 @@ import { appToast } from "@/lib/app-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
 import { CancelGuideDialog } from "@/components/cancel-guide-dialog";
-import { isDemoMode } from "@/lib/demo-mode";
+import { useDemoGuard } from "@/lib/hooks";
 
 const FREQUENCIES = [
   { value: "weekly", label: "Weekly" },
@@ -129,6 +129,7 @@ function RecurringForm({ form, setForm, payees, accounts, allCategories, onSubmi
 }
 
 function RecurringContent() {
+  const { isDemo } = useDemoGuard();
   const [addOpen, setAddOpen] = useState(false);
   const [editItem, setEditItem] = useState<RecurringTransaction | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -243,7 +244,7 @@ function RecurringContent() {
         <h1 className="text-3xl font-bold">Recurring Transactions</h1>
         <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) setAddForm({ ...EMPTY_FORM }); }}>
           <DialogTrigger asChild>
-            <Button disabled={isDemoMode} title={isDemoMode ? "Demo is read-only" : undefined}>
+            <Button disabled={isDemo} title={isDemo ? "Demo is read-only" : undefined}>
               <Plus className="mr-2 h-4 w-4" /> Add
             </Button>
           </DialogTrigger>
@@ -256,7 +257,7 @@ function RecurringContent() {
               onSubmit={(e) => { e.preventDefault(); createMutation.mutate(addForm); }}
               isPending={createMutation.isPending}
               submitLabel="Add Recurring"
-              readOnly={isDemoMode}
+              readOnly={isDemo}
             />
           </DialogContent>
         </Dialog>
@@ -271,7 +272,7 @@ function RecurringContent() {
             </CardTitle>
             <CardDescription>
               Heuristic matches from budget-account outflows (last 90 days). Confirm or dismiss; dismiss is saved for this household.
-              {isDemoMode ? " Editing is disabled in the demo." : ""}
+              {isDemo ? " Editing is disabled in the demo." : ""}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -300,8 +301,8 @@ function RecurringContent() {
                     <Button
                       type="button"
                       size="sm"
-                      disabled={isDemoMode}
-                      title={isDemoMode ? "Demo is read-only" : undefined}
+                      disabled={isDemo}
+                      title={isDemo ? "Demo is read-only" : undefined}
                       onClick={() => applySuggestion(s)}
                     >
                       Add as recurring
@@ -310,8 +311,8 @@ function RecurringContent() {
                       type="button"
                       size="sm"
                       variant="outline"
-                      disabled={dismissSuggestionMutation.isPending || isDemoMode}
-                      title={isDemoMode ? "Demo is read-only" : undefined}
+                      disabled={dismissSuggestionMutation.isPending || isDemo}
+                      title={isDemo ? "Demo is read-only" : undefined}
                       onClick={() => dismissSuggestionMutation.mutate(s.dedupe_key)}
                     >
                       Dismiss
@@ -345,7 +346,7 @@ function RecurringContent() {
             onSubmit={(e) => { e.preventDefault(); if (editItem) updateMutation.mutate({ id: editItem.id, data: editForm }); }}
             isPending={updateMutation.isPending}
             submitLabel="Save Changes"
-            readOnly={isDemoMode}
+            readOnly={isDemo}
           />
         </DialogContent>
       </Dialog>
@@ -418,8 +419,8 @@ function RecurringContent() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          disabled={isDemoMode}
-                          title={isDemoMode ? "Demo is read-only" : undefined}
+                          disabled={isDemo}
+                          title={isDemo ? "Demo is read-only" : undefined}
                           onClick={() => openEdit(item)}
                         >
                           <Pencil className="h-3 w-3" />
@@ -428,8 +429,8 @@ function RecurringContent() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-destructive hover:text-destructive"
-                          disabled={isDemoMode}
-                          title={isDemoMode ? "Demo is read-only" : undefined}
+                          disabled={isDemo}
+                          title={isDemo ? "Demo is read-only" : undefined}
                           onClick={() => setDeleteId(item.id)}
                         >
                           <Trash2 className="h-3 w-3" />

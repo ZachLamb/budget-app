@@ -15,7 +15,7 @@ import {
   ChevronDown, Trash2, MessageSquare, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useIsClient, detailFromJsonBody } from "@/lib/hooks";
+import { useIsClient, detailFromJsonBody, useDemoGuard } from "@/lib/hooks";
 import Link from "next/link";
 import { parseChatEvidence, type ChatEvidenceItem } from "@/lib/ai-evidence";
 import { AI_COPY } from "@/lib/ai-copy";
@@ -58,9 +58,8 @@ interface Message extends ChatMessage {
   evidence?: ChatEvidenceItem[];
 }
 
-const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
-
 function AiAdvisorInner() {
+  const { isDemo } = useDemoGuard();
   const isClient = useIsClient();
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -507,7 +506,7 @@ function AiAdvisorInner() {
                         )}
                       </div>
                     ))}
-                    {isDemoMode ? (
+                    {isDemo ? (
                       <p className="text-xs text-muted-foreground pt-1">
                         Demo is read-only — you can&apos;t apply actions here. Sign up for your own household to confirm changes.
                       </p>
@@ -516,7 +515,7 @@ function AiAdvisorInner() {
                       <Button
                         size="sm"
                         className="h-7 text-xs"
-                        disabled={isDemoMode || executingActionIdx !== null}
+                        disabled={isDemo || executingActionIdx !== null}
                         onClick={() => {
                           if (!m.pendingAction || executingActionIdx !== null) return;
                           const mergedData = { ...m.pendingAction.data, ...m.editData };

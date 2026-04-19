@@ -25,7 +25,19 @@ vi.mock("next/navigation", () => NAV_MOCKS);
 
 // Pretend we're in demo mode so the component renders its demo-safe path
 // and the Confirm button disables itself with the "read-only" message.
-vi.mock("@/lib/demo-mode", () => ({ isDemoMode: true }));
+// The component now reads demo state via `useDemoGuard()` from lib/hooks;
+// stub it out alongside the other hooks exports the component uses.
+vi.mock("@/lib/hooks", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/hooks")>("@/lib/hooks");
+  return {
+    ...actual,
+    useDemoGuard: () => ({
+      isDemo: true,
+      loading: false,
+      readOnlyMessage: "Demo is read-only",
+    }),
+  };
+});
 
 vi.mock("@/lib/api/ai", () => ({
   aiApi: {
