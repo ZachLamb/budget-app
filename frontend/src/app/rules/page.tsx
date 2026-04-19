@@ -89,7 +89,10 @@ function RulesContent() {
   });
 
   const suggestMutation = useMutation({
-    mutationFn: reportsApi.suggestCategories,
+    // Wrapped so `.mutate()` is callable with no args — the underlying
+    // fetcher accepts optional filters; on this page we always want the
+    // "recent uncategorized" default batch.
+    mutationFn: () => reportsApi.suggestCategories(),
     onSuccess: (data) => {
       setSuggestions(data.suggestions);
       setSuggestOpen(true);
