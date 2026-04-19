@@ -14,12 +14,21 @@ from app.middleware.rate_limit_store import InMemoryStore, build_store
 @pytest.mark.asyncio
 async def test_check_and_increment_returns_true_when_over_cap() -> None:
     store = InMemoryStore()
-    for _ in range(3):
-        assert await store.check_and_increment("k", 3, 60) is False
+    for i in range(3):
+        result = await store.check_and_increment("k", 3, 60)
+        assert result.over is False
+        # Count tracks the post-increment hit count so the middleware can
+        # render RateLimit-Remaining without a second round-trip.
+        assert result.count == i + 1
     # Fourth hit trips.
-    assert await store.check_and_increment("k", 3, 60) is True
+    result = await store.check_and_increment("k", 3, 60)
+    assert result.over is True
+    # Over-cap calls report the stored count but do not rack up more hits.
+    assert result.count == 3
     # And the limiter stays tripped without racking up more hits.
-    assert await store.check_and_increment("k", 3, 60) is True
+    result = await store.check_and_increment("k", 3, 60)
+    assert result.over is True
+    assert result.count == 3
 
 
 @pytest.mark.asyncio

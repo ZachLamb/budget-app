@@ -36,8 +36,9 @@ async def test_check_and_increment_sends_pipelined_incr_expire_with_bearer_token
         return httpx.Response(200, json=[{"result": 1}, {"result": 1}])
 
     store = _make_store_with_handler(handler)
-    over = await store.check_and_increment("rl:/api/auth/login:1.1.1.1", 3, 60)
-    assert over is False
+    result = await store.check_and_increment("rl:/api/auth/login:1.1.1.1", 3, 60)
+    assert result.over is False
+    assert result.count == 1
     assert len(seen_requests) == 1
     req = seen_requests[0]
     assert req.url.path == "/pipeline"
@@ -57,7 +58,11 @@ async def test_check_and_increment_returns_true_when_incr_exceeds_cap() -> None:
         return httpx.Response(200, json=[{"result": 4}, {"result": 1}])
 
     store = _make_store_with_handler(handler)
-    assert await store.check_and_increment("k", 3, 60) is True
+    result = await store.check_and_increment("k", 3, 60)
+    assert result.over is True
+    # Count is the post-INCR value from Upstash, needed by the middleware
+    # to emit RateLimit-Remaining (which will be 0 here via max(0, cap - count)).
+    assert result.count == 4
 
 
 @pytest.mark.asyncio
@@ -67,7 +72,28 @@ async def test_check_and_increment_fails_open_on_network_error() -> None:
 
     store = _make_store_with_handler(handler)
     # Availability beats strict enforcement when the limiter is down.
-    assert await store.check_and_increment("k", 3, 60) is False
+    # On failure we report count=0 so the middleware emits a full-budget
+    # RateLimit-Remaining (conservative from the client's perspective).
+    result = await store.check_and_increment("k", 3, 60)
+    assert result.over is False
+    assert result.count == 0
+
+
+@pytest.mark.asyncio
+async def test_check_and_increment_surfaces_post_incr_count_for_headers() -> None:
+    """The middleware derives RateLimit-Remaining from ``result.count``.
+
+    Verify that an under-cap hit returns the Upstash post-INCR value so
+    clients see Remaining shrink toward 0 before a 429.
+    """
+    def handler(_: httpx.Request) -> httpx.Response:
+        # 2nd hit in a 3-request window — still under cap.
+        return httpx.Response(200, json=[{"result": 2}, {"result": 1}])
+
+    store = _make_store_with_handler(handler)
+    result = await store.check_and_increment("k", 3, 60)
+    assert result.over is False
+    assert result.count == 2
 
 
 @pytest.mark.asyncio

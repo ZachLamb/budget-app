@@ -21,11 +21,24 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict, deque
-from typing import Deque, Dict, Optional, Protocol
+from typing import Deque, Dict, NamedTuple, Optional, Protocol
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+class RateLimitResult(NamedTuple):
+    """Return shape for ``check_and_increment``.
+
+    ``over`` is True when the caller should be rejected (post-increment
+    count exceeds the cap). ``count`` is the post-increment hit count in
+    the current window, used by the middleware to derive the
+    ``RateLimit-Remaining`` response header (RFC 9331).
+    """
+
+    over: bool
+    count: int
 
 
 class RateLimitStore(Protocol):
@@ -37,7 +50,9 @@ class RateLimitStore(Protocol):
     clear on success).
     """
 
-    async def check_and_increment(self, key: str, max_hits: int, window_seconds: int) -> bool:
+    async def check_and_increment(
+        self, key: str, max_hits: int, window_seconds: int
+    ) -> RateLimitResult:
         ...
 
     async def counter_incr(self, key: str, window_seconds: int) -> int:
@@ -84,18 +99,23 @@ class InMemoryStore:
         if not dq:
             del self._hits[key]
 
-    async def check_and_increment(self, key: str, max_hits: int, window_seconds: int) -> bool:
+    async def check_and_increment(
+        self, key: str, max_hits: int, window_seconds: int
+    ) -> RateLimitResult:
         if len(self._hits) > self._MAX_TRACKED_KEYS and key not in self._hits:
-            # Shed load rather than grow unboundedly.
-            return False
+            # Shed load rather than grow unboundedly. Report 0 so the
+            # middleware still emits a full-budget RateLimit-Remaining.
+            return RateLimitResult(over=False, count=0)
         now = time.monotonic()
         window_f = float(window_seconds)
         self._prune(key, window_f, now)
         dq = self._hits[key]
         if len(dq) >= max_hits:
-            return True
+            # Over-cap: do not record another hit, but return the
+            # current count so callers can still render headers.
+            return RateLimitResult(over=True, count=len(dq))
         dq.append(now)
-        return False
+        return RateLimitResult(over=False, count=len(dq))
 
     def _counter_prune(self, key: str, now: float) -> None:
         rec = self._counters.get(key)
@@ -159,7 +179,9 @@ class UpstashStore:
             )
         return self._client
 
-    async def check_and_increment(self, key: str, max_hits: int, window_seconds: int) -> bool:
+    async def check_and_increment(
+        self, key: str, max_hits: int, window_seconds: int
+    ) -> RateLimitResult:
         client = self._client_or_create()
         # Pipeline: INCR returns the post-increment count; EXPIRE is NX-style
         # idempotent when the key already has a TTL.
@@ -169,16 +191,18 @@ class UpstashStore:
             resp.raise_for_status()
             results = resp.json()
         except Exception as e:
+            # Fail open — availability beats strict enforcement. Report 0
+            # so the middleware falls back to "full budget" headers.
             logger.warning("Upstash rate-limit call failed (%s); failing open", e)
-            return False
+            return RateLimitResult(over=False, count=0)
 
         # results shape: [{"result": 1}, {"result": 1}] — pick first.
         try:
             count = int(results[0].get("result"))
         except (IndexError, AttributeError, TypeError, ValueError):
             logger.warning("Unexpected Upstash pipeline response: %r", results)
-            return False
-        return count > max_hits
+            return RateLimitResult(over=False, count=0)
+        return RateLimitResult(over=count > max_hits, count=count)
 
     async def counter_incr(self, key: str, window_seconds: int) -> int:
         client = self._client_or_create()

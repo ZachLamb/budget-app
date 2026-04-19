@@ -110,14 +110,26 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if path.startswith(prefix):
                 ip = client_ip_for_limit(request, self._trusted_proxies)
                 key = f"rl:{prefix}:{ip}"
-                over = await self._store.check_and_increment(key, max_hits, window)
-                if over:
+                result = await self._store.check_and_increment(key, max_hits, window)
+                # RFC 9331 draft: expose remaining budget on every response
+                # under a matched rule so clients can back off before the
+                # 429 instead of blindly retrying.
+                remaining = max(0, max_hits - result.count)
+                rate_headers = {
+                    "RateLimit-Limit": str(max_hits),
+                    "RateLimit-Remaining": str(remaining),
+                    "RateLimit-Reset": str(window),
+                }
+                if result.over:
                     return Response(
                         content=json.dumps({"detail": "Too many requests. Try again shortly."}),
                         status_code=429,
                         media_type="application/json",
-                        headers={"Retry-After": str(window)},
+                        headers={"Retry-After": str(window), **rate_headers},
                     )
-                break
+                response = await call_next(request)
+                for name, value in rate_headers.items():
+                    response.headers[name] = value
+                return response
 
         return await call_next(request)

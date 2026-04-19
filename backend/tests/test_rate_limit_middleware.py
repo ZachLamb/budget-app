@@ -7,6 +7,7 @@ These cover the behaviors the middleware's route rules depend on:
 - X-Forwarded-For is IGNORED when the peer is not in the trusted-proxy list
 - more-specific prefixes win over the generic "/api/ai/" prefix when rules
   overlap (e.g. "/api/auth/login" is tighter than "/api/auth/")
+- RFC 9331-draft ``RateLimit-*`` headers appear on both 200 and 429 responses
 """
 from __future__ import annotations
 
@@ -149,3 +150,76 @@ async def test_xff_is_ignored_when_peer_is_not_a_trusted_proxy() -> None:
             headers={"x-forwarded-for": "10.0.0.254"},
         )
         assert resp.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_headers_on_happy_path_decrement_remaining() -> None:
+    """Every 2xx under a matched rule must carry RateLimit-* draft headers.
+
+    The client needs to see ``Remaining`` drop toward 0 so it can back off
+    before hitting the 429.
+    """
+    app = _build_app()
+    cap = _rule_cap("/api/ai/")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        for i in range(1, cap + 1):
+            resp = await client.post(
+                "/api/ai/insights",
+                headers={"x-forwarded-for": "7.7.7.7"},
+            )
+            assert resp.status_code == 200
+            assert resp.headers.get("RateLimit-Limit") == str(cap)
+            # Remaining is cap - count, clamped at 0 on the final allowed hit.
+            expected_remaining = max(0, cap - i)
+            assert resp.headers.get("RateLimit-Remaining") == str(expected_remaining)
+            # Reset == the configured window for this prefix (60s for /api/ai/).
+            assert resp.headers.get("RateLimit-Reset") == "60"
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_headers_on_429_block() -> None:
+    """The 429 itself must also carry RateLimit-* headers with Remaining=0."""
+    app = _build_app()
+    cap = _rule_cap("/api/ai/")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Exhaust the bucket.
+        for _ in range(cap):
+            resp = await client.post(
+                "/api/ai/insights",
+                headers={"x-forwarded-for": "8.8.8.8"},
+            )
+            assert resp.status_code == 200
+        # Next request trips the limiter.
+        resp = await client.post(
+            "/api/ai/insights",
+            headers={"x-forwarded-for": "8.8.8.8"},
+        )
+        assert resp.status_code == 429
+        # Existing Retry-After behavior is unchanged.
+        assert resp.headers.get("Retry-After") == "60"
+        # And the new RFC-9331 draft headers appear alongside it.
+        assert resp.headers.get("RateLimit-Limit") == str(cap)
+        assert resp.headers.get("RateLimit-Remaining") == "0"
+        assert resp.headers.get("RateLimit-Reset") == "60"
+        # Body shape unchanged — the parent session's contract.
+        assert "Too many requests" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_headers_absent_for_unmatched_routes() -> None:
+    """Routes outside _RULES must not carry RateLimit-* headers.
+
+    Emitting them on every response would be misleading (no limit is
+    actually enforced) and balloon header size on unrelated endpoints.
+    """
+    app = _build_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # GET is never matched (method filter) — no headers.
+        resp = await client.get("/api/auth/login", headers={"x-forwarded-for": "1.1.1.1"})
+        assert resp.status_code == 200
+        assert resp.headers.get("RateLimit-Limit") is None
+        assert resp.headers.get("RateLimit-Remaining") is None
+        assert resp.headers.get("RateLimit-Reset") is None
