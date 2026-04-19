@@ -52,8 +52,13 @@ export const authApi = {
     api.post<TokenResponse>("/auth/login", data).then((r) => r.data),
   demoLogin: () =>
     api.post<TokenResponse>("/auth/demo-login").then((r) => r.data),
-  googleExchange: (code: string) =>
-    api.post<TokenResponse>("/auth/google/exchange", { code }).then((r) => r.data),
+  /**
+   * Exchange the HttpOnly `oauth_login_code` cookie set by /api/auth/google/callback
+   * for a JWT. No request body — the cookie is sent automatically on this
+   * same-origin POST (path-scoped to this endpoint).
+   */
+  googleExchange: () =>
+    api.post<TokenResponse>("/auth/google/exchange").then((r) => r.data),
   me: () => api.get<User>("/auth/me").then((r) => r.data),
   // Passkey (WebAuthn)
   passkeyRegisterOptions: (data: { email: string; name: string; household_name?: string }) =>
