@@ -33,6 +33,7 @@ import { useQueryClient, useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { appToast } from "@/lib/app-toast";
 import { shouldShowMobileSyncBanner } from "@/lib/ux-plan-logic";
+import { AI_COPY } from "@/lib/ai-copy";
 
 const DEBT_TYPES = ["credit", "loan"];
 
@@ -102,12 +103,13 @@ function InsightsPanel({
         <CardContent id={panelId} role="region" aria-labelledby={`${panelId}-label`}>
           {!hasFinancialData ? (
             <p className="text-sm text-muted-foreground">
-              Connect and sync your bank (or add accounts and transactions) to get personalised AI suggestions based on your data.
+              Connect and sync your bank (or add accounts and transactions) to get personalized AI suggestions based on your data.
             </p>
               ) : (
                 <>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Grounded in your categories and balances—toggle AI off anytime in Settings if you prefer a fully manual app.
+                    Grounded in your categories and balances—toggle AI off anytime in Settings if you prefer a fully manual app.{" "}
+                    {AI_COPY.educationalDisclaimer}
                   </p>
                   <div className="flex justify-end mb-2">
                 <Button

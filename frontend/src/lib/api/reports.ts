@@ -1,4 +1,5 @@
 import api from "./client";
+import { LLM_HTTP_TIMEOUT_MS } from "./llm-timeout";
 
 export interface SpendingByCategory {
   category_id: string;
@@ -41,6 +42,15 @@ export interface LlmSuggestion {
   category_name: string;
 }
 
+/** Optional filters for POST /categorization/suggest (matches GET /transactions semantics). */
+export type SuggestCategoriesParams = {
+  account_id?: string;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+  limit?: number;
+};
+
 export const reportsApi = {
   spendingByCategory: (params?: { month?: string; date_from?: string; date_to?: string }) =>
     api.get<SpendingByCategory[]>("/reports/spending-by-category", { params }).then((r) => r.data),
@@ -56,11 +66,17 @@ export const reportsApi = {
   balanceHistory: (accountId: string) =>
     api.get<BalancePoint[]>(`/reports/accounts/${accountId}/balance-history`).then((r) => r.data),
 
-  suggestCategories: () =>
-    api.post<{ suggestions: LlmSuggestion[] }>("/categorization/suggest").then((r) => r.data),
+  suggestCategories: (params?: SuggestCategoriesParams) =>
+    api
+      .post<{ suggestions: LlmSuggestion[] }>("/categorization/suggest", params ?? {}, {
+        timeout: LLM_HTTP_TIMEOUT_MS,
+      })
+      .then((r) => r.data),
 
   applySuggestions: (suggestions: { transaction_id: string; category_id: string }[]) =>
-    api.post("/categorization/apply", { suggestions }).then((r) => r.data),
+    api
+      .post<{ applied: number }>("/categorization/apply", { suggestions }, { timeout: LLM_HTTP_TIMEOUT_MS })
+      .then((r) => r.data),
 
   applyRules: () => api.post("/categorization/apply-rules").then((r) => r.data),
 

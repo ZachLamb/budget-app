@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
+import { AI_COPY } from "@/lib/ai-copy";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -61,16 +62,45 @@ const GOAL_TYPES = [
   { value: "custom", label: "Custom Goal", icon: Target, color: "text-purple-500" },
 ];
 
-const STRATEGY_LABELS: Record<string, { label: string; description: string }> = {
+type DebtStrategy = "avalanche" | "snowball" | "hybrid";
+
+const STRATEGY_LABELS: Record<DebtStrategy, { label: string; description: string }> = {
   avalanche: {
     label: "Avalanche",
-    description: "Pay highest-interest debt first. Saves the most money overall.",
+    description:
+      "Pay highest-interest debt first. Usually minimizes interest vs snowball, assuming steady payments and accurate APRs.",
   },
   snowball: {
     label: "Snowball",
     description: "Pay smallest balance first. Quick wins for motivation.",
   },
+  hybrid: {
+    label: "Hybrid",
+    description:
+      "Highest APR first; when APRs tie (or are unknown), smaller balances come first—blends avalanche focus with snowball tie-breaks.",
+  },
 };
+
+function mapDebtPriorityNamesToIds(order: string[], accounts: DebtAccount[]): string[] {
+  const ids: string[] = [];
+  const used = new Set<string>();
+  const norm = (s: string) => s.trim().toLowerCase();
+  for (const raw of order) {
+    const n = norm(raw);
+    if (!n) continue;
+    const exact = accounts.find((a) => norm(a.name) === n);
+    const match =
+      exact ??
+      accounts.find(
+        (a) => !used.has(a.id) && (norm(a.name).includes(n) || n.includes(norm(a.name))),
+      );
+    if (match && !used.has(match.id)) {
+      ids.push(match.id);
+      used.add(match.id);
+    }
+  }
+  return ids;
+}
 
 // ── Goals sub-components ─────────────────────────────────────────────────────
 
@@ -408,6 +438,7 @@ function GoalsTab() {
         title="Delete Goal"
         description="This will permanently delete this goal. Your financial data won't be affected."
         loading={deleteMutation.isPending}
+        loadingLabel="Deleting…"
         closeOnConfirm={false}
         onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId); }}
       />
@@ -420,7 +451,8 @@ function GoalsTab() {
 function DebtTab() {
   const isClient = useIsClient();
   const queryClient = useQueryClient();
-  const [strategy, setStrategy] = useState<"avalanche" | "snowball">("avalanche");
+  const [strategy, setStrategy] = useState<DebtStrategy>("avalanche");
+  const [priorityAccountIds, setPriorityAccountIds] = useState<string[] | undefined>(undefined);
   const [extraMonthly, setExtraMonthly] = useState(0);
   const debouncedExtra = useDebounced(extraMonthly, 500);
   const [editAccount, setEditAccount] = useState<DebtAccount | null>(null);
@@ -459,8 +491,13 @@ function DebtTab() {
   });
 
   const { data: plan, isFetching: planLoading } = useQuery({
-    queryKey: ["payoffPlan", strategy, debouncedExtra],
-    queryFn: () => debtApi.calculatePayoffPlan(strategy, debouncedExtra),
+    queryKey: ["payoffPlan", strategy, debouncedExtra, (priorityAccountIds ?? []).join(",")],
+    queryFn: () =>
+      debtApi.calculatePayoffPlan(
+        strategy,
+        debouncedExtra,
+        strategy === "hybrid" ? priorityAccountIds : undefined,
+      ),
     enabled: isClient && debtAccounts.length > 0,
   });
 
@@ -473,15 +510,19 @@ function DebtTab() {
 
   useEffect(() => {
     if (!planPrefs || hasUserInteracted.current) return;
-    if (planPrefs.debt_strategy === "avalanche" || planPrefs.debt_strategy === "snowball") {
-      setStrategy(planPrefs.debt_strategy);
+    if (
+      planPrefs.debt_strategy === "avalanche" ||
+      planPrefs.debt_strategy === "snowball" ||
+      planPrefs.debt_strategy === "hybrid"
+    ) {
+      setStrategy(planPrefs.debt_strategy as DebtStrategy);
     }
     if (planPrefs.debt_extra_monthly != null) {
       setExtraMonthly(planPrefs.debt_extra_monthly);
     }
   }, [planPrefs]);
 
-  const persistPreferences = useCallback((s: string, extra: number) => {
+  const persistPreferences = useCallback((s: DebtStrategy, extra: number) => {
     settingsApi.updatePlanPreferences({
       debt_strategy: s,
       debt_extra_monthly: extra,
@@ -490,15 +531,18 @@ function DebtTab() {
     });
   }, []);
 
-  const debouncedPersist = useCallback((s: string, extra: number) => {
+  const debouncedPersist = useCallback((s: DebtStrategy, extra: number) => {
     if (prefsSaveTimer.current) clearTimeout(prefsSaveTimer.current);
     prefsSaveTimer.current = setTimeout(() => persistPreferences(s, extra), 500);
   }, [persistPreferences]);
 
   const handleStrategyChange = (v: string) => {
-    const val = v as "avalanche" | "snowball";
+    const val = v as DebtStrategy;
     hasUserInteracted.current = true;
     setStrategy(val);
+    if (val !== "hybrid") {
+      setPriorityAccountIds(undefined);
+    }
     debouncedPersist(val, extraMonthly);
   };
 
@@ -649,19 +693,24 @@ function DebtTab() {
   const applyRecommendation = () => {
     if (!aiSuggestion) return;
     hasUserInteracted.current = true;
-    let appliedStrategy: "avalanche" | "snowball" = "avalanche";
-    if (aiSuggestion.strategy === "avalanche" || aiSuggestion.strategy === "snowball") {
-      appliedStrategy = aiSuggestion.strategy;
+    let appliedStrategy: DebtStrategy = "avalanche";
+    const s = aiSuggestion.strategy.toLowerCase();
+    if (s === "avalanche" || s === "snowball" || s === "hybrid") {
+      appliedStrategy = s as DebtStrategy;
+    }
+    if (appliedStrategy === "hybrid") {
+      const mapped = mapDebtPriorityNamesToIds(aiSuggestion.priority_order, debtAccounts);
+      setPriorityAccountIds(mapped.length ? mapped : undefined);
     } else {
-      appToast.success("Applied avalanche strategy (hybrid is not yet supported)");
+      setPriorityAccountIds(undefined);
     }
     setStrategy(appliedStrategy);
     const extra = aiSuggestion.monthly_extra > 0 ? aiSuggestion.monthly_extra : extraMonthly;
     setExtraMonthly(extra);
     persistPreferences(appliedStrategy, extra);
-    if (aiSuggestion.strategy === "avalanche" || aiSuggestion.strategy === "snowball") {
-      appToast.success(`Applied ${STRATEGY_LABELS[appliedStrategy].label} strategy${aiSuggestion.monthly_extra > 0 ? ` + ${formatCurrency(aiSuggestion.monthly_extra)}/mo extra` : ""}`);
-    }
+    appToast.success(
+      `Applied ${STRATEGY_LABELS[appliedStrategy].label} strategy${aiSuggestion.monthly_extra > 0 ? ` + ${formatCurrency(aiSuggestion.monthly_extra)}/mo extra` : ""}`,
+    );
   };
 
   return (
@@ -674,7 +723,7 @@ function DebtTab() {
             AI Recommendation
           </CardTitle>
           <CardDescription>
-            Get a personalized debt payoff strategy recommendation from AI based on your accounts.
+            Get a debt payoff strategy suggestion from AI based on your account list. {AI_COPY.educationalDisclaimer}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -830,6 +879,9 @@ function DebtTab() {
             </div>
           </div>
           {rateNote && <p className="text-xs text-amber-600 dark:text-amber-400 italic">{rateNote}</p>}
+          <p className="text-xs text-amber-800 dark:text-amber-200">
+            Verify APR and minimum payments on your statement or issuer site—estimates can be wrong.
+          </p>
           {visibleRateSuggestions.map((s) => {
             const isAccepted = acceptedRateIds.has(s.account_id);
             return (

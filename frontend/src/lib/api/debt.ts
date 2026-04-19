@@ -42,6 +42,12 @@ export interface PayoffPlanResponse {
 
 export const debtApi = {
   listDebtAccounts: () => api.get<DebtAccount[]>("/debt/accounts").then((r) => r.data),
-  calculatePayoffPlan: (strategy: string, extra_monthly: number) =>
-    api.post<PayoffPlanResponse>("/debt/payoff-plan", { strategy, extra_monthly }).then((r) => r.data),
+  calculatePayoffPlan: (strategy: string, extra_monthly: number, priority_account_ids?: string[]) =>
+    api
+      .post<PayoffPlanResponse>("/debt/payoff-plan", {
+        strategy,
+        extra_monthly,
+        ...(priority_account_ids?.length ? { priority_account_ids } : {}),
+      })
+      .then((r) => r.data),
 };

@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ChevronLeft, ChevronRight, Download, FileText, History } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { SkeletonTable } from "@/components/skeleton-table";
 import {
   BarChart,
@@ -28,7 +28,6 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import { cn } from "@/lib/utils";
 import { formatCurrency, formatCurrencyNegative, getMonthString, formatShortMonth } from "@/lib/format";
 import { useIsClient } from "@/lib/hooks";
 

@@ -20,6 +20,7 @@ import {
   type CommitmentKind,
 } from "@/lib/api/cycle-commitments";
 import { useIsClient } from "@/lib/hooks";
+import { isDemoMode } from "@/lib/demo-mode";
 import { toastApiError } from "@/lib/toast-error";
 import { appToast } from "@/lib/app-toast";
 import { cn } from "@/lib/utils";
@@ -97,10 +98,16 @@ export function CycleReviewSection({ className }: { className?: string }) {
       <CardContent className="space-y-4">
         {!hasSchedule ? (
           <p className="text-sm text-muted-foreground">
-            <Link href="/settings" className="text-primary underline-offset-4 hover:underline">
-              Set a pay schedule
-            </Link>{" "}
-            to anchor this checklist to your paychecks.
+            {isDemoMode ? (
+              <>Pay schedule and cycle checklist edits are disabled in the demo.</>
+            ) : (
+              <>
+                <Link href="/settings" className="text-primary underline-offset-4 hover:underline">
+                  Set a pay schedule
+                </Link>{" "}
+                to anchor this checklist to your paychecks.
+              </>
+            )}
           </p>
         ) : (
           <>
@@ -128,6 +135,11 @@ export function CycleReviewSection({ className }: { className?: string }) {
               })}
             </div>
             <p className="text-sm text-muted-foreground">{STEPS[step]?.hint}</p>
+            {isDemoMode ? (
+              <p className="text-xs text-muted-foreground">
+                Demo is read-only — sign up to track your own pay cycle and commitments.
+              </p>
+            ) : null}
             {step < 3 ? (
               <div className="flex flex-wrap items-center gap-2">
                 <Button
@@ -135,7 +147,8 @@ export function CycleReviewSection({ className }: { className?: string }) {
                   size="sm"
                   variant="secondary"
                   className="gap-1"
-                  disabled={reviewMutation.isPending}
+                  disabled={reviewMutation.isPending || isDemoMode}
+                  title={isDemoMode ? "Demo is read-only" : undefined}
                   onClick={() => reviewMutation.mutate(Math.min(3, step + 1))}
                 >
                   Complete “{STEPS[step]?.label}”
@@ -182,6 +195,8 @@ export function CycleReviewSection({ className }: { className?: string }) {
                             size="sm"
                             variant="outline"
                             className="h-7 text-xs"
+                            disabled={isDemoMode}
+                            title={isDemoMode ? "Demo is read-only" : undefined}
                             onClick={() => patchMut.mutate({ id: c.id, data: { status: "done" } })}
                           >
                             Done
@@ -191,6 +206,8 @@ export function CycleReviewSection({ className }: { className?: string }) {
                             size="sm"
                             variant="ghost"
                             className="h-7 text-xs"
+                            disabled={isDemoMode}
+                            title={isDemoMode ? "Demo is read-only" : undefined}
                             onClick={() => patchMut.mutate({ id: c.id, data: { status: "dismissed" } })}
                           >
                             Dismiss
@@ -211,11 +228,12 @@ export function CycleReviewSection({ className }: { className?: string }) {
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder="e.g. Cap dining at $200"
                       maxLength={300}
+                      disabled={isDemoMode}
                     />
                   </div>
                   <div className="w-full sm:w-36 space-y-1">
                     <label className="text-xs text-muted-foreground">Type</label>
-                    <Select value={kind} onValueChange={(v) => setKind(v as CommitmentKind)}>
+                    <Select value={kind} onValueChange={(v) => setKind(v as CommitmentKind)} disabled={isDemoMode}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -229,7 +247,8 @@ export function CycleReviewSection({ className }: { className?: string }) {
                   </div>
                   <Button
                     type="button"
-                    disabled={!title.trim() || createMut.isPending}
+                    disabled={!title.trim() || createMut.isPending || isDemoMode}
+                    title={isDemoMode ? "Demo is read-only" : undefined}
                     onClick={() => createMut.mutate({ title: title.trim(), kind })}
                   >
                     Add

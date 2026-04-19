@@ -16,6 +16,8 @@ interface ConfirmDialogProps {
   title?: string;
   description?: string;
   confirmLabel?: string;
+  /** Shown while `loading` is true (defaults to “Deleting…” for destructive dialogs). */
+  loadingLabel?: string;
   variant?: "destructive" | "default";
   loading?: boolean;
   closeOnConfirm?: boolean;
@@ -28,6 +30,7 @@ export function ConfirmDialog({
   title = "Are you sure?",
   description = "This action cannot be undone.",
   confirmLabel = "Delete",
+  loadingLabel,
   variant = "destructive",
   loading = false,
   closeOnConfirm = true,
@@ -52,7 +55,9 @@ export function ConfirmDialog({
             }}
             disabled={loading}
           >
-            {loading ? "Deleting..." : confirmLabel}
+            {loading
+              ? (loadingLabel ?? (variant === "destructive" ? "Deleting…" : "Working…"))
+              : confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

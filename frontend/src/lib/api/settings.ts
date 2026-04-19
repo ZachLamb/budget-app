@@ -35,8 +35,16 @@ export interface PayCycleDto {
   is_fallback_30d: boolean;
 }
 
+/** Stored on the household; drives pay-cycle resolution on the server. */
+export type PayScheduleFrequency =
+  | "weekly"
+  | "biweekly"
+  | "monthly"
+  | "semimonthly"
+  | "irregular";
+
 export interface PaySchedule {
-  pay_frequency: string | null;
+  pay_frequency: PayScheduleFrequency | null;
   pay_last_confirmed_date: string | null;
   budget_framing: string;
   cycle: PayCycleDto;

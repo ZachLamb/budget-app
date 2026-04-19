@@ -29,6 +29,12 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { useIsClient, getApiErrorMessage } from "@/lib/hooks";
+import { isDemoMode } from "@/lib/demo-mode";
+import {
+  isSemiMonthlyPayAnchor,
+  payFrequencyNeedsLastPaydate,
+} from "@/lib/pay-schedule";
+import { AI_COPY } from "@/lib/ai-copy";
 import { toastApiError, toastPlainError } from "@/lib/toast-error";
 import { appToast } from "@/lib/app-toast";
 import { formatCurrency } from "@/lib/format";
@@ -337,6 +343,7 @@ function SettingsContent() {
 
   const [payFreqDraft, setPayFreqDraft] = useState<string>("");
   const [payLastDraft, setPayLastDraft] = useState<string>("");
+  const [payLastFieldError, setPayLastFieldError] = useState<string | null>(null);
   const [framingDraft, setFramingDraft] = useState<string>("strict");
 
   useEffect(() => {
@@ -345,6 +352,10 @@ function SettingsContent() {
     setPayLastDraft(paySchedule.pay_last_confirmed_date ?? "");
     setFramingDraft(paySchedule.budget_framing ?? "strict");
   }, [paySchedule]);
+
+  useEffect(() => {
+    setPayLastFieldError(null);
+  }, [payFreqDraft, payLastDraft]);
 
   const payScheduleMutation = useMutation({
     mutationFn: settingsApi.updatePaySchedule,
@@ -429,6 +440,7 @@ function SettingsContent() {
           </CardTitle>
           <CardDescription>
             Anchor spending summaries to your paycheck cycle. Calendar-month budgeting on the Budget page is unchanged.
+            {isDemoMode ? " Pay schedule changes are disabled in the demo." : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -450,6 +462,7 @@ function SettingsContent() {
                 <Select
                   value={payFreqDraft || "unset"}
                   onValueChange={(v) => setPayFreqDraft(v === "unset" ? "" : v)}
+                  disabled={isDemoMode}
                 >
                   <SelectTrigger id="pay-frequency">
                     <SelectValue placeholder="Not set (use 30-day window)" />
@@ -459,6 +472,7 @@ function SettingsContent() {
                     <SelectItem value="weekly">Weekly</SelectItem>
                     <SelectItem value="biweekly">Every two weeks</SelectItem>
                     <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="semimonthly">Twice monthly (15th &amp; last day)</SelectItem>
                     <SelectItem value="irregular">Irregular (30-day window)</SelectItem>
                   </SelectContent>
                 </Select>
@@ -468,17 +482,36 @@ function SettingsContent() {
                 <Input
                   id="pay-last"
                   type="date"
+                  name="pay_last_confirmed_date"
+                  autoComplete="off"
                   value={payLastDraft}
                   onChange={(e) => setPayLastDraft(e.target.value)}
-                  disabled={!payFreqDraft || payFreqDraft === "irregular"}
+                  disabled={isDemoMode || !payFreqDraft || payFreqDraft === "irregular"}
+                  aria-invalid={payLastFieldError ? true : undefined}
+                  aria-describedby={
+                    payLastFieldError
+                      ? "pay-last-error pay-last-hint"
+                      : payFrequencyNeedsLastPaydate(payFreqDraft)
+                        ? "pay-last-hint"
+                        : undefined
+                  }
                 />
-                <p className="text-xs text-muted-foreground">
-                  Required for weekly, biweekly, or monthly. We roll the window forward from this date.
-                </p>
+                {payLastFieldError ? (
+                  <p id="pay-last-error" className="text-xs text-destructive" role="alert">
+                    {payLastFieldError}
+                  </p>
+                ) : null}
+                {payFrequencyNeedsLastPaydate(payFreqDraft) ? (
+                  <p id="pay-last-hint" className="text-xs text-muted-foreground">
+                    {payFreqDraft === "semimonthly"
+                      ? "Pick your most recent payday. This schedule assumes pay on the 15th and the last calendar day of each month."
+                      : "Required for weekly, biweekly, monthly, or twice-monthly. We roll the window forward from this date."}
+                  </p>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="budget-framing">Dashboard emphasis</Label>
-                <Select value={framingDraft} onValueChange={setFramingDraft}>
+                <Select value={framingDraft} onValueChange={setFramingDraft} disabled={isDemoMode}>
                   <SelectTrigger id="budget-framing">
                     <SelectValue />
                   </SelectTrigger>
@@ -491,13 +524,28 @@ function SettingsContent() {
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
-                  disabled={payScheduleMutation.isPending}
+                  disabled={payScheduleMutation.isPending || isDemoMode}
+                  title={isDemoMode ? "Demo is read-only" : undefined}
                   onClick={() => {
                     const freq =
                       !payFreqDraft || payFreqDraft === "unset" ? null : payFreqDraft;
                     let last: string | null = null;
-                    if (freq === "weekly" || freq === "biweekly" || freq === "monthly") {
-                      last = payLastDraft || null;
+                    if (freq && payFrequencyNeedsLastPaydate(freq)) {
+                      if (!payLastDraft.trim()) {
+                        setPayLastFieldError("Choose the date of your last paycheck.");
+                        toastPlainError("Choose the date of your last paycheck.");
+                        return;
+                      }
+                      if (freq === "semimonthly" && !isSemiMonthlyPayAnchor(payLastDraft)) {
+                        setPayLastFieldError(
+                          "Semi-monthly pay falls on the 15th or the last day of the month — pick one of those dates.",
+                        );
+                        toastPlainError(
+                          "Last payday must be the 15th or the last day of the month for twice-monthly pay.",
+                        );
+                        return;
+                      }
+                      last = payLastDraft;
                     }
                     payScheduleMutation.mutate({
                       pay_frequency: freq,
@@ -598,7 +646,8 @@ function SettingsContent() {
             AI Financial Advisor
           </CardTitle>
           <CardDescription>
-            Enable AI-powered insights, budget suggestions, and the chat advisor. When enabled with Ollama, your data stays on your device.
+            Enable AI-powered insights, budget suggestions, and the chat advisor. When enabled with Ollama, your data stays on your device.{" "}
+            {AI_COPY.educationalDisclaimer}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
