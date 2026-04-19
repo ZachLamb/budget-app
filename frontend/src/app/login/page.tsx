@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Wallet, KeyRound, Play } from "lucide-react";
 import { toastApiError, toastPlainError } from "@/lib/toast-error";
+import { useDemoGuard } from "@/lib/hooks";
 
 const ERROR_MESSAGES: Record<string, string> = {
   access_denied: "Google sign-in was cancelled or denied.",
@@ -35,7 +36,11 @@ function LoginPageContent() {
   const [loading, setLoading] = useState(false);
   const [canUsePasskey, setCanUsePasskey] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
-  const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  // Server-sourced: a frontend build without NEXT_PUBLIC_DEMO_MODE that
+  // points at a demo backend would previously show the Google button and
+  // the "Create one" toggle even though both dead-end at 403. useDemoGuard
+  // falls back to the build-time flag until the config query resolves.
+  const { isDemo } = useDemoGuard();
   const { login } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();

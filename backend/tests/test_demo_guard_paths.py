@@ -48,3 +48,21 @@ def test_demo_allows_categorization_suggest_only() -> None:
 
 def test_demo_ai_path_list_nonempty() -> None:
     assert len(_DEMO_AI_MUTATION_PATHS) >= 7
+
+
+def test_every_demo_allowlisted_path_resolves_to_a_real_route() -> None:
+    """Safeguard: a stale path in the allowlist (typo or deleted route) would
+    create a phantom "allowed" entry that does nothing in prod but misleads
+    anyone auditing the demo surface. Fail fast if the set drifts from the
+    actual route registry.
+    """
+    from app.main import app
+
+    registered = {getattr(r, "path", None) for r in app.routes}
+    registered.discard(None)
+    missing = {p for p in _DEMO_AI_MUTATION_PATHS if p not in registered}
+    assert not missing, (
+        f"_DEMO_AI_MUTATION_PATHS references paths that aren't registered in "
+        f"app.routes: {sorted(missing)}. Either the route was renamed/removed "
+        f"or the allowlist entry has a typo."
+    )
