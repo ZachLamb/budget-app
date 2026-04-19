@@ -28,6 +28,32 @@ from app.main import app
 _SNAPSHOT_PATH = Path(__file__).parent / "snapshots" / "openapi.shape.json"
 
 
+def _normalize_schema(obj: Any) -> Any:
+    """Recursively strip pydantic/FastAPI version-dependent serialization.
+
+    Targets:
+    - ``pattern`` — newer pydantic attaches a regex pattern to every
+      ``Decimal`` field (e.g. ``"^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"``).
+      Older pydantic doesn't. The pattern doesn't flow through to the FE
+      TS types; it's a validation hint.
+    - ``contentMediaType`` — OpenAPI 3.1 replacement for ``format:
+      "binary"`` on file uploads. Semantically identical; the FE
+      contract (multipart upload) is unchanged.
+
+    We drop both rather than choose one canonical form — either is
+    meaningful only to the server's own validator.
+    """
+    if isinstance(obj, dict):
+        return {
+            k: _normalize_schema(v)
+            for k, v in obj.items()
+            if k not in ("pattern", "contentMediaType")
+        }
+    if isinstance(obj, list):
+        return [_normalize_schema(v) for v in obj]
+    return obj
+
+
 def _shape(openapi: dict[str, Any]) -> dict[str, Any]:
     """Strip volatile/cosmetic fields so the snapshot is stable across PRs.
 
@@ -61,12 +87,12 @@ def _shape(openapi: dict[str, Any]) -> dict[str, Any]:
             }
 
     components = openapi.get("components") or {}
-    return {
+    return _normalize_schema({
         "paths": paths,
         # Named schemas are shared by many routes; drift here propagates
         # silently through every consumer of the FE type. Snapshot them too.
         "components": {"schemas": components.get("schemas") or {}},
-    }
+    })
 
 
 def test_openapi_shape_matches_snapshot() -> None:
