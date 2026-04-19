@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { categoriesApi, type CategoryGroup, type Category } from "@/lib/api/categories";
+import { configApi, type AppConfig } from "@/lib/api/config";
 import { resolveChartSeriesColors } from "@/lib/ux-plan-logic";
 
 const noopSubscribe = () => () => {};
@@ -78,6 +79,25 @@ export function detailFromJsonBody(body: unknown): string | null {
     return String(first?.msg ?? first?.loc?.join(".") ?? JSON.stringify(first));
   }
   return String(d);
+}
+
+/**
+ * Server-sourced app config (demo_mode, auth_methods).
+ *
+ * The backend is authoritative — prefer this over NEXT_PUBLIC_DEMO_MODE
+ * (which is baked at build time and drifts from runtime state). Staled
+ * long because this value changes only on a deploy/restart and misses
+ * would trigger re-fetches across the tree.
+ */
+export function useAppConfig() {
+  const isClient = useIsClient();
+  return useQuery<AppConfig>({
+    queryKey: ["appConfig"],
+    queryFn: configApi.get,
+    enabled: isClient,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
 }
 
 /** Resolved theme --chart-* colors for Recharts (client-only; falls back until mounted). */

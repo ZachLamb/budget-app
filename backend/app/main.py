@@ -270,6 +270,31 @@ app.include_router(api_router, prefix="/api")
 app.include_router(upload_router, prefix="/api/upload", tags=["upload"])
 
 
+@app.get("/api/config")
+async def public_config():
+    """Public runtime config the browser needs before login.
+
+    Returns server-authoritative values (demo_mode, which auth methods are
+    configured) so the frontend doesn't have to rely on build-time
+    NEXT_PUBLIC_* vars — which can silently drift from the real backend
+    state (e.g. build with DEMO_MODE=false, redeploy backend with demo on).
+
+    Pre-auth by design: everything here is already inferrable from the
+    login page's visible affordances, so there's nothing to protect.
+    """
+    s = get_settings()
+    return {
+        "demo_mode": bool(s.demo_mode),
+        "auth_methods": {
+            # Password/passkey are always compiled in. Google requires
+            # credentials AND is disabled in demo (no real sign-up path).
+            "password": True,
+            "passkey": True,
+            "google": bool(s.google_client_id) and not s.demo_mode,
+        },
+    }
+
+
 @app.get("/api/health")
 async def health():
     components: dict = {"db": "ok", "rate_limit_store": _rate_limit_store.backend_name}
