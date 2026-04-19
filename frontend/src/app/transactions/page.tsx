@@ -28,12 +28,11 @@ import api from "@/lib/api/client";
 import { aiApi } from "@/lib/api/ai";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
-import { useFlatCategories, getApiErrorMessage, useIsClient } from "@/lib/hooks";
+import { useFlatCategories, getApiErrorMessage, useIsClient, useDemoGuard } from "@/lib/hooks";
 import { toastApiError, toastPlainError } from "@/lib/toast-error";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
 import Link from "next/link";
-import { isDemoMode } from "@/lib/demo-mode";
 import { AI_COPY } from "@/lib/ai-copy";
 
 type TransactionSplitLinePayload = {
@@ -45,6 +44,7 @@ type TransactionSplitLinePayload = {
 const FSA_CONF_ORDER = { high: 3, medium: 2, low: 1 } as const;
 
 function TransactionsContent() {
+  const { isDemo } = useDemoGuard();
   const [addOpen, setAddOpen] = useState(false);
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
   const [detailTxn, setDetailTxn] = useState<Transaction | null>(null);
@@ -821,10 +821,10 @@ function TransactionsContent() {
                         variant="secondary"
                         size="sm"
                         className="h-8 text-xs"
-                        disabled={isDemoMode || applyOneCategorySuggestionMutation.isPending}
-                        title={isDemoMode ? "Demo is read-only" : undefined}
+                        disabled={isDemo || applyOneCategorySuggestionMutation.isPending}
+                        title={isDemo ? "Demo is read-only" : undefined}
                         onClick={() => {
-                          if (isDemoMode) return;
+                          if (isDemo) return;
                           applyOneCategorySuggestionMutation.mutate({
                             transaction_id: s.transaction_id,
                             category_id: getReviewCategoryId(s),
@@ -854,14 +854,14 @@ function TransactionsContent() {
                   type="button"
                   className="flex-1 sm:flex-none"
                   disabled={
-                    isDemoMode ||
+                    isDemo ||
                     applyCategorySuggestionsMutation.isPending ||
                     applyOneCategorySuggestionMutation.isPending ||
                     llmCategorySuggestions.length === 0
                   }
-                  title={isDemoMode ? "Demo is read-only" : undefined}
+                  title={isDemo ? "Demo is read-only" : undefined}
                   onClick={() => {
-                    if (isDemoMode) return;
+                    if (isDemo) return;
                     applyCategorySuggestionsMutation.mutate(
                       llmCategorySuggestions.map((s) => ({
                         transaction_id: s.transaction_id,
@@ -1003,7 +1003,7 @@ function TransactionsContent() {
 
                 {fsaData.eligible_transactions.length > 0 && (
                   <>
-                    {isDemoMode ? (
+                    {isDemo ? (
                       <p className="text-xs text-muted-foreground mb-2">
                         Demo is read-only — you can scan and export, but marking claimed or dismissed requires your own account.
                       </p>
@@ -1085,14 +1085,14 @@ function TransactionsContent() {
                                 ) : t.status === "dismissed" ? (
                                   <button
                                     type="button"
-                                    title={isDemoMode ? "Demo is read-only" : "Undo dismiss"}
-                                    disabled={isDemoMode}
+                                    title={isDemo ? "Demo is read-only" : "Undo dismiss"}
+                                    disabled={isDemo}
                                     className={cn(
                                       "text-muted-foreground hover:text-foreground",
-                                      isDemoMode && "opacity-50 cursor-not-allowed hover:text-muted-foreground",
+                                      isDemo && "opacity-50 cursor-not-allowed hover:text-muted-foreground",
                                     )}
                                     onClick={() =>
-                                      !isDemoMode && fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "pending" })
+                                      !isDemo && fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "pending" })
                                     }
                                   >
                                     <Undo2 className="h-4 w-4" />
@@ -1101,28 +1101,28 @@ function TransactionsContent() {
                                   <>
                                     <button
                                       type="button"
-                                      title={isDemoMode ? "Demo is read-only" : "Mark as claimed"}
-                                      disabled={isDemoMode}
+                                      title={isDemo ? "Demo is read-only" : "Mark as claimed"}
+                                      disabled={isDemo}
                                       className={cn(
                                         "text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-200",
-                                        isDemoMode && "opacity-50 cursor-not-allowed hover:text-green-600 dark:hover:text-green-400",
+                                        isDemo && "opacity-50 cursor-not-allowed hover:text-green-600 dark:hover:text-green-400",
                                       )}
                                       onClick={() =>
-                                        !isDemoMode && fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "claimed" })
+                                        !isDemo && fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "claimed" })
                                       }
                                     >
                                       <Check className="h-4 w-4" />
                                     </button>
                                     <button
                                       type="button"
-                                      title={isDemoMode ? "Demo is read-only" : "Dismiss"}
-                                      disabled={isDemoMode}
+                                      title={isDemo ? "Demo is read-only" : "Dismiss"}
+                                      disabled={isDemo}
                                       className={cn(
                                         "text-muted-foreground hover:text-destructive",
-                                        isDemoMode && "opacity-50 cursor-not-allowed hover:text-muted-foreground",
+                                        isDemo && "opacity-50 cursor-not-allowed hover:text-muted-foreground",
                                       )}
                                       onClick={() =>
-                                        !isDemoMode && fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "dismissed" })
+                                        !isDemo && fsaStatusMutation.mutate({ txnId: t.transaction_id, status: "dismissed" })
                                       }
                                     >
                                       <X className="h-4 w-4" />
@@ -1223,7 +1223,7 @@ function TransactionsContent() {
                                   const cid = v === "uncategorized" ? null : v;
                                   inlineCategoryMutation.mutate({ id: txn.id, category_id: cid });
                                 }}
-                                disabled={isDemoMode || inlineCategoryMutation.isPending}
+                                disabled={isDemo || inlineCategoryMutation.isPending}
                               >
                                 <SelectTrigger className="h-8 w-full min-w-40 max-w-56 text-xs">
                                   <SelectValue placeholder="Uncategorized" />
@@ -1237,7 +1237,7 @@ function TransactionsContent() {
                                   ))}
                                 </SelectContent>
                               </Select>
-                              {categorySuggestionByTxnId.has(txn.id) && !isDemoMode ? (
+                              {categorySuggestionByTxnId.has(txn.id) && !isDemo ? (
                                 <Button
                                   type="button"
                                   variant="secondary"
