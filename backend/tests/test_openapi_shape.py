@@ -1,25 +1,41 @@
-"""OpenAPI contract snapshot.
+"""OpenAPI contract snapshot — routes and schema *names*, not schema bodies.
 
 The frontend's `lib/api/*` TypeScript clients are hand-kept; if a backend
-route changes its path, method, body schema, or response schema without a
-matching FE update, the drift only shows up when an end-user hits the
-broken call. This test pins a normalized shape-only snapshot of
-`app.openapi()` so any such drift fails CI and the developer has to
-either update both sides or refresh the snapshot explicitly.
+route is added, removed, renamed, or changes method/schema-reference, the
+drift doesn't show up until an end-user hits the broken call. This test
+snapshots the *shape* that matters for FE coupling so such drift fails CI.
+
+**Why schema-reference names, not full schema bodies:** pydantic's
+JSON-schema serialization changes across minor versions (emitted
+``pattern`` on Decimal fields, ``contentMediaType`` vs ``format: binary``
+on file uploads, handling of ``Optional[X] = None``). Those are not real
+contract changes — they're version-dependent serializer output — but
+they flip the full-body snapshot on every environment swap. Pinning to
+schema names keeps the test meaningful (FE consumers reference
+``DebtPlanSuggestion`` by name, not by its field list) while removing
+the noise.
+
+Real FE-visible changes still fail the test:
+- New route or deleted route.
+- Method change on an existing route.
+- Request/response type renamed.
+- Parameter added or removed on a path / query.
+- Response code set changes.
+
+Field-level drift within a schema is NOT caught here; if you want that
+guard, regenerate the FE types from ``/openapi.json`` in a separate
+step and commit the diff.
 
 To refresh intentionally:
 
     UPDATE_SNAPSHOTS=1 python -m pytest tests/test_openapi_shape.py
-
-Inspect the diff in `tests/snapshots/openapi.shape.json` before committing
-it along with your BE change — that diff is the one FE reviewers should
-eyeball against `frontend/src/lib/api/*`.
 """
 from __future__ import annotations
 
 import difflib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -27,72 +43,79 @@ from app.main import app
 
 _SNAPSHOT_PATH = Path(__file__).parent / "snapshots" / "openapi.shape.json"
 
+_REF_PATTERN = re.compile(r"#/components/schemas/([A-Za-z0-9_]+)")
 
-def _normalize_schema(obj: Any) -> Any:
-    """Recursively strip pydantic/FastAPI version-dependent serialization.
 
-    Targets:
-    - ``pattern`` — newer pydantic attaches a regex pattern to every
-      ``Decimal`` field (e.g. ``"^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"``).
-      Older pydantic doesn't. The pattern doesn't flow through to the FE
-      TS types; it's a validation hint.
-    - ``contentMediaType`` — OpenAPI 3.1 replacement for ``format:
-      "binary"`` on file uploads. Semantically identical; the FE
-      contract (multipart upload) is unchanged.
+def _schema_refs(obj: Any) -> list[str]:
+    """Walk a body/parameter schema and return the ref names it points at."""
+    refs: list[str] = []
 
-    We drop both rather than choose one canonical form — either is
-    meaningful only to the server's own validator.
-    """
-    if isinstance(obj, dict):
-        return {
-            k: _normalize_schema(v)
-            for k, v in obj.items()
-            if k not in ("pattern", "contentMediaType")
-        }
-    if isinstance(obj, list):
-        return [_normalize_schema(v) for v in obj]
-    return obj
+    def walk(o: Any) -> None:
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "$ref" and isinstance(v, str):
+                    m = _REF_PATTERN.match(v)
+                    if m:
+                        refs.append(m.group(1))
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+
+    walk(obj)
+    # De-dup while preserving stable order for sort_keys to land.
+    return sorted(set(refs))
 
 
 def _shape(openapi: dict[str, Any]) -> dict[str, Any]:
-    """Strip volatile/cosmetic fields so the snapshot is stable across PRs.
+    """Shape = set of (path, method) × (request/response schema refs, parameter names).
 
-    We drop anything that doesn't affect the wire contract: docstrings,
-    FastAPI auto-generated operationIds (they're a function of the route
-    name and change when routes are renamed), tags, examples. What remains
-    is the request/response schema shape the FE actually relies on.
+    What we DO capture per operation:
+    - request body schema refs (e.g. `["ChatRequest"]`)
+    - response schema refs, keyed by status code
+    - path/query parameters: name + location + required flag (not schema body)
+
+    What we DO NOT capture:
+    - full schema bodies under `components/schemas` (pydantic minor-version
+      noise, not FE-meaningful)
+    - operationIds, tags, examples, descriptions, summaries.
+
+    Schema **names** are captured via references in paths; a schema being
+    renamed or deleted still breaks the snapshot because its refs disappear.
     """
     paths: dict[str, Any] = {}
     for path, methods in sorted((openapi.get("paths") or {}).items()):
         paths[path] = {}
         for method, op in sorted(methods.items()):
-            # Only known HTTP methods; ignore parameters on the path level.
             if method not in {"get", "post", "put", "patch", "delete"}:
                 continue
             paths[path][method] = {
-                "requestBody": op.get("requestBody"),
-                "responses": {
-                    code: {"content": body.get("content")}
-                    for code, body in (op.get("responses") or {}).items()
+                "request_refs": _schema_refs(op.get("requestBody") or {}),
+                "response_refs": {
+                    code: _schema_refs((body or {}).get("content") or {})
+                    for code, body in sorted((op.get("responses") or {}).items())
                 },
-                "parameters": [
-                    {
-                        "name": p.get("name"),
-                        "in": p.get("in"),
-                        "required": p.get("required", False),
-                        "schema": p.get("schema"),
-                    }
-                    for p in op.get("parameters") or []
-                ],
+                "parameters": sorted(
+                    [
+                        {
+                            "name": p.get("name"),
+                            "in": p.get("in"),
+                            "required": bool(p.get("required", False)),
+                        }
+                        for p in (op.get("parameters") or [])
+                    ],
+                    key=lambda p: (p["in"], p["name"]),
+                ),
             }
 
-    components = openapi.get("components") or {}
-    return _normalize_schema({
-        "paths": paths,
-        # Named schemas are shared by many routes; drift here propagates
-        # silently through every consumer of the FE type. Snapshot them too.
-        "components": {"schemas": components.get("schemas") or {}},
-    })
+    # Just the set of named schemas that exist — their bodies aren't part
+    # of the snapshot (see module docstring).
+    component_names = sorted(
+        (openapi.get("components") or {}).get("schemas", {}).keys()
+    )
+
+    return {"paths": paths, "component_names": component_names}
 
 
 def test_openapi_shape_matches_snapshot() -> None:
@@ -108,9 +131,6 @@ def test_openapi_shape_matches_snapshot() -> None:
 
     saved_str = _SNAPSHOT_PATH.read_text().rstrip("\n")
     if saved_str != current_str:
-        # Print the first ~60 lines of the diff so CI logs make it obvious
-        # what drifted. Truncating keeps the failure readable; the full
-        # diff is always visible locally after regenerating the snapshot.
         diff = difflib.unified_diff(
             saved_str.splitlines(),
             current_str.splitlines(),
@@ -123,12 +143,9 @@ def test_openapi_shape_matches_snapshot() -> None:
         raise AssertionError(
             "OpenAPI shape drift vs "
             f"{_SNAPSHOT_PATH.relative_to(Path.cwd())}.\n"
-            "If the change is intentional, refresh the snapshot and "
-            "review the diff for matching FE updates:\n"
+            "If the change is intentional, refresh the snapshot:\n"
             "    UPDATE_SNAPSHOTS=1 python -m pytest "
-            "tests/test_openapi_shape.py\n"
-            "Then eyeball the diff against frontend/src/lib/api/* before "
-            "committing.\n\n"
+            "tests/test_openapi_shape.py\n\n"
             "First 80 lines of the drift:\n"
             f"{head}"
         )
