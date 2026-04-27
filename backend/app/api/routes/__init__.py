@@ -3,6 +3,7 @@ from app.api.routes import (
     auth, accounts, payees, categories, transactions,
     rules, sync, budget, recurring, reports, categorization,
     goals, debt, ai, settings, subscriptions, cycle_commitments,
+    llm,
 )
 
 router = APIRouter()
@@ -23,3 +24,4 @@ router.include_router(ai.router, prefix="/ai", tags=["ai"])
 router.include_router(settings.router, prefix="/settings", tags=["settings"])
 router.include_router(subscriptions.router, prefix="/subscriptions", tags=["subscriptions"])
 router.include_router(cycle_commitments.router, prefix="/cycle-commitments", tags=["cycle-commitments"])
+router.include_router(llm.router, prefix="/llm", tags=["llm"])

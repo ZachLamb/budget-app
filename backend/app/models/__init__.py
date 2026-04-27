@@ -14,6 +14,7 @@ from app.models.imports import ImportBatch
 from app.models.sync import SyncLog
 from app.models.goal import FinancialGoal
 from app.models.fsa_review import FsaReviewItem
+from app.models.llm import LlmConsent, LlmAudit
 
 __all__ = [
     "Household",
@@ -34,4 +35,6 @@ __all__ = [
     "SyncLog",
     "FinancialGoal",
     "FsaReviewItem",
+    "LlmConsent",
+    "LlmAudit",
 ]

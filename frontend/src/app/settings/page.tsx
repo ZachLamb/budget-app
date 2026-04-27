@@ -11,6 +11,7 @@ import {
   type AiSettings,
   type PaySchedule,
 } from "@/lib/api/settings";
+import { AiSettingsCard } from "@/components/llm/ai-settings-card";
 import { parseCreationOptions, supportsPasskey } from "@/lib/webauthn";
 import { useAuth } from "@/lib/providers";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -688,10 +689,12 @@ function SettingsContent() {
           )}
           <div className="rounded-md bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground space-y-1">
             <p><span className="font-medium text-foreground">What&apos;s shared with AI:</span> Account names, balances, spending by category, and goals. No account numbers, bank credentials, or passwords.</p>
-            <p><span className="font-medium text-foreground">Privacy:</span> AI uses local Ollama only. Financial summaries sent to the model never leave your network unless you route Ollama elsewhere.</p>
+            <p><span className="font-medium text-foreground">Privacy:</span> Most AI features run on-device. Cloud AI is opt-in per feature — see &ldquo;AI features&rdquo; below.</p>
           </div>
         </CardContent>
       </Card>
+
+      {currentAiEnabled && <AiSettingsCard />}
 
       <Card>
         <CardHeader>
