@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 # revision identifiers, used by Alembic.
@@ -23,6 +24,16 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # The 0001 baseline runs Base.metadata.create_all, which (on a fresh DB)
+    # already creates every table currently on Base.metadata — including
+    # llm_consent / llm_audit, since the models live in app.models.
+    # Skip creation on those DBs; this migration is meaningful for any
+    # already-stamped DB that pre-dates the LLM tables (e.g., a deploy
+    # taken before this PR that runs `alembic upgrade head` after).
+    bind = op.get_bind()
+    existing = set(inspect(bind).get_table_names())
+    if "llm_consent" in existing and "llm_audit" in existing:
+        return
     op.create_table(
         "llm_consent",
         sa.Column("id", sa.BigInteger(), autoincrement=True, primary_key=True),
@@ -69,9 +80,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_llm_audit_created_at", table_name="llm_audit")
-    op.drop_index("ix_llm_audit_user_id", table_name="llm_audit")
-    op.drop_table("llm_audit")
-    op.drop_index("ix_llm_consent_user_feature", table_name="llm_consent")
-    op.drop_index("ix_llm_consent_user_id", table_name="llm_consent")
-    op.drop_table("llm_consent")
+    bind = op.get_bind()
+    existing = set(inspect(bind).get_table_names())
+    if "llm_audit" in existing:
+        op.drop_index("ix_llm_audit_created_at", table_name="llm_audit")
+        op.drop_index("ix_llm_audit_user_id", table_name="llm_audit")
+        op.drop_table("llm_audit")
+    if "llm_consent" in existing:
+        op.drop_index("ix_llm_consent_user_feature", table_name="llm_consent")
+        op.drop_index("ix_llm_consent_user_id", table_name="llm_consent")
+        op.drop_table("llm_consent")
