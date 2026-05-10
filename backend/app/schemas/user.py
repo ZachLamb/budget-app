@@ -95,8 +95,3 @@ class PasskeyCredentialListItem(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-class GoogleOAuthExchangeRequest(BaseModel):
-    """One-time code issued after Google OAuth (replaces JWT in redirect query)."""
-    code: str = Field(..., min_length=8, max_length=300)

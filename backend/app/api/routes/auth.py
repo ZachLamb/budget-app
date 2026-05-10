@@ -40,7 +40,6 @@ from app.schemas.user import (
     PasskeyRegisterVerifyRequest,
     PasskeyAuthenticateVerifyRequest,
     PasskeyCredentialListItem,
-    GoogleOAuthExchangeRequest,
 )
 from app.api.deps import ALGORITHM, get_current_user
 from app.services.auth.session_cookie import (
@@ -190,13 +189,16 @@ _passkey_registration_challenges: dict[str, tuple[dict, float]] = {}
 _passkey_auth_challenges: dict[str, float] = {}
 _passkey_add_challenges: dict[str, tuple[str, float]] = {}  # challenge_b64 -> (user_id, timestamp)
 
-# One-time OAuth login code handed back via the `/auth/callback?code=…` redirect.
-# Short TTL because the browser redirect is immediate; 10-minute windows left a
-# long replay opportunity for a code that lands in browser history, Referer
-# headers, and proxy logs. Phase-2 work should move this value out of the URL
-# (HttpOnly cookie handoff) and into a shared store (Redis) to survive
-# multi-worker deploys.
+# One-time OAuth login code handed to the frontend via an HttpOnly cookie set
+# on the Google-callback redirect. Cookies keep the code out of browser
+# history, Referer headers, and proxy access logs (URL-query handoff leaked
+# it to all three). Still single-use and single-server — multi-worker deploys
+# need a shared store (Redis).
 _OAUTH_LOGIN_CODE_TTL = 60.0
+_OAUTH_LOGIN_CODE_COOKIE = "oauth_login_code"
+# Path-scope the cookie to the exchange endpoint so it isn't sent to any
+# other /api/auth/* route (smaller XS-leak / CSRF surface).
+_OAUTH_LOGIN_CODE_COOKIE_PATH = "/api/auth/google/exchange"
 _oauth_login_codes: dict[str, tuple[str, float]] = {}  # code -> (user_id, issued_ts)
 
 
@@ -827,11 +829,25 @@ async def google_callback(
         _clean_oauth_login_codes()
         login_code = secrets.token_urlsafe(32)
         _oauth_login_codes[login_code] = (user.id, time.time())
-        return _oauth_complete_redirect(
+        # Hand the login code to the frontend via an HttpOnly cookie instead
+        # of a URL query param (no leak to history/Referer/proxy logs).
+        # Path-scoped to the exchange endpoint, SameSite=Lax so the same-site
+        # POST from /auth/callback picks it up.
+        redirect = _oauth_complete_redirect(
             frontend_url,
-            f"/auth/callback?code={login_code}",
+            "/auth/callback",
             is_secure=oauth_cookie_secure,
         )
+        redirect.set_cookie(
+            key=_OAUTH_LOGIN_CODE_COOKIE,
+            value=login_code,
+            max_age=int(_OAUTH_LOGIN_CODE_TTL),
+            path=_OAUTH_LOGIN_CODE_COOKIE_PATH,
+            httponly=True,
+            secure=oauth_cookie_secure,
+            samesite="lax",
+        )
+        return redirect
     except Exception:
         logger.exception("Google OAuth callback failed")
         return _oauth_complete_redirect(frontend_url, "/login?error=server_error", is_secure=oauth_cookie_secure)
@@ -839,14 +855,23 @@ async def google_callback(
 
 @router.post("/google/exchange", response_model=TokenResponse)
 async def google_oauth_exchange(
-    data: GoogleOAuthExchangeRequest,
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
-    """Exchange a one-time code from Google OAuth redirect for a JWT (avoids long-lived tokens in URLs)."""
+    """Exchange the one-time login code (HttpOnly cookie set by /google/callback) for a JWT.
+
+    The code used to ride on the /auth/callback URL query — that leaks into
+    browser history, Referer headers, and proxy access logs. Reading it from
+    a path-scoped, HttpOnly, short-TTL cookie keeps it out of all three.
+
+    On success, ``_token_response`` ALSO sets the session cookie (HttpOnly,
+    SameSite=Strict) so the user is logged in immediately — same as every
+    other login path (password / passkey / demo).
+    """
     _clean_oauth_login_codes()
-    code = (data.code or "").strip()
-    rec = _oauth_login_codes.pop(code, None)
+    code = (request.cookies.get(_OAUTH_LOGIN_CODE_COOKIE) or "").strip()
+    rec = _oauth_login_codes.pop(code, None) if code else None
     if not rec:
         raise HTTPException(status_code=400, detail="Invalid or expired login code")
     user_id, ts = rec
@@ -856,5 +881,11 @@ async def google_oauth_exchange(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired login code")
+    # Single-use — clear the cookie now that it's redeemed. Delete attrs
+    # must match the set_cookie in /google/callback (key + path).
+    response.delete_cookie(
+        key=_OAUTH_LOGIN_CODE_COOKIE,
+        path=_OAUTH_LOGIN_CODE_COOKIE_PATH,
+    )
     token = _create_token(user.id)
     return _token_response(response, token, user)

@@ -175,7 +175,11 @@ async def test_google_callback_demo_mode_allows_existing_user_by_google_id(
 
     assert r.status_code == 302, r.text
     loc = r.headers.get("location", "")
-    assert "/auth/callback?code=" in loc
+    assert loc.endswith("/auth/callback"), loc  # login code is in the cookie, not the URL
+    set_cookie = r.headers.get("set-cookie", "").lower()
+    assert "oauth_login_code=" in set_cookie
+    assert "httponly" in set_cookie
+    assert "path=/api/auth/google/exchange" in set_cookie
 
 
 @pytest.mark.asyncio
@@ -226,4 +230,8 @@ async def test_google_callback_non_demo_still_allows_new_user_with_mock_db(
 
     assert r.status_code == 302, r.text
     loc = r.headers.get("location", "")
-    assert "/auth/callback?code=" in loc
+    assert loc.endswith("/auth/callback"), loc  # login code is in the cookie, not the URL
+    set_cookie = r.headers.get("set-cookie", "").lower()
+    assert "oauth_login_code=" in set_cookie
+    assert "httponly" in set_cookie
+    assert "path=/api/auth/google/exchange" in set_cookie
