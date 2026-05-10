@@ -1,15 +1,26 @@
 from __future__ import annotations
 
-"""LLM client for local Ollama only — no cloud model APIs.
+"""LLM client speaking the OpenAI-compatible /v1/chat/completions API.
 
-Data stays on your machine when Ollama is reachable. If Ollama is down or
-OLLAMA_URL is empty, completions return nothing (callers show a clear error).
+Same client serves both ends of Path C:
+
+- **Dev:** local Ollama (which exposes ``/v1/chat/completions`` alongside its
+  native ``/api/chat``). Default ``LLM_BACKEND_URL=http://ollama:11434``.
+- **Prod:** Modal-hosted vLLM (Qwen 2.5 7B Instruct AWQ). Set
+  ``LLM_BACKEND_URL=https://...modal.run`` plus ``LLM_BACKEND_API_KEY``.
+
+The variable name ``ollama_url`` is preserved for back-compat with existing
+dev ``.env`` files; the settings layer accepts ``LLM_BACKEND_URL`` as an alias.
+
+Demo mode bypasses the network entirely and returns canned responses. No
+prompt or completion content is ever logged — see the privacy contract on
+the /privacy page and the redaction in ``log_redact.py``.
 """
 
 import json
 import logging
 import time
-from typing import Optional, AsyncIterator
+from typing import AsyncIterator, Optional
 
 import httpx
 
@@ -17,16 +28,17 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Connect timeout for Ollama — if it doesn't connect within this window, skip it.
-# Keep short so failures don't block the request.
-_OLLAMA_CONNECT_TIMEOUT = 2.0
-# Non-streaming completions (insights, budget suggestions, etc.) — local models often need >30s.
-_OLLAMA_READ_TIMEOUT = 120.0
-_OLLAMA_STREAM_TIMEOUT = 120.0
+# Connect timeout — if the upstream doesn't accept the TCP connection within
+# this window, give up. Keep short so a flaky backend doesn't block users.
+_CONNECT_TIMEOUT = 2.0
+# Non-streaming completions (insights, budget suggestions, etc.) — small
+# local models often need >30s. Modal vLLM cold-start can hit ~90s.
+_READ_TIMEOUT = 120.0
+_STREAM_TIMEOUT = 120.0
 
 
 def has_any_backend() -> bool:
-    """True when demo mode is on or Ollama URL is configured (may still be unreachable)."""
+    """True when demo mode is on or LLM_BACKEND_URL is configured."""
     settings = get_settings()
     if settings.demo_mode:
         return True
@@ -96,47 +108,112 @@ def _demo_response(prompt: str) -> str:
     )
 
 
-# ── Non-streaming ──────────────────────────────────────────────────────────────
+# ── Wire format helpers ───────────────────────────────────────────────────────
 
-async def _try_ollama(
+
+def _build_payload(
+    prompt: str,
+    system: Optional[str],
+    *,
+    max_tokens: int,
+    json_format: bool,
+    stream: bool,
+) -> dict:
+    """Compose the OpenAI-compatible /v1/chat/completions request body.
+
+    Both Ollama (>=0.5) and vLLM accept this identical shape — the model
+    string is the only environment-specific bit.
+    """
+    settings = get_settings()
+    messages: list[dict] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    body: dict = {
+        "model": settings.ollama_model,
+        "messages": messages,
+        "stream": stream,
+        "max_tokens": max_tokens,
+        "temperature": 0.3,
+    }
+    if json_format:
+        # Both Ollama and vLLM honor this OpenAI-style hint and constrain
+        # generation to parseable JSON. Small models otherwise drift into
+        # markdown fences or chatty prose around the payload.
+        body["response_format"] = {"type": "json_object"}
+    return body
+
+
+def _build_headers() -> dict[str, str]:
+    """Return request headers, including Authorization when a key is set.
+
+    Ollama in dev has no auth; ``llm_backend_api_key`` is empty and we skip
+    the header. Modal vLLM in prod requires Bearer auth — set the key via
+    ``LLM_BACKEND_API_KEY``.
+    """
+    settings = get_settings()
+    h = {"Content-Type": "application/json"}
+    if settings.llm_backend_api_key:
+        h["Authorization"] = f"Bearer {settings.llm_backend_api_key}"
+    return h
+
+
+def _backend_url(path: str) -> str:
+    """Compose the full URL for an OpenAI-API path under the configured backend."""
+    base = get_settings().ollama_url.rstrip("/")
+    return f"{base}{path}"
+
+
+# ── Non-streaming ─────────────────────────────────────────────────────────────
+
+
+async def _try_backend(
     prompt: str,
     system: Optional[str] = None,
     max_tokens: int = 1024,
     *,
     json_format: bool = False,
 ) -> Optional[str]:
+    """Single non-streaming POST to ``/v1/chat/completions``.
+
+    Returns the assistant's reply text, or ``None`` if the backend is
+    unreachable or returned an error. Errors are logged WITHOUT the request
+    body — the prompt may contain user content and the privacy contract is
+    "we don't log your requests."
+    """
     settings = get_settings()
     if not settings.ollama_url:
         return None
-    url = f"{settings.ollama_url.rstrip('/')}/api/chat"
-    messages = []
-    if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": prompt})
-
-    payload: dict = {
-        "model": settings.ollama_model,
-        "messages": messages,
-        "stream": False,
-        "options": {"temperature": 0.3, "num_predict": max_tokens},
-    }
-    if json_format:
-        # Ollama's JSON mode — the server will only emit parseable JSON. Small
-        # local models otherwise drift into markdown fences or prose.
-        payload["format"] = "json"
+    url = _backend_url("/v1/chat/completions")
+    payload = _build_payload(
+        prompt, system, max_tokens=max_tokens, json_format=json_format, stream=False
+    )
     try:
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(_OLLAMA_READ_TIMEOUT, connect=_OLLAMA_CONNECT_TIMEOUT)
+            timeout=httpx.Timeout(_READ_TIMEOUT, connect=_CONNECT_TIMEOUT)
         ) as client:
-            resp = await client.post(url, json=payload)
+            resp = await client.post(url, json=payload, headers=_build_headers())
             resp.raise_for_status()
             data = resp.json()
-            return data["message"]["content"]
+            choices = data.get("choices") or []
+            if not choices:
+                logger.warning("LLM backend returned no choices")
+                return None
+            msg = choices[0].get("message") or {}
+            content = msg.get("content")
+            return content if isinstance(content, str) else None
     except (httpx.ConnectError, httpx.TimeoutException):
-        logger.debug("Ollama not reachable at %s", url)
+        logger.debug("LLM backend not reachable at %s", url)
         return None
-    except Exception as e:
-        logger.warning("Ollama error: %s", e)
+    except httpx.HTTPStatusError as e:
+        # Log status only — the response body might echo our prompt.
+        logger.warning("LLM backend HTTP %s", e.response.status_code)
+        return None
+    except Exception as e:  # pragma: no cover — defensive
+        # Log the exception class only; safe_error_message is in the cloud
+        # route, but at this layer the prompt isn't in the exception either.
+        logger.warning("LLM backend error: %s", type(e).__name__)
         return None
 
 
@@ -148,22 +225,24 @@ async def complete_with_source(
     json_format: bool = False,
     log_label: Optional[str] = None,
 ) -> tuple[Optional[str], str]:
-    """Send a prompt to Ollama (or demo canned data).
+    """Send a prompt to the LLM backend (or demo canned data).
 
-    Set ``json_format=True`` when the caller expects a JSON response — this
-    switches Ollama into strict JSON mode so small local models can't drift
-    into markdown fences or chatty prose around the payload.
+    Set ``json_format=True`` when the caller expects a JSON response —
+    constrains generation server-side so small models don't drift into
+    markdown fences or chatty prose around the payload.
 
     Set ``log_label`` to record an INFO-level timing entry under that op
-    name. No prompts or responses are logged — just duration/source/ok.
+    name. No prompts or responses are logged — just duration / source / ok.
 
-    Returns (response_text, source_name): "demo", "ollama", or "unavailable".
+    Returns ``(response_text, source_name)``: source is ``"demo"``,
+    ``"ollama"`` (or ``"vllm"`` in prod — kept as a string for backward
+    compat with existing callers and audit logging), or ``"unavailable"``.
     """
     t0 = time.perf_counter()
     if get_settings().demo_mode:
         text, source = _demo_response(prompt), "demo"
     else:
-        result = await _try_ollama(
+        result = await _try_backend(
             prompt, system, max_tokens=max_tokens, json_format=json_format
         )
         text, source = (result, "ollama") if result is not None else (None, "unavailable")
@@ -193,59 +272,64 @@ async def complete(
     return text
 
 
-# ── Streaming (for chat endpoint) ─────────────────────────────────────────────
+# ── Streaming (for chat endpoint + Tier 4 cloud route) ────────────────────────
 
-async def _stream_ollama(prompt: str, system: Optional[str] = None) -> AsyncIterator[str]:
+
+async def _stream_backend(prompt: str, system: Optional[str] = None) -> AsyncIterator[str]:
+    """Stream chunks from /v1/chat/completions (SSE format)."""
     settings = get_settings()
     if not settings.ollama_url:
         return
-    url = f"{settings.ollama_url.rstrip('/')}/api/chat"
-    messages = []
-    if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": prompt})
+    url = _backend_url("/v1/chat/completions")
+    payload = _build_payload(prompt, system, max_tokens=1024, json_format=False, stream=True)
+    headers = {**_build_headers(), "Accept": "text/event-stream"}
 
-    payload = {
-        "model": settings.ollama_model,
-        "messages": messages,
-        "stream": True,
-        "options": {"temperature": 0.3, "num_predict": 1024},
-    }
     try:
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(_OLLAMA_STREAM_TIMEOUT, connect=_OLLAMA_CONNECT_TIMEOUT)
+            timeout=httpx.Timeout(_STREAM_TIMEOUT, connect=_CONNECT_TIMEOUT)
         ) as client:
-            async with client.stream("POST", url, json=payload) as resp:
+            async with client.stream("POST", url, json=payload, headers=headers) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
-                    if not line.strip():
+                    if not line:
+                        continue
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[5:].strip()
+                    if not data_str or data_str == "[DONE]":
+                        if data_str == "[DONE]":
+                            break
                         continue
                     try:
-                        data = json.loads(line)
-                        chunk = data.get("message", {}).get("content", "")
-                        if chunk:
-                            yield chunk
-                        if data.get("done"):
-                            break
+                        event = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
+                    choices = event.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    chunk = delta.get("content")
+                    if isinstance(chunk, str) and chunk:
+                        yield chunk
     except (httpx.ConnectError, httpx.TimeoutException):
-        logger.debug("Ollama not reachable for streaming at %s", url)
+        logger.debug("LLM backend not reachable for streaming at %s", url)
         return
-    except Exception as e:
-        logger.warning("Ollama stream error: %s", e)
+    except httpx.HTTPStatusError as e:
+        logger.warning("LLM stream HTTP %s", e.response.status_code)
+        return
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning("LLM stream error: %s", type(e).__name__)
         return
 
 
 async def stream_complete_with_source(
     prompt: str, system: Optional[str] = None
 ) -> AsyncIterator[tuple[str, str]]:
-    """Yields (chunk, source) tuples. Source is set once on first chunk."""
+    """Yields ``(chunk, source)`` tuples. Source is set on every chunk."""
     if get_settings().demo_mode:
         import asyncio
 
         response = _demo_response(prompt)
-        # Simulate streaming by yielding word-by-word
         words = response.split(" ")
         for i, word in enumerate(words):
             chunk = word if i == 0 else " " + word
@@ -253,7 +337,7 @@ async def stream_complete_with_source(
             await asyncio.sleep(0.03)
         return
 
-    async for chunk in _stream_ollama(prompt, system):
+    async for chunk in _stream_backend(prompt, system):
         yield chunk, "ollama"
 
 
