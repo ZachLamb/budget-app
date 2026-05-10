@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cloud, Cpu, Smartphone, Trash2, ExternalLink } from "lucide-react";
 import Link from "next/link";
@@ -8,10 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { llmApi } from "@/lib/api/llm";
 import { listFeatures } from "@/lib/llm/features";
 import { getCapability } from "@/lib/llm/capability";
 import { getLocalConsent, setDownloadModel, setUseLiteModel, clearLocalConsent } from "@/lib/llm/consent";
+import { clearModelFromCache, getModelDownloadStatus, type ModelDownloadStatus } from "@/lib/llm/storage";
 import type { CapabilitySnapshot } from "@/lib/llm/types";
 import { toastApiError } from "@/lib/toast-error";
 import { appToast } from "@/lib/app-toast";
@@ -21,6 +23,19 @@ export function AiSettingsCard() {
   const [cap, setCap] = useState<CapabilitySnapshot | null>(null);
   const [downloadModelChoice, setDownloadModelChoice] = useState<"granted" | "denied" | "unset">("unset");
   const [useLite, setUseLite] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState<ModelDownloadStatus | null>(null);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
+  const refreshDownloadStatus = useCallback(async (force = false) => {
+    try {
+      const status = await getModelDownloadStatus(force);
+      setDownloadStatus(status);
+    } catch {
+      // Storage probe failures shouldn't break settings — fall back to unknown.
+      setDownloadStatus(null);
+    }
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -31,12 +46,15 @@ export function AiSettingsCard() {
       setUseLite(Boolean(local.useLiteModel));
     });
     getCapability().then((c) => {
-      if (mounted) setCap(c);
+      if (!mounted) return;
+      setCap(c);
+      // Probe storage after capability resolves so we know which model id to ask about.
+      void refreshDownloadStatus(true);
     });
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [refreshDownloadStatus]);
 
   const grants = useQuery({
     queryKey: ["llmCloudConsent"],
@@ -61,8 +79,27 @@ export function AiSettingsCard() {
     onError: (e) => toastApiError("Failed to revoke consent", e),
   });
 
+  const handleClearOnDeviceModel = useCallback(async () => {
+    setClearing(true);
+    try {
+      await clearModelFromCache();
+      // Revoke local consent so the next attempt re-asks the user.
+      setDownloadModel("denied");
+      setDownloadModelChoice("denied");
+      await refreshDownloadStatus(true);
+      appToast.success("On-device model cleared");
+    } catch (err) {
+      toastApiError("Failed to clear on-device model", err);
+    } finally {
+      setClearing(false);
+      setConfirmClearOpen(false);
+    }
+  }, [refreshDownloadStatus]);
+
   const activeGrants = (grants.data ?? []).filter((g) => !g.revokedAt);
   const cloudPossibleFeatures = listFeatures().filter((f) => f.cloudPossible);
+  const isModelDownloaded = downloadStatus?.kind === "downloaded";
+  const downloadedSizeLabel = isModelDownloaded ? downloadStatus.sizeLabel : null;
 
   const tierStatus = (
     <div className="grid gap-3 sm:grid-cols-3">
@@ -87,14 +124,8 @@ export function AiSettingsCard() {
         icon={<Smartphone className="size-4" />}
         title="On-device (WebGPU)"
         subtitle={cap?.webgpu.modelSize === "1b" ? "Lite model (~700 MB)" : "Standard model (~1.8 GB)"}
-        ok={cap?.webgpu.available ?? false}
-        statusText={
-          !cap?.webgpu.available
-            ? "WebGPU not available"
-            : downloadModelChoice === "granted"
-            ? "Downloaded"
-            : "Not downloaded yet"
-        }
+        ok={cap?.webgpu.available ? downloadStatus?.kind === "downloaded" : false}
+        statusText={webGpuStatusText(cap, downloadStatus, downloadModelChoice)}
       />
       <TierStatus
         icon={<Cloud className="size-4" />}
@@ -161,6 +192,16 @@ export function AiSettingsCard() {
             >
               {useLite ? "Using Lite (700 MB)" : "Use Lite (700 MB)"}
             </Button>
+            {isModelDownloaded && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setConfirmClearOpen(true)}
+                disabled={clearing}
+              >
+                <Trash2 className="size-4" /> Clear on-device model
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -239,8 +280,36 @@ export function AiSettingsCard() {
           )}
         </section>
       </CardContent>
+      <ConfirmDialog
+        open={confirmClearOpen}
+        onOpenChange={(open) => {
+          if (clearing) return;
+          setConfirmClearOpen(open);
+        }}
+        title="Clear on-device AI model?"
+        description={`Frees ${downloadedSizeLabel ?? "the cached model files"}. You can re-download anytime.`}
+        confirmLabel="Clear"
+        loadingLabel="Clearing…"
+        loading={clearing}
+        closeOnConfirm={false}
+        onConfirm={() => {
+          void handleClearOnDeviceModel();
+        }}
+      />
     </Card>
   );
+}
+
+function webGpuStatusText(
+  cap: CapabilitySnapshot | null,
+  status: ModelDownloadStatus | null,
+  consent: "granted" | "denied" | "unset",
+): string {
+  if (!cap?.webgpu.available) return "WebGPU not available";
+  if (status?.kind === "downloaded") return `Downloaded (${status.sizeLabel})`;
+  if (consent === "denied") return "Permission denied";
+  if (consent === "granted") return "Allowed, not downloaded";
+  return "Not downloaded yet";
 }
 
 function TierStatus({

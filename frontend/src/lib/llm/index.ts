@@ -10,8 +10,16 @@ export type { FeatureId, FeaturePolicy } from "./features";
 export { listFeatures, getFeaturePolicy } from "./features";
 export { getCapability } from "./capability";
 export { getLocalConsent, setDownloadModel, setUseLiteModel, clearLocalConsent } from "./consent";
+export {
+  chooseModelId,
+  clearModelFromCache,
+  getModelDownloadStatus,
+  MODEL_1B,
+  MODEL_3B,
+} from "./storage";
+export type { ModelDownloadStatus } from "./storage";
 export { decide } from "./router";
 export type { Decision, RouterContext } from "./router";
 export { nanoProvider } from "./providers/nano";
 export { getWebLlmProvider } from "./providers/web-llm";
-export { makeServerProvider } from "./providers/server";
+export { makeServerProvider, LLMError, isLLMError } from "./providers/server";
