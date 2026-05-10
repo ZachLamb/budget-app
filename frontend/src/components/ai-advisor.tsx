@@ -124,13 +124,17 @@ function AiAdvisorInner() {
   }, [open, closePanel]);
 
   const executeAction = useCallback(async (msgIdx: number, actionType: string, data: Record<string, unknown>) => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    // Auth via httpOnly session cookie — `credentials: "include"` ensures
+    // the browser attaches it. Legacy fetch sites that read
+    // localStorage("token") have been removed; the cookie is the source of truth.
+    const legacyToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     try {
       const resp = await fetch("/api/ai/execute-action", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(legacyToken ? { Authorization: `Bearer ${legacyToken}` } : {}),
         },
         body: JSON.stringify({ action_type: actionType, data }),
       });
@@ -184,16 +188,17 @@ function AiAdvisorInner() {
     });
 
     setStreaming(true);
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const legacyToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
     try {
       const resp = await fetch("/api/ai/advisor-turn", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(legacyToken ? { Authorization: `Bearer ${legacyToken}` } : {}),
         },
         body: JSON.stringify({
           messages: snapshot.map(({ role, content }) => ({ role, content })),

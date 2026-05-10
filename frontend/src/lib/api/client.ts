@@ -12,6 +12,9 @@ const api = axios.create({
   baseURL: "",
   headers: { "Content-Type": "application/json" },
   timeout: 30000,
+  // Send the httpOnly session cookie on every request. Same-origin only —
+  // cross-origin requires CORS allow-credentials, already configured server-side.
+  withCredentials: true,
 });
 
 api.interceptors.request.use((config) => {
@@ -20,8 +23,14 @@ api.interceptors.request.use((config) => {
     config.baseURL = "";
     const p = (config.url || "").replace(/^https?:\/\/[^/]+/, "").replace(/\/+/g, "/") || "/";
     config.url = p.startsWith("/api") ? p : `/api${p.startsWith("/") ? p : `/${p}`}`;
-    const token = localStorage.getItem("token");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
+    // Transition fallback: existing browser sessions still hold a JWT in
+    // localStorage from before the cookie migration. Send it via Authorization
+    // header so they keep working until they next log in (which will set the
+    // cookie and clear the localStorage value via providers.tsx). Once a
+    // user has logged in post-migration, no token is in localStorage and
+    // this branch is a no-op.
+    const legacyToken = localStorage.getItem("token");
+    if (legacyToken) config.headers.Authorization = `Bearer ${legacyToken}`;
   } else {
     config.baseURL = getServerBaseURL();
   }
