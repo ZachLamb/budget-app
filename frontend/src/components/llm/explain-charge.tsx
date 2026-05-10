@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles, Loader2, AlertCircle, Clock, Cpu } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -70,6 +70,28 @@ export function ExplainCharge({ txn }: Props) {
   const [showDownloadConsent, setShowDownloadConsent] = useState(false);
   const [piiScan, setPiiScan] = useState<PIIScan | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+
+  // Wall-clock seconds since loading started — drives the progressive
+  // "AI is warming up" copy below. We don't know in advance whether the
+  // backend or Modal is cold; both can add real seconds. Showing context-
+  // aware text means the user knows the request isn't stuck.
+  const loadingStartRef = useRef<number | null>(null);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  useEffect(() => {
+    if (!loading) {
+      loadingStartRef.current = null;
+      setElapsedSec(0);
+      return;
+    }
+    if (loadingStartRef.current === null) loadingStartRef.current = Date.now();
+    const tick = () => {
+      if (loadingStartRef.current === null) return;
+      setElapsedSec(Math.floor((Date.now() - loadingStartRef.current) / 1000));
+    };
+    tick();
+    const id = window.setInterval(tick, 500);
+    return () => window.clearInterval(id);
+  }, [loading]);
 
   const streamPrompt = useCallback(
     async (prompt: string) => {
@@ -170,6 +192,24 @@ export function ExplainCharge({ txn }: Props) {
 
   const canFallback = localFallbackAvailable(llm.capability);
 
+  // Progressive cold-start copy. The thresholds are tuned for the worst
+  // realistic path: a cold Fly machine (5–10s) followed by a cold Modal
+  // GPU spin-up (60–90s) on the first Tier 4 call after either has been
+  // idle. The text never lies — if no output has streamed in 25s, the
+  // cloud server is almost certainly warming.
+  let loadingHint: string | null = null;
+  if (loading && output.length === 0) {
+    if (elapsedSec >= 60) {
+      loadingHint = "Still working — cold start can take ~90s. Future requests will be fast.";
+    } else if (elapsedSec >= 25) {
+      loadingHint = "The AI server is warming up from sleep — this only happens after long idle.";
+    } else if (elapsedSec >= 10) {
+      loadingHint = "Setting up cloud AI — the first request can be slow.";
+    } else if (elapsedSec >= 3) {
+      loadingHint = "Working on it…";
+    }
+  }
+
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
@@ -177,6 +217,9 @@ export function ExplainCharge({ txn }: Props) {
           {loading ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
           Explain this charge
         </Button>
+        {loadingHint && (
+          <span className="text-xs text-muted-foreground">{loadingHint}</span>
+        )}
         {tier !== null && !loading && (
           <Badge variant="secondary" className="text-xs">
             {tier === 1 ? "On-device (Nano)" : tier === 2 ? "On-device" : "Cloud"}
