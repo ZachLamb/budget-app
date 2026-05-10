@@ -16,3 +16,7 @@ bcrypt>=4.0,<5
 webauthn>=2.2.0
 pytest>=8.4.0
 pytest-asyncio>=0.24.0
+# Test-only — backs the in-memory SQLite engine the LLM/consent/cache/me
+# test suites use when Postgres isn't available (CI, isolated unit tests).
+# Tiny dep; bundling here rather than splitting a dev-requirements file.
+aiosqlite>=0.20.0
