@@ -23,6 +23,64 @@ const nextConfig: NextConfig = {
     ];
   },
   async headers() {
+    // Defense-in-depth headers shipped on every page. Notes:
+    //   - HSTS only takes effect over HTTPS; safe to send unconditionally
+    //     (browsers ignore it on HTTP). includeSubDomains keeps the policy
+    //     valid even if a future deploy splits subdomains; preload would
+    //     need an explicit submission to hstspreload.org first.
+    //   - CSP is intentionally permissive for inline scripts (Next.js dev
+    //     hot-reload + production runtime both inject inline JSON). Move
+    //     to nonces in a follow-up if the CSP report endpoint shows abuse.
+    //   - Permissions-Policy disables device APIs we don't use. WebGPU is
+    //     NOT disabled here — Tier 2 (web-llm) needs it.
+    const csp = [
+      "default-src 'self'",
+      // 'unsafe-inline' for inline JSON snapshots Next.js emits; 'unsafe-eval'
+      // is required by web-llm's WASM loader. wasm-unsafe-eval is the right
+      // narrower form and is supported by Chrome/Edge/Safari/Firefox.
+      "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      // web-llm fetches model weights from huggingface.co (mirror of the MLC
+      // prebuilt models); allow that origin explicitly. /api/* connects to
+      // 'self' (Next.js rewrites /api → backend). Add other origins here
+      // intentionally rather than widening to https:.
+      "connect-src 'self' https://huggingface.co https://*.huggingface.co",
+      "worker-src 'self' blob:",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join("; ");
+
+    const permissionsPolicy = [
+      // Affirmatively disable APIs the app doesn't use. Browsers default-deny
+      // most of these on cross-origin frames already, but explicit is better.
+      "accelerometer=()",
+      "ambient-light-sensor=()",
+      "autoplay=()",
+      "battery=()",
+      "camera=()",
+      "display-capture=()",
+      "document-domain=()",
+      "encrypted-media=()",
+      "fullscreen=(self)",
+      "gamepad=()",
+      "geolocation=()",
+      "gyroscope=()",
+      "hid=()",
+      "idle-detection=()",
+      "magnetometer=()",
+      "microphone=()",
+      "midi=()",
+      "payment=()",
+      "publickey-credentials-get=(self)",  // passkeys live here
+      "screen-wake-lock=()",
+      "serial=()",
+      "usb=()",
+      "xr-spatial-tracking=()",
+    ].join(", ");
+
     return [
       {
         source: "/:path*",
@@ -30,6 +88,9 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "X-Frame-Options", value: "DENY" },
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+          { key: "Content-Security-Policy", value: csp },
+          { key: "Permissions-Policy", value: permissionsPolicy },
           // Cross-origin isolation enables SharedArrayBuffer + WebGPU buffer sharing for web-llm.
           // `credentialless` lets us still load images/fonts from third parties without CORP.
           { key: "Cross-Origin-Opener-Policy", value: "same-origin" },

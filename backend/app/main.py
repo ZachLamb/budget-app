@@ -10,6 +10,7 @@ from app.api.routes import router as api_router
 from app.api.routes.upload import router as upload_router
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.rate_limit_store import build_store
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.services.auth import lockout as _auth_lockout
 from app.tasks.scheduler import start_scheduler, stop_scheduler
 
@@ -99,6 +100,9 @@ _logging.getLogger(__name__).info(
 )
 
 app.add_middleware(RateLimitMiddleware, store=_rate_limit_store)
+# Defense-in-depth security headers on every API response. The page-level
+# headers (CSP, HSTS, Permissions-Policy) live on the Next.js frontend.
+app.add_middleware(SecurityHeadersMiddleware)
 
 if get_settings().demo_mode:
     from app.middleware.demo_guard import DemoGuardMiddleware
