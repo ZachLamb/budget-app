@@ -34,6 +34,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
 import Link from "next/link";
 import { AI_COPY } from "@/lib/ai-copy";
+import { ExplainCharge } from "@/components/llm/explain-charge";
 
 type TransactionSplitLinePayload = {
   amount: number;
@@ -762,6 +763,9 @@ function TransactionsContent() {
               </div>
               {detailTxn.is_split && <Badge variant="outline">Split Transaction</Badge>}
               {detailTxn.transfer_pair_id && <Badge variant="outline">Transfer</Badge>}
+              <div className="border-t pt-3">
+                <ExplainCharge txn={detailTxn} />
+              </div>
             </div>
           )}
         </DialogContent>

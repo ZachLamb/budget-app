@@ -13,6 +13,8 @@ __pycache__/
 dist/
 build/
 node_modules/
+.venv/
+backend/.venv/
 .next/
 frontend/node_modules/
 frontend/.next/

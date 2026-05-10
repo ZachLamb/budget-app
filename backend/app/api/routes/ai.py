@@ -32,6 +32,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_household_id
+from app.api.deps_llm import LlmCallContext, require_cloud_feature, write_audit
 from app.config import get_settings
 from app.database import get_db
 from app.models import Category, Household, Transaction, Account
@@ -509,10 +510,17 @@ async def ai_status(household_id: str = Depends(_require_ai_enabled)):
 @router.post("/insights", response_model=InsightsResponse)
 async def get_financial_insights(
     household_id: str = Depends(_require_ai_enabled),
+    llm_ctx: LlmCallContext = Depends(require_cloud_feature("financial_advice")),
     db: AsyncSession = Depends(get_db),
 ):
     """Generate personalised financial insights based on the user's data."""
-    return InsightsResponse(**await generate_insights(db, household_id))
+    try:
+        result = await generate_insights(db, household_id)
+        await write_audit(db, llm_ctx, status_code=200)
+        return InsightsResponse(**result)
+    except HTTPException as he:
+        await write_audit(db, llm_ctx, status_code=he.status_code)
+        raise
 
 
 _MAX_CHAT_MSG_LEN = 1000   # chars per message
@@ -549,6 +557,7 @@ def _build_chat_system(ctx: str) -> str:
 async def chat_stream(
     req: ChatRequest,
     household_id: str = Depends(_require_ai_enabled),
+    llm_ctx: LlmCallContext = Depends(require_cloud_feature("free_form_qa")),
     db: AsyncSession = Depends(get_db),
 ):
     """Streaming chat — yields Server-Sent Events so the UI can show tokens as they arrive."""
@@ -565,13 +574,28 @@ async def chat_stream(
     async def generate():
         any_chunk = False
         detected_source = "unavailable"
-        async for chunk, src in llm_client.stream_complete_with_source(full_prompt, system=system):
-            any_chunk = True
-            detected_source = src
-            yield f"data: {json.dumps({'chunk': chunk})}\n\n"
-        if not any_chunk:
-            yield f"data: {json.dumps({'error': _NO_AI_MSG})}\n\n"
-        yield f"data: {json.dumps({'done': True, 'model_source': detected_source, 'evidence': evidence_list})}\n\n"
+        completion_buf: list[str] = []
+        # Status reflects the user-visible outcome: 200 if we streamed any
+        # chunk, 503 if the backend was unreachable for the whole call.
+        # Streaming exceptions are swallowed by the underlying client so we
+        # don't try to detect them here.
+        try:
+            async for chunk, src in llm_client.stream_complete_with_source(full_prompt, system=system):
+                any_chunk = True
+                detected_source = src
+                completion_buf.append(chunk)
+                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            if not any_chunk:
+                yield f"data: {json.dumps({'error': _NO_AI_MSG})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'model_source': detected_source, 'evidence': evidence_list})}\n\n"
+        finally:
+            await write_audit(
+                db,
+                llm_ctx,
+                status_code=200 if any_chunk else 503,
+                prompt_text=full_prompt,
+                completion_text="".join(completion_buf) if any_chunk else None,
+            )
 
     return StreamingResponse(
         generate(),
@@ -584,6 +608,7 @@ async def chat_stream(
 async def advisor_turn(
     req: ChatRequest,
     household_id: str = Depends(_require_ai_enabled_rate_limited),
+    llm_ctx: LlmCallContext = Depends(require_cloud_feature("free_form_qa")),
     db: AsyncSession = Depends(get_db),
 ):
     """One JSON LLM call: detect add_transaction / add_debt intent or return a chat reply.
@@ -610,7 +635,11 @@ async def advisor_turn(
             log_label="advisor-turn",
         )
         if not reply:
+            await write_audit(db, llm_ctx, status_code=503, prompt_text=full_prompt)
             raise HTTPException(503, _NO_AI_MSG)
+        await write_audit(
+            db, llm_ctx, status_code=200, prompt_text=full_prompt, completion_text=reply
+        )
         return AdvisorTurnResponse(
             branch="chat",
             model_source=src,
@@ -652,12 +681,18 @@ Use "action" sparingly — only when they are asking you to add something to the
         log_label="advisor-turn",
     )
     if not response:
+        await write_audit(db, llm_ctx, status_code=503, prompt_text=prompt)
         raise HTTPException(503, _NO_AI_MSG)
     try:
         parsed = parse_llm_json_object(response)
-        return normalize_advisor_turn_payload(parsed, model_source=source, evidence_list=evidence_list)
+        result = normalize_advisor_turn_payload(parsed, model_source=source, evidence_list=evidence_list)
+        await write_audit(
+            db, llm_ctx, status_code=200, prompt_text=prompt, completion_text=response
+        )
+        return result
     except Exception:
         logger.warning("advisor-turn: failed to parse or validate LLM JSON", exc_info=True)
+        await write_audit(db, llm_ctx, status_code=503, prompt_text=prompt, completion_text=response)
         raise HTTPException(503, "The AI returned an unreadable response. Please try again.")
 
 
@@ -669,37 +704,68 @@ Use "action" sparingly — only when they are asking you to add something to the
 @router.post("/budget-insights", response_model=BudgetInsightsResponse)
 async def get_budget_insights(
     household_id: str = Depends(_require_ai_enabled),
+    llm_ctx: LlmCallContext = Depends(require_cloud_feature("financial_advice")),
     db: AsyncSession = Depends(get_db),
 ):
     """Generate spending pattern insights and category trends from the last 3 months."""
-    return BudgetInsightsResponse(**await generate_budget_insights(db, household_id))
+    try:
+        result = await generate_budget_insights(db, household_id)
+        await write_audit(db, llm_ctx, status_code=200)
+        return BudgetInsightsResponse(**result)
+    except HTTPException as he:
+        await write_audit(db, llm_ctx, status_code=he.status_code)
+        raise
 
 
 @router.post("/budget-suggestions", response_model=BudgetSuggestionsResponse)
 async def get_budget_suggestions(
     household_id: str = Depends(_require_ai_enabled),
+    llm_ctx: LlmCallContext = Depends(require_cloud_feature("budget_recommendations")),
     db: AsyncSession = Depends(get_db),
 ):
     """Suggest monthly budget amounts per category based on 3-month spending averages."""
-    return BudgetSuggestionsResponse(**await generate_budget_suggestions(db, household_id))
+    try:
+        result = await generate_budget_suggestions(db, household_id)
+        await write_audit(db, llm_ctx, status_code=200)
+        return BudgetSuggestionsResponse(**result)
+    except HTTPException as he:
+        await write_audit(db, llm_ctx, status_code=he.status_code)
+        raise
 
 
 @router.post("/debt-plan-suggestion", response_model=DebtPlanSuggestion)
 async def get_debt_plan_suggestion(
     household_id: str = Depends(_require_ai_enabled),
+    llm_ctx: LlmCallContext = Depends(require_cloud_feature("financial_advice")),
     db: AsyncSession = Depends(get_db),
 ):
     """Recommend a debt payoff strategy based on the user's debt accounts."""
-    return DebtPlanSuggestion(**await suggest_debt_plan(db, household_id))
+    try:
+        result = await suggest_debt_plan(db, household_id)
+        await write_audit(db, llm_ctx, status_code=200)
+        return DebtPlanSuggestion(**result)
+    except HTTPException as he:
+        await write_audit(db, llm_ctx, status_code=he.status_code)
+        raise
 
 
 @router.post("/parse-action", response_model=ParseActionResponse)
 async def parse_action(
     req: ParseActionRequest,
     household_id: str = Depends(_require_ai_enabled),
+    llm_ctx: LlmCallContext = Depends(require_cloud_feature("free_form_qa")),
+    db: AsyncSession = Depends(get_db),
 ):
     """Parse a natural language message to detect data-entry action intents."""
-    return ParseActionResponse(**await parse_action_message(req.message))
+    try:
+        result = await parse_action_message(req.message)
+        await write_audit(
+            db, llm_ctx, status_code=200, prompt_text=req.message
+        )
+        return ParseActionResponse(**result)
+    except HTTPException as he:
+        await write_audit(db, llm_ctx, status_code=he.status_code, prompt_text=req.message)
+        raise
 
 
 @router.post("/execute-action", response_model=ExecuteActionResponse)
@@ -708,7 +774,11 @@ async def execute_action(
     household_id: str = Depends(_require_ai_enabled),
     db: AsyncSession = Depends(get_db),
 ):
-    """Execute a parsed action intent (create transaction or debt account)."""
+    """Execute a parsed action intent (create transaction or debt account).
+
+    No LLM call: this is a CRUD operation that writes whatever was already
+    parsed. The companion ``/parse-action`` route is the LLM-gated one.
+    """
     return ExecuteActionResponse(
         **await execute_parsed_action(db, household_id, req.action_type, req.data)
     )
@@ -717,6 +787,7 @@ async def execute_action(
 @router.post("/suggest-interest-rates", response_model=InterestRateSuggestionsResponse)
 async def suggest_interest_rates(
     household_id: str = Depends(_require_ai_enabled),
+    llm_ctx: LlmCallContext = Depends(require_cloud_feature("financial_advice")),
     db: AsyncSession = Depends(get_db),
 ):
     """Suggest typical APR and minimum payment for debt accounts missing that info.
@@ -725,27 +796,36 @@ async def suggest_interest_rates(
     typical rates based on account name / card type as a starting point for users
     to review and correct.
     """
-    return InterestRateSuggestionsResponse(
-        **await _suggest_interest_rates_service(db, household_id)
-    )
+    try:
+        result = await _suggest_interest_rates_service(db, household_id)
+        await write_audit(db, llm_ctx, status_code=200)
+        return InterestRateSuggestionsResponse(**result)
+    except HTTPException as he:
+        await write_audit(db, llm_ctx, status_code=he.status_code)
+        raise
 
 
 @router.post("/fsa-review", response_model=FsaReviewResponse)
 async def fsa_review(
     req: FsaReviewRequest = FsaReviewRequest(),
     household_id: str = Depends(_require_ai_enabled),
+    llm_ctx: LlmCallContext = Depends(require_cloud_feature("categorize_transaction")),
     db: AsyncSession = Depends(get_db),
 ):
     """Review transactions for potential FSA-eligible purchases."""
-    return FsaReviewResponse(
-        **await run_fsa_review(
+    try:
+        result = await run_fsa_review(
             db,
             household_id,
             req.date_from,
             req.date_to,
             include_all_outflows=req.include_all_outflows,
         )
-    )
+        await write_audit(db, llm_ctx, status_code=200)
+        return FsaReviewResponse(**result)
+    except HTTPException as he:
+        await write_audit(db, llm_ctx, status_code=he.status_code)
+        raise
 
 
 @router.patch("/fsa-review/items/{transaction_id}")

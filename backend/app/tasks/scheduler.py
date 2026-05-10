@@ -6,6 +6,7 @@ from sqlalchemy import select, desc
 
 from app.database import async_session
 from app.models import Household, SyncLog
+from app.services.ai.audit_retention import scheduled_prune_audit
 from app.services.sync.manager import run_sync
 
 logger = logging.getLogger(__name__)
@@ -86,8 +87,21 @@ def start_scheduler():
         id="periodic_sync",
         replace_existing=True,
     )
+    # Hourly prune of llm_audit rows older than 30 days. Backs the retention
+    # claim on /privacy. The job opens its own session and swallows errors so
+    # a transient DB issue doesn't kill the scheduler thread.
+    scheduler.add_job(
+        scheduled_prune_audit,
+        "interval",
+        hours=1,
+        id="prune_llm_audit",
+        replace_existing=True,
+    )
     scheduler.start()
-    logger.info("Scheduler started: checking for due syncs every hour")
+    logger.info(
+        "Scheduler started: checking for due syncs every hour; "
+        "pruning llm_audit hourly"
+    )
 
 
 def stop_scheduler():

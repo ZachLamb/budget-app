@@ -22,3 +22,36 @@ if (typeof window !== "undefined" && !window.matchMedia) {
 if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = function () {};
 }
+
+// Node 25 ships an experimental `globalThis.localStorage` (and sessionStorage)
+// stub that shadows jsdom's `Storage` implementation, leaving `window.localStorage`
+// without `clear()`/`removeItem()` etc. Provide a Map-backed Storage so tests
+// can read/write/clear like a real browser. Idempotent — only runs when the
+// shadow is detected.
+if (typeof window !== "undefined" && typeof window.localStorage?.clear !== "function") {
+  const makeStorage = (): Storage => {
+    const m = new Map<string, string>();
+    return {
+      get length() {
+        return m.size;
+      },
+      clear() {
+        m.clear();
+      },
+      getItem(key: string) {
+        return m.has(key) ? m.get(key)! : null;
+      },
+      key(index: number) {
+        return Array.from(m.keys())[index] ?? null;
+      },
+      removeItem(key: string) {
+        m.delete(key);
+      },
+      setItem(key: string, value: string) {
+        m.set(key, String(value));
+      },
+    };
+  };
+  Object.defineProperty(window, "localStorage", { value: makeStorage(), configurable: true });
+  Object.defineProperty(window, "sessionStorage", { value: makeStorage(), configurable: true });
+}

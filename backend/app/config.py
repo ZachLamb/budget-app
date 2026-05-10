@@ -66,6 +66,39 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env"}
 
 
+_PROD_ENV_MARKERS = (
+    # Hosted platform indicators that mean "this is production, don't seed
+    # demo data, don't relax security." Add new ones here as we add hosts.
+    ("VERCEL_ENV", "production"),
+    ("RAILWAY_ENVIRONMENT", "production"),
+    ("FLY_APP_NAME", None),  # any value present means a Fly deploy
+    ("RENDER", "true"),
+    ("NODE_ENV", "production"),
+    ("APP_ENV", "production"),
+    ("ENVIRONMENT", "production"),
+)
+
+
+def _looks_like_production() -> bool:
+    """True when at least one well-known prod env marker is set.
+
+    Used as a refuse-to-start gate against demo-mode-in-prod accidents.
+    Matched against either an exact value or simply "is set" depending on
+    the marker convention.
+    """
+    import os
+
+    for name, expected in _PROD_ENV_MARKERS:
+        v = os.environ.get(name)
+        if v is None:
+            continue
+        if expected is None:
+            return True
+        if v.strip().lower() == expected:
+            return True
+    return False
+
+
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
@@ -80,5 +113,17 @@ def get_settings() -> Settings:
     if not _origins or any(o == "*" for o in _origins):
         raise RuntimeError(
             "CORS_ORIGINS must list explicit origins (wildcard '*' is not allowed with credential-bearing requests)."
+        )
+    # Refuse to start with demo data on a production-marked deploy. Demo mode
+    # seeds fake data and mocks AI; if it ever lands in prod the user sees
+    # someone else's "data" and the AI returns canned responses. Hard fail.
+    if settings.demo_mode and _looks_like_production():
+        raise RuntimeError(
+            "DEMO_MODE=true is set, but a production environment marker is "
+            "also set (one of VERCEL_ENV, RAILWAY_ENVIRONMENT, FLY_APP_NAME, "
+            "RENDER, NODE_ENV, APP_ENV, ENVIRONMENT). Refusing to start. "
+            "Demo mode seeds fake data and mocks AI — it must never run in "
+            "production. If this is intentional, unset the prod marker; "
+            "otherwise unset DEMO_MODE."
         )
     return settings
