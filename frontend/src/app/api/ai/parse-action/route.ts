@@ -1,16 +1,15 @@
 import { NextRequest } from "next/server";
-import { getAiBackendBaseUrl, readProxyJsonBody, readUpstreamJsonSafe } from "@/lib/ai-proxy";
+import { buildForwardHeaders, getAiBackendBaseUrl, readProxyJsonBody, readUpstreamJsonSafe } from "@/lib/ai-proxy";
 
 export async function POST(req: NextRequest) {
   const parsed = await readProxyJsonBody(req);
   if (!parsed.ok) return parsed.response;
 
-  const auth = req.headers.get("Authorization") ?? "";
   const BACKEND = getAiBackendBaseUrl();
 
   const upstream = await fetch(`${BACKEND}/api/ai/parse-action`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: auth },
+    headers: buildForwardHeaders(req),
     body: JSON.stringify(parsed.body),
   });
 
