@@ -13,6 +13,7 @@ import {
 } from "@/lib/api/settings";
 import { AiSettingsCard } from "@/components/llm/ai-settings-card";
 import { PrivacyDataCard } from "@/components/settings/privacy-data-card";
+import { HostingHealthCard } from "@/components/settings/hosting-health-card";
 import { parseCreationOptions, supportsPasskey } from "@/lib/webauthn";
 import { useAuth } from "@/lib/providers";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -814,6 +815,8 @@ function SettingsContent() {
       </Card>
 
       <PrivacyDataCard />
+
+      <HostingHealthCard />
     </div>
   );
 }
