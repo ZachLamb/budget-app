@@ -11,6 +11,28 @@
 import type { GenerateOptions, LLMProvider } from "../types";
 import type { FeatureId } from "../features";
 
+/**
+ * Error thrown by the cloud provider when the proxy returns a non-2xx response.
+ * Preserves the HTTP status so consumers can branch on rate-limit (429) vs.
+ * other failures. `message` is the server-provided detail so existing
+ * string-only consumers (`error.message`) continue to work unchanged.
+ */
+export class LLMError extends Error {
+  readonly status: number;
+  readonly detail: string;
+
+  constructor(status: number, detail: string) {
+    super(detail);
+    this.name = "LLMError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+export function isLLMError(e: unknown): e is LLMError {
+  return e instanceof LLMError;
+}
+
 interface CloudRequest {
   feature: FeatureId;
   prompt: string;
@@ -50,7 +72,7 @@ class ServerProvider implements LLMProvider {
       } catch {
         // body wasn't JSON; keep generic detail
       }
-      throw new Error(detail);
+      throw new LLMError(resp.status, detail);
     }
     if (!resp.body) throw new Error("Empty response body.");
 
