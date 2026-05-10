@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     # household's Ollama bill regardless of the source IP.
     ai_rate_limit_per_minute: int = 120
 
+    # Fly.io API token for the Hosting health card. Read-only-ish PAT or
+    # org-scoped token. Empty in dev → the route returns available=false
+    # and the card renders a friendly "unavailable" placeholder rather
+    # than erroring.
+    fly_api_token: str = ""
+
     model_config = {"env_file": ".env"}
 
 
