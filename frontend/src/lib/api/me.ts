@@ -39,13 +39,12 @@ export function parseContentDispositionFilename(
   return plain?.[1]?.trim() || null;
 }
 
-function getToken(): string {
-  if (typeof window === "undefined") {
-    throw new Error("me.ts must be called from the browser");
-  }
+/** Read any pre-cookie-migration JWT from localStorage. After the cookie
+ *  migration, this returns null for new sessions; the cookie carries auth. */
+function legacyAuthHeader(): Record<string, string> {
+  if (typeof window === "undefined") return {};
   const token = window.localStorage.getItem("token");
-  if (!token) throw new Error("Not authenticated");
-  return token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 function isoDate(): string {
@@ -94,11 +93,11 @@ export const meApi = {
    * Caller is responsible for triggering the actual browser download.
    */
   async exportData(): Promise<ExportDownload> {
-    const token = getToken();
     const url = "/api/me/export";
     const resp = await fetch(url, {
       method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+      headers: { ...legacyAuthHeader() },
     });
     if (!resp.ok) {
       throw await buildHttpError(resp, "GET", url);
@@ -111,13 +110,13 @@ export const meApi = {
 
   /** Delete the user's account. Server requires the confirmation phrase. */
   async deleteAccount(): Promise<DeleteAccountResponse> {
-    const token = getToken();
     const url = "/api/me";
     const resp = await fetch(url, {
       method: "DELETE",
+      credentials: "include",
       headers: {
-        Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
+        ...legacyAuthHeader(),
       },
       body: JSON.stringify({ confirm: DELETE_CONFIRMATION_PHRASE }),
     });

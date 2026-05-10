@@ -97,7 +97,14 @@ describe("server provider", () => {
     }
   });
 
-  it("throws a plain Error (not LLMError) when no auth token is present", async () => {
+  it("with no legacy token still attempts the request (cookie auth) and surfaces a 401 from the server", async () => {
+    // After the cookie migration the provider no longer fast-fails on
+    // "no localStorage token" — the httpOnly cookie is the auth credential
+    // and is sent automatically by the browser. If neither is present,
+    // the server returns 401 and we surface that as an LLMError.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(401, { detail: "Not authenticated" }),
+    );
     const provider = makeServerProvider("explain_charge", () => null);
     let caught: unknown;
     try {
@@ -107,8 +114,10 @@ describe("server provider", () => {
     } catch (e) {
       caught = e;
     }
-    expect(isLLMError(caught)).toBe(false);
-    expect(caught).toBeInstanceOf(Error);
-    expect((caught as Error).message).toBe("Not authenticated.");
+    expect(isLLMError(caught)).toBe(true);
+    if (isLLMError(caught)) {
+      expect(caught.status).toBe(401);
+      expect(caught.detail).toBe("Not authenticated");
+    }
   });
 });

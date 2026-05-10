@@ -45,11 +45,16 @@ class ServerProvider implements LLMProvider {
   readonly tier = 4 as const;
   readonly privacy = "server" as const;
 
+  /**
+   * authToken is now a transition-only fallback. Auth is primarily via the
+   * httpOnly session cookie (sent automatically with credentials: "include").
+   * Pre-cookie sessions whose JWT still lives in localStorage continue to
+   * work via the Authorization header.
+   */
   constructor(private readonly featureId: FeatureId, private readonly authToken: () => string | null) {}
 
   async *generate(prompt: string, opts: GenerateOptions = {}): AsyncIterable<string> {
-    const token = this.authToken();
-    if (!token) throw new Error("Not authenticated.");
+    const legacyToken = this.authToken();
 
     const body: CloudRequest = { feature: this.featureId, prompt };
     if (opts.system) body.system = opts.system;
@@ -57,9 +62,10 @@ class ServerProvider implements LLMProvider {
 
     const resp = await fetch("/api/llm/cloud", {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...(legacyToken ? { Authorization: `Bearer ${legacyToken}` } : {}),
       },
       body: JSON.stringify(body),
       signal: opts.signal,

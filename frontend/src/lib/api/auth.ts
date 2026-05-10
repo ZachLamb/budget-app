@@ -73,6 +73,12 @@ export const authApi = {
     api.post<{ options: string }>("/auth/passkey/add/options").then((r) => r.data),
   passkeyAddVerify: (credential: Record<string, unknown>) =>
     api.post<{ ok: boolean }>("/auth/passkey/add/verify", { credential }).then((r) => r.data),
+  /**
+   * Clear the httpOnly session cookie. Idempotent — safe to call on a
+   * stale session. The frontend should call this in response to a user
+   * logout action; the server-side cookie is the source of truth.
+   */
+  logout: () => api.post<{ ok: true }>("/auth/logout").then((r) => r.data),
 };
 
 export interface PasskeyCredentialItem {

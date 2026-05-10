@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -43,6 +43,10 @@ from app.schemas.user import (
     GoogleOAuthExchangeRequest,
 )
 from app.api.deps import ALGORITHM, get_current_user
+from app.services.auth.session_cookie import (
+    set_session_cookie,
+    clear_session_cookie,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -66,8 +70,20 @@ def _create_token(user_id: str) -> str:
     return jwt.encode({"sub": user_id, "exp": expire}, get_settings().secret_key, algorithm=ALGORITHM)
 
 
+def _token_response(response: Response, token: str, user: User) -> TokenResponse:
+    """Set the session cookie + return the TokenResponse body.
+
+    Every login path (password / register / passkey / Google / demo) goes
+    through here so the cookie is set in lockstep with the JWT in the body.
+    The body still carries ``access_token`` for the transition window — non-
+    browser clients (curl, mobile) keep working via Bearer header.
+    """
+    set_session_cookie(response, token)
+    return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
+
+
 @router.post("/demo-login", response_model=TokenResponse)
-async def demo_login(db: AsyncSession = Depends(get_db)):
+async def demo_login(response: Response, db: AsyncSession = Depends(get_db)):
     """One-click login as the demo user. Only available when DEMO_MODE=true."""
     if not get_settings().demo_mode:
         raise HTTPException(status_code=404, detail="Not found")
@@ -76,14 +92,11 @@ async def demo_login(db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=503, detail="Demo data not ready")
     token = _create_token(user.id)
-    return TokenResponse(
-        access_token=token,
-        user=UserResponse.model_validate(user),
-    )
+    return _token_response(response, token, user)
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
+async def register(data: UserCreate, response: Response, db: AsyncSession = Depends(get_db)):
     existing = await db.execute(select(User).where(User.email == data.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -115,14 +128,11 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
             db.add(Category(group_id=group.id, name=cat_name, sort_order=cat_idx))
 
     token = _create_token(user.id)
-    return TokenResponse(
-        access_token=token,
-        user=UserResponse.model_validate(user),
-    )
+    return _token_response(response, token, user)
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login(data: UserLogin, response: Response, db: AsyncSession = Depends(get_db)):
     from app.services.auth import lockout
 
     email = data.email.strip().lower()
@@ -150,10 +160,22 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
 
     await lockout.clear_login_failures(email)
     token = _create_token(user.id)
-    return TokenResponse(
-        access_token=token,
-        user=UserResponse.model_validate(user),
-    )
+    return _token_response(response, token, user)
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Clear the session cookie. Returns 200 even if no cookie was set —
+    the contract is "after this call, the browser is logged out," and a
+    no-op delete on a non-existent cookie satisfies that.
+
+    Safe to call without authentication (intentionally no Depends here):
+    a stale cookie that no longer decodes is the exact case we want to
+    clear, and adding ``get_current_user`` would 401 the user out of
+    being able to log themselves out.
+    """
+    clear_session_cookie(response)
+    return {"ok": True}
 
 
 @router.get("/me", response_model=UserResponse)
@@ -337,6 +359,7 @@ async def passkey_register_options(
 async def passkey_register_verify(
     data: PasskeyRegisterVerifyRequest,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """Verify passkey registration and create user + credential. Body: { credential: <JSON from navigator.credentials.create> }."""
@@ -402,7 +425,7 @@ async def passkey_register_verify(
         await db.commit()
         await db.refresh(user)
         token = _create_token(user.id)
-        return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
+        return _token_response(response, token, user)
     except HTTPException:
         raise
     except Exception as e:
@@ -457,6 +480,7 @@ async def passkey_authenticate_options(
 async def passkey_authenticate_verify(
     data: PasskeyAuthenticateVerifyRequest,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """Verify passkey assertion and return token. Body: { credential: <JSON from navigator.credentials.get> }."""
@@ -513,7 +537,7 @@ async def passkey_authenticate_verify(
     result = await db.execute(select(User).where(User.id == webauthn_cred.user_id))
     user = result.scalar_one()
     token = _create_token(user.id)
-    return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
+    return _token_response(response, token, user)
 
 
 @router.get("/passkey/credentials", response_model=list[PasskeyCredentialListItem])
@@ -814,7 +838,11 @@ async def google_callback(
 
 
 @router.post("/google/exchange", response_model=TokenResponse)
-async def google_oauth_exchange(data: GoogleOAuthExchangeRequest, db: AsyncSession = Depends(get_db)):
+async def google_oauth_exchange(
+    data: GoogleOAuthExchangeRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
     """Exchange a one-time code from Google OAuth redirect for a JWT (avoids long-lived tokens in URLs)."""
     _clean_oauth_login_codes()
     code = (data.code or "").strip()
@@ -829,4 +857,4 @@ async def google_oauth_exchange(data: GoogleOAuthExchangeRequest, db: AsyncSessi
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired login code")
     token = _create_token(user.id)
-    return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
+    return _token_response(response, token, user)

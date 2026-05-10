@@ -9,6 +9,31 @@ export function getAiBackendBaseUrl(): string {
     : process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 }
 
+/**
+ * Forward auth-relevant headers to the backend.
+ *
+ * - ``Authorization``: legacy Bearer token. Still supported during the
+ *   localStorage→cookie migration.
+ * - ``Cookie``: carries the new ``session`` httpOnly cookie. The browser
+ *   sets it on requests to /api/* (same-origin); the proxy must forward
+ *   it verbatim or the backend will treat the request as anonymous.
+ * - ``Origin``: required by the backend's ``OriginCheckMiddleware`` for
+ *   cookie-authenticated state-changing requests. Forward what the
+ *   browser sent so the allowlist check passes.
+ */
+export function buildForwardHeaders(req: { headers: Headers }): Record<string, string> {
+  const out: Record<string, string> = { "Content-Type": "application/json" };
+  const auth = req.headers.get("Authorization");
+  if (auth) out.Authorization = auth;
+  const cookie = req.headers.get("Cookie");
+  if (cookie) out.Cookie = cookie;
+  const origin = req.headers.get("Origin");
+  if (origin) out.Origin = origin;
+  const referer = req.headers.get("Referer");
+  if (referer) out.Referer = referer;
+  return out;
+}
+
 export async function readProxyJsonBody(
   req: NextRequest,
 ): Promise<{ ok: true; body: unknown } | { ok: false; response: Response }> {

@@ -1,22 +1,29 @@
 /**
- * AuthProvider bootstrap sequence.
+ * AuthProvider bootstrap sequence (post-cookie-migration).
  *
- * The provider has three outcomes on mount:
- * 1. no saved token → loading ends immediately; `user`/`token` stay null.
- * 2. saved token + authApi.me() succeeds → `user` and `token` populated.
- * 3. saved token + authApi.me() rejects → localStorage cleared, `token`/`user` reset.
+ * The provider always calls /api/auth/me on mount, because the source of
+ * truth for "am I logged in" is now the httpOnly session cookie — JS can't
+ * read it, so the only way to find out is to ask the server.
  *
- * These are the surfaces that caused a regression earlier this cycle
- * (bootstrap race; token not cleared on failed /me). Explicit coverage.
+ * Three outcomes:
+ * 1. /me rejects (no valid session) → loading ends, user stays null,
+ *    legacy localStorage entries are cleared.
+ * 2. /me resolves → loading ends, user populated. If a legacy token is
+ *    in localStorage, it carries forward in `token` for the transition
+ *    window (axios interceptor sends it); otherwise `token` is null.
+ * 3. /me hangs (rare) → loading stays true. Not exercised — covered by
+ *    React Query timeouts elsewhere.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
 const meMock = vi.fn();
+const logoutMock = vi.fn(async () => ({ ok: true as const }));
 
 vi.mock("@/lib/api/auth", () => ({
   authApi: {
     me: () => meMock(),
+    logout: () => logoutMock(),
   },
 }));
 
@@ -40,7 +47,11 @@ beforeEach(() => {
 });
 
 describe("Providers / AuthProvider bootstrap", () => {
-  it("finishes loading with no user when no token is saved", async () => {
+  it("finishes loading with no user when /me rejects (no valid session)", async () => {
+    // Cookie-based auth: there's no client-readable signal that the user
+    // is logged in. The provider always calls /me; rejection means
+    // "no session" and we land in the logged-out state.
+    meMock.mockRejectedValueOnce(new Error("401"));
     render(
       <Providers>
         <AuthReadout />
@@ -51,10 +62,28 @@ describe("Providers / AuthProvider bootstrap", () => {
     });
     expect(screen.getByTestId("token").textContent).toBe("null");
     expect(screen.getByTestId("user").textContent).toBe("null");
-    expect(meMock).not.toHaveBeenCalled();
+    expect(meMock).toHaveBeenCalledTimes(1);
   });
 
-  it("populates user and token when a saved token validates via /me", async () => {
+  it("populates user when /me resolves", async () => {
+    meMock.mockResolvedValueOnce({ id: "u-1", email: "a@b.co" });
+
+    render(
+      <Providers>
+        <AuthReadout />
+      </Providers>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("loading").textContent).toBe("false");
+    });
+    expect(screen.getByTestId("user").textContent).toBe("u-1");
+    expect(meMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries a pre-cookie-migration localStorage token forward as `token`", async () => {
+    // Legacy users still have their JWT in localStorage from before the
+    // cookie shipped. The axios interceptor uses it as a fallback. The
+    // provider exposes it on the context for the same legacy reason.
     localStorage.setItem("token", "saved-token");
     meMock.mockResolvedValueOnce({ id: "u-1", email: "a@b.co" });
 
@@ -67,11 +96,9 @@ describe("Providers / AuthProvider bootstrap", () => {
       expect(screen.getByTestId("loading").textContent).toBe("false");
     });
     expect(screen.getByTestId("token").textContent).toBe("saved-token");
-    expect(screen.getByTestId("user").textContent).toBe("u-1");
-    expect(meMock).toHaveBeenCalledTimes(1);
   });
 
-  it("clears localStorage and state when /me rejects (expired or invalid token)", async () => {
+  it("clears legacy localStorage when /me rejects", async () => {
     localStorage.setItem("token", "expired-token");
     localStorage.setItem("user", JSON.stringify({ id: "stale" }));
     meMock.mockRejectedValueOnce(new Error("401"));
@@ -84,8 +111,6 @@ describe("Providers / AuthProvider bootstrap", () => {
     await waitFor(() => {
       expect(screen.getByTestId("loading").textContent).toBe("false");
     });
-    // Both FE state and persisted state are cleared so downstream queries
-    // don't run with an invalid token.
     expect(screen.getByTestId("token").textContent).toBe("null");
     expect(screen.getByTestId("user").textContent).toBe("null");
     expect(localStorage.getItem("token")).toBeNull();

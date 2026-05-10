@@ -26,38 +26,69 @@ export const useAuth = () => useContext(AuthContext);
 
 function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  // The httpOnly session cookie is the auth credential — JS can't read it
+  // and shouldn't try to. ``token`` exists in the context only for legacy
+  // callers that haven't been migrated yet; it's null after any post-cookie
+  // login. New code must not depend on it.
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
     queueMicrotask(() => {
-      const savedToken = localStorage.getItem("token");
-      if (savedToken) {
-        setToken(savedToken);
-        authApi
-          .me()
-          .then((u) => setUser(u))
-          .catch(() => {
-            localStorage.removeItem("token");
-            localStorage.removeItem("user");
+      // Carry forward any pre-migration localStorage token so the axios
+      // client still sends Authorization: Bearer for sessions that pre-date
+      // the cookie. This branch goes away naturally — once the user logs
+      // in or the legacy token expires, the localStorage entries are
+      // cleared and we live entirely on the cookie.
+      const legacyToken = localStorage.getItem("token");
+      if (legacyToken) setToken(legacyToken);
+
+      // Source of truth for "am I logged in" is now /api/auth/me. The cookie
+      // is sent automatically (withCredentials: true on the axios client).
+      authApi
+        .me()
+        .then((u) => {
+          if (mounted) setUser(u);
+        })
+        .catch(() => {
+          // 401 means no valid session. Clean up legacy localStorage in
+          // case the cookie never got set on this device.
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          if (mounted) {
             setToken(null);
             setUser(null);
-          })
-          .finally(() => setLoading(false));
-      } else {
-        setLoading(false);
-      }
+          }
+        })
+        .finally(() => {
+          if (mounted) setLoading(false);
+        });
     });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  const login = useCallback((newToken: string, newUser: User) => {
-    localStorage.setItem("token", newToken);
-    localStorage.setItem("user", JSON.stringify(newUser));
-    setToken(newToken);
+  // Kept for source-compatibility with existing callers (LoginPage, register
+  // flow, passkey verify, Google callback). The server already set the
+  // httpOnly cookie before we got here; we just hydrate React state.
+  // We intentionally do NOT write the token to localStorage anymore — the
+  // cookie is the durable session.
+  const login = useCallback((_newToken: string, newUser: User) => {
+    // Wipe any stale legacy entries from before the migration.
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    setToken(null);
     setUser(newUser);
   }, []);
 
   const logout = useCallback(() => {
+    // Server-side cookie clear is the authoritative step. Fire-and-forget;
+    // we still wipe local state immediately so the UI flips to logged-out.
+    void authApi.logout().catch(() => {
+      // Network failure shouldn't trap the user in a logged-in state.
+    });
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     setToken(null);
