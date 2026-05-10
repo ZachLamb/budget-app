@@ -3,10 +3,20 @@ import type { NextConfig } from "next";
 // Rewrite destination must be reachable from where Next.js runs.
 // Docker Compose sets NEXT_PUBLIC_API_DOCKER=1 so we use http://backend:8000.
 // When running frontend on host (npm run dev), "backend" won't resolve → we use http://localhost:8000.
+//
+// The substring check intentionally targets ONLY the docker-compose internal
+// hostname (the literal host "backend", with no domain). Earlier this used
+// ``url.includes("backend")`` which also matched legitimate public hostnames
+// like "clarity-backend.fly.dev" — Vercel then proxied /api to localhost,
+// the loopback resolves to a private IP, and we 404'd with
+// DNS_HOSTNAME_RESOLVED_PRIVATE on every request.
 function getApiRewriteDestination(): string {
   const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const useDockerBackend = process.env.NEXT_PUBLIC_API_DOCKER === "1";
-  if (url.includes("backend") && !useDockerBackend) {
+  // Match only http://backend or http://backend:PORT (the compose hostname).
+  // Public hostnames that merely contain "backend" no longer collide.
+  const isDockerComposeHostname = /^https?:\/\/backend(?::\d+)?(?:\/|$)/.test(url);
+  if (isDockerComposeHostname && !useDockerBackend) {
     return "http://localhost:8000";
   }
   return url;
