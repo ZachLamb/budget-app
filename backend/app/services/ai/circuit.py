@@ -49,12 +49,17 @@ async def is_open(
         return cached[0]
 
     since = datetime.now(timezone.utc) - timedelta(hours=1)
+    # The breaker exists to cap GPU cost. Cache hits don't touch the GPU, so
+    # exclude them from both row count and token totals — including them would
+    # cause a hot prompt to trip the breaker even though it's free.
     res = await db.execute(
         select(
             func.count(LlmAudit.id),
             func.coalesce(func.sum(LlmAudit.prompt_tokens), 0),
             func.coalesce(func.sum(LlmAudit.completion_tokens), 0),
-        ).where(LlmAudit.created_at >= since)
+        )
+        .where(LlmAudit.created_at >= since)
+        .where(LlmAudit.cache_hit.is_(False))
     )
     count, p, c = res.one()
     total_tokens = int((p or 0) + (c or 0))

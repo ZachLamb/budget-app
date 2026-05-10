@@ -12,6 +12,7 @@ DELETE /api/llm/consent             — revoke ALL cloud consent + purge cache
 DELETE /api/llm/consent/{feature}   — revoke one feature
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -25,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.config import get_settings
 from app.database import get_db
+from app.middleware.rate_limit_store import RateLimitStore
 from app.models.user import User
 from app.services.ai import audit, cache, circuit
 from app.services.ai import consent as consent_service
@@ -66,7 +68,7 @@ class ConsentResponse(BaseModel):
     revokedAt: Optional[str]
 
 
-# ── Cloud generate ────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 
 def _sse(data: dict) -> bytes:
@@ -79,6 +81,22 @@ def _approx_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def _get_rate_limit_store(request: Request) -> RateLimitStore:
+    """Typed accessor for the shared rate-limit store on app.state.
+
+    Wrapping the untyped ``request.app.state.rate_limit_store`` in a function
+    makes a typo a runtime failure at startup of any route that uses it,
+    rather than a silent miss inside a streaming handler.
+    """
+    store = getattr(request.app.state, "rate_limit_store", None)
+    if store is None:  # pragma: no cover — only reachable if main.py changed
+        raise RuntimeError("rate_limit_store is not configured on app.state")
+    return store
+
+
+# ── Cloud generate ────────────────────────────────────────────────────────────
+
+
 @router.post("/cloud")
 async def cloud_generate(
     body: CloudGenerateRequest,
@@ -88,6 +106,10 @@ async def cloud_generate(
 ) -> StreamingResponse:
     """Stream a Tier 4 (cloud) completion. Requires per-feature consent."""
 
+    # Capture request entry time so cache-hit and live latencies both measure
+    # "time the user waited," not just the duration of the inner loop.
+    t_request = time.perf_counter()
+
     # 1. Consent gate — server-authoritative; client-side check is informational.
     if not await consent_service.has_active_consent(db, user.id, body.feature):
         raise HTTPException(
@@ -95,7 +117,8 @@ async def cloud_generate(
             detail="Cloud AI not authorized for this feature. Grant consent first.",
         )
 
-    # 2. Circuit breaker — global cost cap.
+    # 2. Circuit breaker — global cost cap. Reads only non-cached audit rows
+    # (see services/ai/circuit.py) so cache hits don't trip the breaker.
     try:
         if await circuit.is_open(db):
             raise HTTPException(
@@ -108,8 +131,53 @@ async def cloud_generate(
         # Failure to check the breaker should not block the request — log and continue.
         logger.warning("circuit check failed: %s", e)
 
-    # 3. Per-user daily rate limit.
-    store = request.app.state.rate_limit_store
+    # 3. Sanitize the system prompt; the user-supplied prompt is enforced at
+    # the input schema (length cap). System prompts are also length-capped but
+    # treated as potentially user-influenced in the future.
+    system_prompt = sanitize_user_text(body.system or "", max_len=2_000) if body.system else ""
+    user_prompt = body.prompt  # Already capped to 8000 chars by Pydantic.
+
+    settings = get_settings()
+    model_name = settings.ollama_model
+
+    # 4. Cache lookup — per user + content hash. Cache hits do NOT charge the
+    # daily rate limit (no GPU work) and don't count toward the circuit breaker.
+    cached = await cache.get(user.id, body.feature, system_prompt, user_prompt)
+    if cached is not None:
+        async def cached_iter():
+            client_disconnected = False
+            try:
+                yield _sse({"chunk": cached})
+                yield _sse({"done": True, "cached": True})
+            except (asyncio.CancelledError, GeneratorExit):
+                # Client closed the stream before we finished.
+                client_disconnected = True
+                raise
+            finally:
+                await audit.write(
+                    db,
+                    user_id=user.id,
+                    feature=body.feature,
+                    tier=4,
+                    # 499 (nginx convention) for client-closed streams; otherwise 200.
+                    status=499 if client_disconnected else 200,
+                    prompt_tokens=_approx_tokens(user_prompt),
+                    completion_tokens=_approx_tokens(cached),
+                    latency_ms=int((time.perf_counter() - t_request) * 1000),
+                    model=model_name,
+                    cache_hit=True,
+                )
+
+        return StreamingResponse(
+            cached_iter(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # 5. Cache miss: charge the per-user daily rate limit before doing any
+    # GPU work. Charging here (not before the cache lookup) means cached
+    # responses don't burn the user's daily budget.
+    store = _get_rate_limit_store(request)
     try:
         await llm_rate_limit.check_and_charge(store, user.id)
     except llm_rate_limit.RateLimitExceeded as e:
@@ -118,74 +186,54 @@ async def cloud_generate(
             detail=f"Daily cloud AI limit reached ({e.limit}). Resets in 24h.",
         ) from e
 
-    # 4. Sanitize the system prompt; the user-supplied prompt is enforced at the
-    # input schema (length cap). System prompts are limited but treated as potentially
-    # user-influenced in the future.
-    system_prompt = sanitize_user_text(body.system or "", max_len=2_000) if body.system else ""
-    user_prompt = body.prompt  # Already capped to 8000 chars by Pydantic.
-
-    settings = get_settings()
-    model_name = settings.ollama_model
-
-    # 5. Cache lookup (per user + content hash). Stream the cached value as one chunk.
-    cached = await cache.get(user.id, body.feature, system_prompt, user_prompt)
-    if cached is not None:
-        async def cached_iter():
-            t0 = time.perf_counter()
-            yield _sse({"chunk": cached})
-            yield _sse({"done": True, "cached": True})
-            await audit.write(
-                db,
-                user_id=user.id,
-                feature=body.feature,
-                tier=4,
-                status=200,
-                prompt_tokens=_approx_tokens(user_prompt),
-                completion_tokens=_approx_tokens(cached),
-                latency_ms=int((time.perf_counter() - t0) * 1000),
-                model=model_name,
-                cache_hit=True,
-            )
-
-        return StreamingResponse(
-            cached_iter(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-
-    # 6. Live call — stream from Ollama (dev) / vLLM-on-Modal (prod, when LLM_BACKEND_URL is set).
+    # 6. Live call — stream from Ollama (dev) / vLLM-on-Modal (prod).
     async def gen():
-        t0 = time.perf_counter()
         completion_buf: list[str] = []
+        client_disconnected = False
+        had_error: Optional[BaseException] = None
         try:
-            async for chunk, _src in llm_client.stream_complete_with_source(user_prompt, system_prompt or None):
+            async for chunk, _src in llm_client.stream_complete_with_source(
+                user_prompt, system_prompt or None
+            ):
                 completion_buf.append(chunk)
                 yield _sse({"chunk": chunk})
             yield _sse({"done": True})
-            full = "".join(completion_buf)
-            await cache.set(user.id, body.feature, system_prompt, user_prompt, full)
-            await audit.write(
-                db,
-                user_id=user.id,
-                feature=body.feature,
-                tier=4,
-                status=200,
-                prompt_tokens=_approx_tokens(user_prompt),
-                completion_tokens=_approx_tokens(full),
-                latency_ms=int((time.perf_counter() - t0) * 1000),
-                model=model_name,
-                cache_hit=False,
-            )
+        except (asyncio.CancelledError, GeneratorExit) as e:
+            client_disconnected = True
+            had_error = e
+            raise
         except Exception as e:
+            had_error = e
             logger.warning("cloud_generate stream error: %s", e)
-            yield _sse({"error": "Stream interrupted."})
+            try:
+                yield _sse({"error": "Stream interrupted."})
+            except (asyncio.CancelledError, GeneratorExit):
+                # Client may have already disconnected — best-effort error frame.
+                client_disconnected = True
+        finally:
+            full = "".join(completion_buf)
+            # Only cache complete, error-free generations. Don't poison the
+            # cache with truncated text from a disconnected client.
+            if had_error is None and full:
+                try:
+                    await cache.set(user.id, body.feature, system_prompt, user_prompt, full)
+                except Exception as cache_err:  # pragma: no cover — log only
+                    logger.warning("cache.set failed: %s", cache_err)
+            if client_disconnected:
+                status_code = 499
+            elif had_error is not None:
+                status_code = 500
+            else:
+                status_code = 200
             await audit.write(
                 db,
                 user_id=user.id,
                 feature=body.feature,
                 tier=4,
-                status=500,
-                latency_ms=int((time.perf_counter() - t0) * 1000),
+                status=status_code,
+                prompt_tokens=_approx_tokens(user_prompt),
+                completion_tokens=_approx_tokens(full) if full else None,
+                latency_ms=int((time.perf_counter() - t_request) * 1000),
                 model=model_name,
                 cache_hit=False,
             )
