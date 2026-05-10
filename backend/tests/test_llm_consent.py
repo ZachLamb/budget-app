@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -126,3 +127,92 @@ async def test_is_known_feature():
     assert consent_service.is_known_feature("explain_charge")
     assert consent_service.is_known_feature("financial_advice")
     assert not consent_service.is_known_feature("anything_else")
+
+
+# ── Expiration behavior ──────────────────────────────────────────────────────
+
+
+def _as_aware(dt: datetime) -> datetime:
+    """SQLite drops the tzinfo on round-trip even with DateTime(timezone=True);
+    coerce naive datetimes back to UTC for comparison in tests."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+@pytest.mark.asyncio
+async def test_grant_sets_expires_at_to_90_days(db_session: AsyncSession):
+    await _seed_user(db_session)
+    before = datetime.now(timezone.utc)
+    row = await consent_service.grant_consent(db_session, "u1", "explain_charge")
+    after = datetime.now(timezone.utc)
+
+    assert row.expires_at is not None
+    expires = _as_aware(row.expires_at)
+    expected_min = before + timedelta(days=consent_service.DEFAULT_EXPIRATION_DAYS) - timedelta(seconds=1)
+    expected_max = after + timedelta(days=consent_service.DEFAULT_EXPIRATION_DAYS) + timedelta(seconds=1)
+    assert expected_min <= expires <= expected_max
+
+
+@pytest.mark.asyncio
+async def test_has_active_consent_false_when_expired(db_session: AsyncSession):
+    await _seed_user(db_session)
+    row = await consent_service.grant_consent(db_session, "u1", "explain_charge")
+    # Force the grant to be in the past — bypass the service to simulate
+    # an aged-out row that the user hasn't renewed.
+    row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    await db_session.commit()
+
+    assert not await consent_service.has_active_consent(db_session, "u1", "explain_charge")
+
+
+@pytest.mark.asyncio
+async def test_has_active_consent_true_when_not_yet_expired(db_session: AsyncSession):
+    await _seed_user(db_session)
+    row = await consent_service.grant_consent(db_session, "u1", "explain_charge")
+    # Default 90 days in the future — should be active.
+    assert row.expires_at is not None
+    assert _as_aware(row.expires_at) > datetime.now(timezone.utc)
+    assert await consent_service.has_active_consent(db_session, "u1", "explain_charge")
+
+
+@pytest.mark.asyncio
+async def test_grant_resets_expiry_on_re_grant(db_session: AsyncSession):
+    await _seed_user(db_session)
+    row = await consent_service.grant_consent(db_session, "u1", "explain_charge")
+    # Push the expiry into the past to simulate an aged-out grant.
+    row.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+    await db_session.commit()
+    assert not await consent_service.has_active_consent(db_session, "u1", "explain_charge")
+
+    # Re-granting should reset the expiry to ~90 days from now even though
+    # the row is technically not revoked — this is the path the "Renew"
+    # button hits.
+    row2 = await consent_service.grant_consent(db_session, "u1", "explain_charge")
+    assert row2.id == row.id  # same row
+    assert row2.expires_at is not None
+    assert _as_aware(row2.expires_at) > datetime.now(timezone.utc) + timedelta(days=89)
+    assert await consent_service.has_active_consent(db_session, "u1", "explain_charge")
+
+
+@pytest.mark.asyncio
+async def test_revoked_then_granted_gets_fresh_expiry(db_session: AsyncSession):
+    """Re-granting after a revoke must also set a fresh 90-day expiry."""
+    await _seed_user(db_session)
+    await consent_service.grant_consent(db_session, "u1", "explain_charge")
+    await consent_service.revoke_consent(db_session, "u1", "explain_charge")
+    row = await consent_service.grant_consent(db_session, "u1", "explain_charge")
+    assert row.revoked_at is None
+    assert row.expires_at is not None
+    assert _as_aware(row.expires_at) > datetime.now(timezone.utc) + timedelta(days=89)
+
+
+@pytest.mark.asyncio
+async def test_has_active_consent_true_when_expires_at_null(db_session: AsyncSession):
+    """Backward-compat: a row with NULL expires_at is treated as 'no expiry'."""
+    await _seed_user(db_session)
+    row = await consent_service.grant_consent(db_session, "u1", "explain_charge")
+    # Simulate a legacy row that the migration didn't backfill.
+    row.expires_at = None
+    await db_session.commit()
+    assert await consent_service.has_active_consent(db_session, "u1", "explain_charge")

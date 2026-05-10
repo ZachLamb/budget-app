@@ -70,6 +70,15 @@ export function AiSettingsCard() {
     onError: (e) => toastApiError("Failed to revoke consent", e),
   });
 
+  const renewOne = useMutation({
+    mutationFn: (feature: string) => llmApi.grantCloudConsent(feature),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["llmCloudConsent"] });
+      appToast.success("Cloud consent renewed for 90 days");
+    },
+    onError: (e) => toastApiError("Failed to renew consent", e),
+  });
+
   const revokeAll = useMutation({
     mutationFn: () => llmApi.revokeAllCloudConsent(),
     onSuccess: () => {
@@ -247,7 +256,10 @@ export function AiSettingsCard() {
           ) : (
             <ul className="divide-y rounded-md border">
               {cloudPossibleFeatures.map((f) => {
-                const isGranted = activeGrants.some((g) => g.feature === f.id);
+                const grant = activeGrants.find((g) => g.feature === f.id);
+                const isGranted = grant !== undefined;
+                const expiryHint = grant ? formatExpiryHint(grant.expiresAt) : null;
+                const showRenew = grant ? isWithinRenewalWindow(grant.expiresAt) : false;
                 return (
                   <li key={f.id} className="flex items-center justify-between gap-4 px-3 py-2 text-sm">
                     <div>
@@ -255,11 +267,30 @@ export function AiSettingsCard() {
                       <div className="text-xs text-muted-foreground">
                         {f.minimumTier === 4 ? "Cloud-only" : "Defaults to on-device"}
                       </div>
+                      {isGranted && expiryHint && (
+                        <div
+                          className={`text-xs ${
+                            showRenew ? "text-amber-600 dark:text-amber-500" : "text-muted-foreground"
+                          }`}
+                        >
+                          {expiryHint}
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       {isGranted ? (
                         <>
                           <Badge variant="secondary">Authorized</Badge>
+                          {showRenew && (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => renewOne.mutate(f.id)}
+                              disabled={renewOne.isPending}
+                            >
+                              Renew
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -310,6 +341,45 @@ function webGpuStatusText(
   if (consent === "denied") return "Permission denied";
   if (consent === "granted") return "Allowed, not downloaded";
   return "Not downloaded yet";
+}
+
+// Default look-ahead for the "Renew" affordance — must match the backend
+// service's DEFAULT_RENEWAL_WINDOW_DAYS. The server is the source of truth
+// for the actual gate; this only affects whether the UI button shows.
+const RENEWAL_WINDOW_DAYS = 7;
+
+function isWithinRenewalWindow(expiresAt: string | null): boolean {
+  if (!expiresAt) return false;
+  const expiryMs = Date.parse(expiresAt);
+  if (Number.isNaN(expiryMs)) return false;
+  const now = Date.now();
+  // Already expired or revoked-equivalent: not in renewal window.
+  if (expiryMs <= now) return false;
+  const msLeft = expiryMs - now;
+  return msLeft <= RENEWAL_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function formatExpiryHint(expiresAt: string | null): string | null {
+  if (!expiresAt) return null;
+  const expiryMs = Date.parse(expiresAt);
+  if (Number.isNaN(expiryMs)) return null;
+  const now = Date.now();
+  const msLeft = expiryMs - now;
+  if (msLeft <= 0) return "Expired";
+  const dayMs = 24 * 60 * 60 * 1000;
+  const daysLeft = Math.ceil(msLeft / dayMs);
+  // Within the renewal window: surface the countdown so the user
+  // understands the urgency. Outside it: show the absolute date.
+  if (daysLeft <= RENEWAL_WINDOW_DAYS) {
+    if (daysLeft === 1) return "Expires in 1 day";
+    return `Expires in ${daysLeft} days`;
+  }
+  const dateLabel = new Date(expiryMs).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  return `Expires ${dateLabel}`;
 }
 
 function TierStatus({

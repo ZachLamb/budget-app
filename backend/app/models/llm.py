@@ -35,6 +35,13 @@ class LlmConsent(Base):
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Cloud (Tier 4) consent expires after a window (default 90 days) and the
+    # user must re-affirm to keep using the feature. Nullable so that any
+    # legacy row that slips through unmigrated is treated as "no expiry"
+    # rather than silently broken; new rows always populate this column.
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
     user = relationship("User")
 

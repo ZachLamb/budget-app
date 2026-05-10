@@ -31,6 +31,7 @@ from app.models.user import User
 from app.services.ai import audit, cache, circuit
 from app.services.ai import consent as consent_service
 from app.services.ai import llm_client, llm_rate_limit
+from app.services.ai.log_redact import safe_error_message
 from app.services.ai.prompt_safety import sanitize_user_text
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,9 @@ class ConsentResponse(BaseModel):
     tier: int
     grantedAt: str
     revokedAt: Optional[str]
+    # ISO-8601 timestamp at which this grant expires and the user must
+    # re-affirm. Nullable for legacy/unmigrated rows that have no expiry.
+    expiresAt: Optional[str] = None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -129,7 +133,7 @@ async def cloud_generate(
         raise
     except Exception as e:
         # Failure to check the breaker should not block the request — log and continue.
-        logger.warning("circuit check failed: %s", e)
+        logger.warning("%s", safe_error_message(e, prefix="circuit check failed"))
 
     # 3. Sanitize the system prompt; the user-supplied prompt is enforced at
     # the input schema (length cap). System prompts are also length-capped but
@@ -204,7 +208,10 @@ async def cloud_generate(
             raise
         except Exception as e:
             had_error = e
-            logger.warning("cloud_generate stream error: %s", e)
+            # Use safe_error_message — upstream exceptions (httpx, etc.) can
+            # embed the full request body in their __str__, which would leak
+            # the user's prompt into our logs and break the privacy contract.
+            logger.warning("%s", safe_error_message(e, prefix="cloud_generate stream error"))
             try:
                 yield _sse({"error": "Stream interrupted."})
             except (asyncio.CancelledError, GeneratorExit):
@@ -218,7 +225,7 @@ async def cloud_generate(
                 try:
                     await cache.set(user.id, body.feature, system_prompt, user_prompt, full)
                 except Exception as cache_err:  # pragma: no cover — log only
-                    logger.warning("cache.set failed: %s", cache_err)
+                    logger.warning("%s", safe_error_message(cache_err, prefix="cache.set failed"))
             if client_disconnected:
                 status_code = 499
             elif had_error is not None:
@@ -255,6 +262,7 @@ def _to_response(row) -> ConsentResponse:
         tier=row.tier,
         grantedAt=row.granted_at.isoformat(),
         revokedAt=row.revoked_at.isoformat() if row.revoked_at else None,
+        expiresAt=row.expires_at.isoformat() if row.expires_at else None,
     )
 
 

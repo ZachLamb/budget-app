@@ -12,6 +12,11 @@ export interface CloudConsentGrant {
   tier: number;
   grantedAt: string;
   revokedAt: string | null;
+  /**
+   * ISO-8601 timestamp at which this grant expires and the user must
+   * re-affirm. May be null for legacy/unmigrated rows that have no expiry.
+   */
+  expiresAt: string | null;
 }
 
 export const llmApi = {
