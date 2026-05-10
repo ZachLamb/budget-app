@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useLlm } from "@/lib/llm/useLlm";
-import { isLLMError, type LLMError } from "@/lib/llm";
+import { isLLMError, scanPrompt, type LLMError, type PIIScan } from "@/lib/llm";
 import { getFeaturePolicy } from "@/lib/llm/features";
 import { llmApi } from "@/lib/api/llm";
 import { toastApiError } from "@/lib/toast-error";
@@ -14,6 +14,7 @@ import type { Transaction } from "@/lib/api/transactions";
 import { formatCurrency } from "@/lib/format";
 import { CloudConsentDialog } from "./cloud-consent-dialog";
 import { DownloadConsentCard } from "./download-consent-card";
+import { PiiWarningDialog } from "./pii-warning-dialog";
 
 interface Props {
   txn: Transaction;
@@ -67,6 +68,31 @@ export function ExplainCharge({ txn }: Props) {
   const [tier, setTier] = useState<1 | 2 | 4 | null>(null);
   const [showCloudConsent, setShowCloudConsent] = useState(false);
   const [showDownloadConsent, setShowDownloadConsent] = useState(false);
+  const [piiScan, setPiiScan] = useState<PIIScan | null>(null);
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+
+  const streamPrompt = useCallback(
+    async (prompt: string) => {
+      setLoading(true);
+      try {
+        for await (const chunk of llm.run(FEATURE, prompt, {
+          system: SYSTEM_PROMPT,
+          maxTokens: 200,
+        })) {
+          setOutput((prev) => prev + chunk);
+        }
+      } catch (e) {
+        if (isLLMError(e) && e.status === 429) {
+          setRateLimitError(e);
+        } else {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [llm],
+  );
 
   const run = useCallback(async () => {
     setError(null);
@@ -88,19 +114,43 @@ export function ExplainCharge({ txn }: Props) {
       }
       setTier(decision.tier);
       const prompt = buildPrompt(txn);
-      for await (const chunk of llm.run(FEATURE, prompt, { system: SYSTEM_PROMPT, maxTokens: 200 })) {
-        setOutput((prev) => prev + chunk);
+
+      // Cloud tier: scan for PII patterns and let the user abort if any of
+      // their text looks like an SSN, card, email, or phone. Tier 1/2 stay
+      // on-device, so no warning is needed.
+      if (decision.tier === 4) {
+        const scan = scanPrompt(prompt);
+        if (scan.flags.length > 0) {
+          setPiiScan(scan);
+          setPendingPrompt(prompt);
+          setLoading(false);
+          return;
+        }
       }
+
+      await streamPrompt(prompt);
     } catch (e) {
       if (isLLMError(e) && e.status === 429) {
         setRateLimitError(e);
       } else {
         setError(e instanceof Error ? e.message : String(e));
       }
-    } finally {
       setLoading(false);
     }
-  }, [llm, txn]);
+  }, [llm, txn, streamPrompt]);
+
+  const cancelPii = useCallback(() => {
+    setPiiScan(null);
+    setPendingPrompt(null);
+    setLoading(false);
+  }, []);
+
+  const sendPiiAnyway = useCallback(() => {
+    const prompt = pendingPrompt;
+    setPiiScan(null);
+    setPendingPrompt(null);
+    if (prompt !== null) void streamPrompt(prompt);
+  }, [pendingPrompt, streamPrompt]);
 
   const fallbackToLocal = useMutation({
     mutationFn: async () => {
@@ -187,6 +237,14 @@ export function ExplainCharge({ txn }: Props) {
           void run();
         }}
       />
+      {piiScan && (
+        <PiiWarningDialog
+          open={piiScan !== null}
+          scan={piiScan}
+          onCancel={cancelPii}
+          onSendAnyway={sendPiiAnyway}
+        />
+      )}
     </div>
   );
 }

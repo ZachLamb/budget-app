@@ -23,3 +23,5 @@ export type { Decision, RouterContext } from "./router";
 export { nanoProvider } from "./providers/nano";
 export { getWebLlmProvider } from "./providers/web-llm";
 export { makeServerProvider, LLMError, isLLMError } from "./providers/server";
+export { scanPrompt } from "./pii-detect";
+export type { PIIFlag, PIIScan } from "./pii-detect";
