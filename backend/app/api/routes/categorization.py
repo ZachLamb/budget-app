@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.api.deps import get_household_id
+from app.api.deps_llm import LlmCallContext, require_cloud_feature, write_audit
 from app.models import Transaction, Account
 from app.services.categorization.llm import suggest_categories_batch
 from app.services.categorization.rules import apply_rules
@@ -38,6 +39,7 @@ class SuggestCategoriesBody(BaseModel):
 @router.post("/suggest")
 async def suggest_categories(
     household_id: str = Depends(get_household_id),
+    llm_ctx: LlmCallContext = Depends(require_cloud_feature("categorize_transaction")),
     db: AsyncSession = Depends(get_db),
     body: SuggestCategoriesBody = Body(default_factory=SuggestCategoriesBody),
 ):
@@ -45,16 +47,21 @@ async def suggest_categories(
         raise HTTPException(400, "date_from must be on or before date_to.")
     if body.account_id:
         await validate_account_ownership(db, body.account_id, household_id)
-    suggestions = await suggest_categories_batch(
-        db,
-        household_id,
-        account_id=body.account_id,
-        date_from=body.date_from,
-        date_to=body.date_to,
-        search=body.search,
-        limit=body.limit,
-    )
-    return {"suggestions": suggestions}
+    try:
+        suggestions = await suggest_categories_batch(
+            db,
+            household_id,
+            account_id=body.account_id,
+            date_from=body.date_from,
+            date_to=body.date_to,
+            search=body.search,
+            limit=body.limit,
+        )
+        await write_audit(db, llm_ctx, status_code=200)
+        return {"suggestions": suggestions}
+    except HTTPException as he:
+        await write_audit(db, llm_ctx, status_code=he.status_code)
+        raise
 
 
 @router.post("/apply")
