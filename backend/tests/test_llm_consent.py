@@ -50,7 +50,7 @@ async def _seed_user(s: AsyncSession, *, user_id: str = "u1", email: str = "u@ex
         household = Household(id=uuid.uuid4().hex, name="Test")
         s.add(household)
         await s.flush()
-    u = User(id=user_id, email=email, name="Test", household_id=household.id)
+    u = User(id=user_id, email=email, name="Test", household_id=household.id, status="approved")
     s.add(u)
     await s.commit()
     return u

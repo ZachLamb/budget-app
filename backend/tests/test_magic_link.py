@@ -62,7 +62,13 @@ async def _seed_user(s: AsyncSession, email: str) -> User:
         household = Household(id=uuid.uuid4().hex, name="Test")
         s.add(household)
         await s.flush()
-    user = User(id=uuid.uuid4().hex, email=email, name="Test", household_id=household.id)
+    user = User(
+        id=uuid.uuid4().hex,
+        email=email,
+        name="Test",
+        household_id=household.id,
+        status="approved",  # pre-gate normal user; admin-gate tests use a separate factory
+    )
     s.add(user)
     await s.commit()
     return user

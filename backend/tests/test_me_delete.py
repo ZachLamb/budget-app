@@ -100,6 +100,7 @@ async def _make_user(
         password_hash=None,
         household_id=household.id,
         role="owner",
+        status="approved",
     )
     session.add(u)
     await session.flush()

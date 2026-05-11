@@ -5,7 +5,13 @@ export interface User {
   email: string;
   name: string;
   household_id: string;
+  /** "owner" for normal users, "admin" for the bootstrapped admin (configured
+   *  on the backend via ADMIN_EMAIL). Only "admin" can access /api/admin/*. */
   role: string;
+  /** "pending" | "approved" | "rejected". The auth gate is enforced server-side;
+   *  the frontend uses this only for rendering (e.g. hiding the admin panel,
+   *  showing an "awaiting approval" page if a stale session sneaks through). */
+  status: string;
   created_at: string;
 }
 

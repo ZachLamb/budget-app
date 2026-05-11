@@ -32,6 +32,11 @@ class UserResponse(BaseModel):
     name: str
     household_id: str
     role: str
+    # "pending" | "approved" | "rejected" — surfaced so the frontend can
+    # render role-aware UI (e.g. show the admin panel only when role=admin).
+    # The auth gate is enforced server-side in services.auth.admin_gate; the
+    # frontend just uses this for display.
+    status: str
     created_at: datetime
 
     model_config = {"from_attributes": True}

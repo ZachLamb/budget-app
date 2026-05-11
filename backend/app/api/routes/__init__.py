@@ -3,7 +3,7 @@ from app.api.routes import (
     auth, accounts, payees, categories, transactions,
     rules, sync, budget, recurring, reports, categorization,
     goals, debt, ai, settings, subscriptions, cycle_commitments,
-    llm, me, hosting, magic_link,
+    llm, me, hosting, magic_link, admin,
 )
 
 router = APIRouter()
@@ -28,3 +28,4 @@ router.include_router(llm.router, prefix="/llm", tags=["llm"])
 router.include_router(me.router, prefix="/me", tags=["me"])
 router.include_router(hosting.router, prefix="/hosting", tags=["hosting"])
 router.include_router(magic_link.router, prefix="/auth/magic-link", tags=["auth"])
+router.include_router(admin.router, prefix="/admin", tags=["admin"])

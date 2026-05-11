@@ -62,3 +62,20 @@ async def get_current_user(
 
 def get_household_id(user: User = Depends(get_current_user)) -> str:
     return user.household_id
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Gate a route on role="admin". 403 if the caller isn't an admin.
+
+    Use as a route dependency: ``user: User = Depends(require_admin)``. The
+    admin role is bootstrapped via settings.admin_email (see
+    services.auth.admin_gate) — there's no in-app promote-to-admin action,
+    by design (the env var is the only way to gain admin, which keeps the
+    blast radius of a compromised non-admin account small).
+    """
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return user
