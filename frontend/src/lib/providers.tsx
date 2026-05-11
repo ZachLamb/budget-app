@@ -6,6 +6,33 @@ import { authApi, type User } from "@/lib/api/auth";
 import { Toaster } from "@/components/ui/sonner";
 import { toastErrorDiagnostic } from "@/lib/toast-error";
 
+/**
+ * React Query retry predicate. Catches the cold-start window on the Fly
+ * backend (scale-to-zero, ~5–10s wake-up). Server 5xx and network errors
+ * are retried up to 3 times; client errors (4xx) are NOT retried — they
+ * won't succeed by trying again, and 401 in particular has its own redirect
+ * path via the axios interceptor.
+ *
+ * Exported for unit testing.
+ */
+export function queryRetry(failureCount: number, error: unknown): boolean {
+  const status = (error as { response?: { status?: number } })?.response?.status;
+  // 4xx: malformed/forbidden/not-found — retrying won't help.
+  if (typeof status === "number" && status >= 400 && status < 500) return false;
+  // 5xx or no response (network error, cold-start, timeout) — retry up to 3x.
+  return failureCount < 3;
+}
+
+/**
+ * Exponential backoff: 1s, 2s, 4s, capped at 8s. Combined with retry=3, this
+ * gives the cold-start window ~7s of recovery time before the user sees a toast.
+ *
+ * Exported for unit testing.
+ */
+export function queryRetryDelay(attemptIndex: number): number {
+  return Math.min(1000 * 2 ** attemptIndex, 8000);
+}
+
 interface AuthContextType {
   user: User | null;
   token: string | null;
@@ -35,6 +62,17 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    // Wake the Fly backend if it's cold-started (scale-to-zero). Fire-and-forget —
+    // we don't await the result; the request itself is what triggers the wake-up.
+    // By the time /auth/me and downstream queries run, the machine is at minimum
+    // already waking, and React Query's retry config (see queryRetry/queryRetryDelay)
+    // covers the residual race window.
+    //
+    // credentials: "omit" because /api/health is open and we want the lightest
+    // possible request — no Cookie header processing on the server.
+    void fetch("/api/health", { credentials: "omit", cache: "no-store" })
+      .catch(() => undefined);
+
     queueMicrotask(() => {
       // Carry forward any pre-migration localStorage token so the axios
       // client still sends Authorization: Bearer for sessions that pre-date
@@ -214,7 +252,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         defaultOptions: {
           queries: {
             staleTime: 30 * 1000,
-            retry: 1,
+            retry: queryRetry,
+            retryDelay: queryRetryDelay,
           },
         },
       })
