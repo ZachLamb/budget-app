@@ -25,8 +25,20 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
+from app.config import get_settings
 from app.main import app
 from app.services.auth.session_cookie import COOKIE_NAME
+
+
+def _approve_via_admin_bootstrap(monkeypatch: pytest.MonkeyPatch, email: str) -> None:
+    """Pre-PR-15 these tests assumed /register immediately returned 200 + token.
+    Now there's an admin approval gate, so a freshly-registered user is "pending"
+    by default and the route returns 403. Setting ADMIN_EMAIL to the email being
+    registered triggers the bootstrap path: role="admin" + status="approved" on
+    registration, bypassing the gate cleanly. Each test uses its own email so
+    this only affects that one user."""
+    monkeypatch.setenv("ADMIN_EMAIL", email)
+    get_settings.cache_clear()
 
 
 def _allowed_origin() -> str:
@@ -90,7 +102,8 @@ async def _register(client: AsyncClient, *, email: str, name: str = "Test") -> d
 
 
 @pytest.mark.asyncio
-async def test_login_sets_session_cookie(override_db) -> None:
+async def test_login_sets_session_cookie(override_db, monkeypatch) -> None:
+    _approve_via_admin_bootstrap(monkeypatch, "cookie-set@test.com")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.post(
             "/api/auth/register",
@@ -112,7 +125,8 @@ async def test_login_sets_session_cookie(override_db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cookie_auth_resolves_current_user(override_db) -> None:
+async def test_cookie_auth_resolves_current_user(override_db, monkeypatch) -> None:
+    _approve_via_admin_bootstrap(monkeypatch, "cookie-me@test.com")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         await _register(client, email="cookie-me@test.com")
         # Cookie is now in the client jar. Hit /me with NO Authorization header.
@@ -122,7 +136,8 @@ async def test_cookie_auth_resolves_current_user(override_db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_header_auth_still_works_for_transition(override_db) -> None:
+async def test_header_auth_still_works_for_transition(override_db, monkeypatch) -> None:
+    _approve_via_admin_bootstrap(monkeypatch, "cookie-hdr@test.com")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         body = await _register(client, email="cookie-hdr@test.com")
         token = body["access_token"]
@@ -136,7 +151,8 @@ async def test_header_auth_still_works_for_transition(override_db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_logout_clears_cookie(override_db) -> None:
+async def test_logout_clears_cookie(override_db, monkeypatch) -> None:
+    _approve_via_admin_bootstrap(monkeypatch, "cookie-out@test.com")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         await _register(client, email="cookie-out@test.com")
         # Confirm logged-in via cookie.
@@ -153,8 +169,9 @@ async def test_logout_clears_cookie(override_db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_origin_check_rejects_cross_origin_cookie_post(override_db) -> None:
+async def test_origin_check_rejects_cross_origin_cookie_post(override_db, monkeypatch) -> None:
     """A POST with the session cookie but an Origin not in CORS_ORIGINS is rejected."""
+    _approve_via_admin_bootstrap(monkeypatch, "cookie-csrf@test.com")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         await _register(client, email="cookie-csrf@test.com")
         # Use a bad Origin (an attacker's domain) on a cookie-authenticated POST.
@@ -167,8 +184,9 @@ async def test_origin_check_rejects_cross_origin_cookie_post(override_db) -> Non
 
 
 @pytest.mark.asyncio
-async def test_origin_check_bypassed_for_header_only_bearer(override_db) -> None:
+async def test_origin_check_bypassed_for_header_only_bearer(override_db, monkeypatch) -> None:
     """A Bearer-only request without a cookie is exempt from the Origin check."""
+    _approve_via_admin_bootstrap(monkeypatch, "cookie-bearer@test.com")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         body = await _register(client, email="cookie-bearer@test.com")
         token = body["access_token"]

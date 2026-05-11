@@ -29,6 +29,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import User
 from app.services.auth import magic_link as ml_service
+from app.services.auth.admin_gate import apply_admin_bootstrap, check_approved
 from app.services.auth.session_cookie import set_session_cookie
 from app.services.email import resend as email_service
 from app.services.email.templates import magic_link as magic_link_email
@@ -92,6 +93,19 @@ async def request_magic_link(
         logger.info("magic_link_request unknown_email=%s", "<redacted>")
         return MagicLinkRequestResponse()
 
+    # Treat non-approved users like unknown emails: same response, no email
+    # sent. This avoids two leaks: (1) attackers can't enumerate which
+    # emails are "registered but pending" vs. "registered and approved";
+    # (2) pending users don't receive emails with links that would just 403
+    # on verify (confusing UX). The admin bootstrap fires on the verify
+    # path too — so if this user is the configured admin who hasn't yet
+    # been auto-promoted, their FIRST login through any other path (e.g.
+    # the Google button) will promote them and unblock magic-link for the
+    # next request.
+    if user.status != "approved":
+        logger.info("magic_link_request blocked_unapproved=%s", "<redacted>")
+        return MagicLinkRequestResponse()
+
     # Issue token (revokes any prior outstanding token for this user).
     token = await ml_service.issue(db, user.id, requested_from_ip=_client_ip(request))
 
@@ -148,6 +162,12 @@ async def verify_magic_link(
     if user is None:
         # User was deleted between issuance and redemption.
         return _bad_token_response()
+
+    # Self-healing admin bootstrap + gate. Mirrors every other login path.
+    if apply_admin_bootstrap(user):
+        await db.commit()
+        await db.refresh(user)
+    check_approved(user)  # raises 403 if pending/rejected
 
     # Mint a session token and set the same httpOnly cookie every other
     # login flow sets. This makes magic-link sign-in indistinguishable

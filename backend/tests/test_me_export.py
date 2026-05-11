@@ -107,6 +107,7 @@ async def _seed_user(
         google_id=google_id,
         household_id=household.id,
         role="owner",
+        status="approved",
     )
     session.add(user)
     await session.commit()

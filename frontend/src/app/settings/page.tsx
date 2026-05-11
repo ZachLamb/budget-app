@@ -14,6 +14,7 @@ import {
 import { AiSettingsCard } from "@/components/llm/ai-settings-card";
 import { PrivacyDataCard } from "@/components/settings/privacy-data-card";
 import { HostingHealthCard } from "@/components/settings/hosting-health-card";
+import { AdminUsersCard } from "@/components/settings/admin-users-card";
 import { parseCreationOptions, supportsPasskey } from "@/lib/webauthn";
 import { useAuth } from "@/lib/providers";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -817,6 +818,11 @@ function SettingsContent() {
       <PrivacyDataCard />
 
       <HostingHealthCard />
+
+      {/* Admin-only: approve/reject sign-ups for the preview-app gate. The
+          server enforces role="admin" on every endpoint; this just hides
+          the panel for non-admins. */}
+      {user?.role === "admin" && <AdminUsersCard />}
     </div>
   );
 }

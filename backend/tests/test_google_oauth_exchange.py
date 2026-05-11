@@ -27,6 +27,7 @@ def _make_user(idx: int) -> User:
         google_id=f"google-exchange-{idx}",
         household_id=f"hh-exchange-{idx}",
         role="owner",
+        status="approved",
         created_at=datetime.now(timezone.utc),
     )
 

@@ -96,6 +96,19 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     email_from_address: str = ""
 
+    # Bootstrap admin: the first user whose email matches ADMIN_EMAIL is
+    # auto-promoted to role="admin" + status="approved" on registration
+    # OR on next login if they already exist. Self-healing.
+    #
+    # All other new registrations land at status="pending" and are blocked
+    # by the auth gate until the admin approves them via the Settings →
+    # Pending Users panel.
+    #
+    # Comparison is case-insensitive on the local-part + domain. Empty
+    # means the bootstrap is disabled — every user gets "pending" with no
+    # way out, which is intentional for the open-registration default.
+    admin_email: str = ""
+
     model_config = {"env_file": ".env"}
 
 

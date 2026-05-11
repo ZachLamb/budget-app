@@ -46,6 +46,7 @@ from app.services.auth.session_cookie import (
     set_session_cookie,
     clear_session_cookie,
 )
+from app.services.auth.admin_gate import apply_admin_bootstrap, check_approved
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -110,6 +111,7 @@ async def register(data: UserCreate, response: Response, db: AsyncSession = Depe
         password_hash=pwd_context.hash(data.password),
         household_id=household.id,
         role="owner",
+        status="pending",  # admin gate; bootstrap below may promote to "approved"
     )
     db.add(user)
     await db.flush()
@@ -126,6 +128,14 @@ async def register(data: UserCreate, response: Response, db: AsyncSession = Depe
         for cat_idx, cat_name in enumerate(config["cats"]):
             db.add(Category(group_id=group.id, name=cat_name, sort_order=cat_idx))
 
+    # Promote to admin if email matches ADMIN_EMAIL (no-op otherwise).
+    apply_admin_bootstrap(user)
+    # Commit BEFORE the gate so a pending user's row persists in the DB
+    # even when we deny them a session — the admin needs them in their
+    # pending-users panel to approve.
+    await db.commit()
+    await db.refresh(user)
+    check_approved(user)  # raises 403 if pending/rejected
     token = _create_token(user.id)
     return _token_response(response, token, user)
 
@@ -158,6 +168,12 @@ async def login(data: UserLogin, response: Response, db: AsyncSession = Depends(
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     await lockout.clear_login_failures(email)
+    # Self-healing admin bootstrap: promote ADMIN_EMAIL user on every login
+    # so users that registered before the feature shipped still gain admin.
+    if apply_admin_bootstrap(user):
+        await db.commit()
+        await db.refresh(user)
+    check_approved(user)  # raises 403 if pending/rejected
     token = _create_token(user.id)
     return _token_response(response, token, user)
 
@@ -402,6 +418,7 @@ async def passkey_register_verify(
             password_hash=None,
             household_id=household.id,
             role="owner",
+            status="pending",  # admin gate; bootstrap below may promote to "approved"
         )
         db.add(user)
         await db.flush()
@@ -424,8 +441,10 @@ async def passkey_register_verify(
             await db.flush()
             for cat_idx, cat_name in enumerate(config["cats"]):
                 db.add(Category(group_id=group.id, name=cat_name, sort_order=cat_idx))
-        await db.commit()
+        apply_admin_bootstrap(user)  # idempotent — no-op unless email matches ADMIN_EMAIL
+        await db.commit()  # persist user (and any bootstrap promotion) before the gate
         await db.refresh(user)
+        check_approved(user)  # 403 for pending/rejected; admin bootstrap auto-passes
         token = _create_token(user.id)
         return _token_response(response, token, user)
     except HTTPException:
@@ -538,6 +557,10 @@ async def passkey_authenticate_verify(
     await db.commit()
     result = await db.execute(select(User).where(User.id == webauthn_cred.user_id))
     user = result.scalar_one()
+    if apply_admin_bootstrap(user):
+        await db.commit()
+        await db.refresh(user)
+    check_approved(user)
     token = _create_token(user.id)
     return _token_response(response, token, user)
 
@@ -809,6 +832,7 @@ async def google_callback(
                 google_id=google_id,
                 household_id=household.id,
                 role="owner",
+                status="pending",  # admin gate; bootstrap below may promote
             )
             db.add(user)
             await db.flush()
@@ -825,6 +849,18 @@ async def google_callback(
                     db.add(Category(group_id=group.id, name=cat_name, sort_order=cat_idx))
             await db.commit()
             await db.refresh(user)
+
+        # Admin bootstrap + gate. The callback runs in a browser top-level
+        # navigation, so a 403 here can't surface as JSON — redirect back to
+        # /login with an error param the page can render.
+        if apply_admin_bootstrap(user):
+            await db.commit()
+            await db.refresh(user)
+        if user.status != "approved":
+            err = "pending_approval" if user.status == "pending" else "access_denied"
+            return _oauth_complete_redirect(
+                frontend_url, f"/login?error={err}", is_secure=oauth_cookie_secure
+            )
 
         _clean_oauth_login_codes()
         login_code = secrets.token_urlsafe(32)
@@ -881,6 +917,12 @@ async def google_oauth_exchange(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired login code")
+    # Defense-in-depth: callback already gates, but exchange is the load-bearing
+    # check if the callback ever loosens or is bypassed.
+    if apply_admin_bootstrap(user):
+        await db.commit()
+        await db.refresh(user)
+    check_approved(user)
     # Single-use — clear the cookie now that it's redeemed. Delete attrs
     # must match the set_cookie in /google/callback (key + path).
     response.delete_cookie(

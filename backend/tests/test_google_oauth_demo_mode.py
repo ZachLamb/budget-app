@@ -154,6 +154,7 @@ async def test_google_callback_demo_mode_allows_existing_user_by_google_id(
         google_id="google-existing-1",
         household_id="hh-1",
         role="owner",
+        status="approved",
     )
 
     async def _fake_get_db():
@@ -188,10 +189,18 @@ async def test_google_callback_demo_mode_allows_existing_user_by_google_id(
 async def test_google_callback_non_demo_still_allows_new_user_with_mock_db(
     mock_get_settings: MagicMock,
     mock_async_client_class: MagicMock,
+    monkeypatch,
 ) -> None:
     """Regression: without demo_mode, new-user branch still runs (session is fake but covers happy path)."""
     s = _demo_oauth_settings(demo_mode=False)
     mock_get_settings.return_value = s
+    # apply_admin_bootstrap (in services.auth.admin_gate) reads admin_email
+    # from the *real* settings, not the mock above (different import path).
+    # Bootstrap-to-admin for the new user so the post-callback approval gate
+    # doesn't redirect this happy-path test to /login?error=pending_approval.
+    from app.config import get_settings as real_get_settings
+    monkeypatch.setenv("ADMIN_EMAIL", "new2@example.com")
+    real_get_settings.cache_clear()
 
     token_resp = MagicMock()
     token_resp.status_code = 200
