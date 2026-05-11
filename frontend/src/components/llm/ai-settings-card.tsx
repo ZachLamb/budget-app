@@ -167,6 +167,23 @@ export function AiSettingsCard() {
               Models are downloaded once and run entirely in your browser.
             </p>
           </header>
+          {cap?.webgpu.available === false && (
+            // Without this hint, a user sees disabled buttons and can't tell
+            // whether it's a bug, a permission they need to grant, or a
+            // hardware limit. Spell out the cause and the recovery path.
+            <div
+              role="status"
+              className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/40 p-3 text-sm text-muted-foreground"
+            >
+              <p className="font-medium text-foreground">WebGPU not available in this browser.</p>
+              <p className="mt-1">
+                On-device models need WebGPU. Try Chrome 113+ or Edge on a desktop/laptop.
+                Visit <code className="rounded bg-muted px-1 py-0.5 text-xs">chrome://gpu</code>{" "}
+                and check that <span className="font-mono text-xs">WebGPU</span> shows
+                &quot;Hardware accelerated.&quot; Mobile Safari and Firefox have limited support.
+              </p>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             <Button
               variant={downloadModelChoice === "granted" ? "default" : "outline"}
