@@ -39,6 +39,16 @@ _RULES: List[Tuple[str, int, int]] = [
     # is the primary control; this IP-keyed cap is a coarse defense against
     # broken clients hammering the endpoint.
     ("/api/llm/cloud", 30, 60),
+    # Magic-link request — cap per IP to limit abusive email spam against
+    # known account holders. The anti-enumeration design means we treat
+    # known and unknown emails identically, so this cap protects both.
+    # 5/min per IP × scale-to-zero machine + Upstash shared bucket = at
+    # most ~5 emails/min from any single IP no matter how many replicas.
+    ("/api/auth/magic-link/request", 5, 60),
+    # Magic-link verify — the token is single-use and 256-bit random, so
+    # brute-forcing is infeasible. The IP cap is here only to slow down
+    # blunt scanners. 30/min is generous.
+    ("/api/auth/magic-link/verify", 30, 60),
 ]
 
 

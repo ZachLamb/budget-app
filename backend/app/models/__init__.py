@@ -15,6 +15,7 @@ from app.models.sync import SyncLog
 from app.models.goal import FinancialGoal
 from app.models.fsa_review import FsaReviewItem
 from app.models.llm import LlmConsent, LlmAudit
+from app.models.magic_link import MagicLink
 
 __all__ = [
     "Household",
@@ -37,4 +38,5 @@ __all__ = [
     "FsaReviewItem",
     "LlmConsent",
     "LlmAudit",
+    "MagicLink",
 ]

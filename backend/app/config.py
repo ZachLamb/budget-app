@@ -87,6 +87,15 @@ class Settings(BaseSettings):
     # than erroring.
     fly_api_token: str = ""
 
+    # Resend (transactional email). resend_api_key: send-scoped API key
+    # from resend.com/api-keys. email_from_address: must be on a domain
+    # you've verified in Resend. Both empty in dev → /api/auth/magic-link/
+    # request still returns 200 (anti-enumeration); the route logs a
+    # warning so operators see delivery is broken without an attacker
+    # learning anything.
+    resend_api_key: str = ""
+    email_from_address: str = ""
+
     model_config = {"env_file": ".env"}
 
 
