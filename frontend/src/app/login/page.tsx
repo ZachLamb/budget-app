@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Wallet, KeyRound, Play } from "lucide-react";
+import { Wallet, KeyRound, Play, Mail, CheckCircle2 } from "lucide-react";
 import { toastApiError, toastPlainError } from "@/lib/toast-error";
 import { useDemoGuard } from "@/lib/hooks";
 
@@ -36,6 +36,8 @@ function LoginPageContent() {
   const [loading, setLoading] = useState(false);
   const [canUsePasskey, setCanUsePasskey] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
+  const [magicLinkSending, setMagicLinkSending] = useState(false);
+  const [magicLinkSent, setMagicLinkSent] = useState(false);
   // Server-sourced: a frontend build without NEXT_PUBLIC_DEMO_MODE that
   // points at a demo backend would previously show the Google button and
   // the "Create one" toggle even though both dead-end at 403. useDemoGuard
@@ -70,9 +72,34 @@ function LoginPageContent() {
     }
   };
 
+  const handleMagicLinkRequest = async () => {
+    // Always show the success state regardless of server response — the
+    // anti-enumeration property depends on the UI not leaking "this email
+    // is registered" vs "this email isn't registered." If the request
+    // actually 4xx'd (network error, validation error), we still tell
+    // the user to check their inbox; if there's no email, the address
+    // wasn't on file. That's the design.
+    const trimmed = email.trim();
+    if (!trimmed) return;
+    setMagicLinkSending(true);
+    try {
+      await authApi.magicLinkRequest(trimmed);
+    } catch {
+      // Swallow network errors — same UX as success.
+    } finally {
+      setMagicLinkSending(false);
+      setMagicLinkSent(true);
+    }
+  };
+
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isRegister) return; // Register is passkey-only
+    // Magic link is the primary CTA; password is optional. If the user
+    // hits Enter on the email field without typing a password, do
+    // nothing rather than send a guaranteed-401 request that would
+    // spam the lockout counter for that email.
+    if (!password) return;
     setLoading(true);
     try {
       const result = await authApi.login({ email, password });
@@ -200,10 +227,50 @@ function LoginPageContent() {
               <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
             </div>
             {!isRegister && (
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
-              </div>
+              <>
+                {/* Primary sign-in path: passwordless magic link. */}
+                {magicLinkSent ? (
+                  <div className="flex items-start gap-3 rounded-md border border-green-600/30 bg-green-50/30 dark:bg-green-950/20 p-3 text-sm">
+                    <CheckCircle2 className="size-4 mt-0.5 shrink-0 text-green-600" />
+                    <div>
+                      <div className="font-medium">Check your email</div>
+                      <p className="text-muted-foreground text-xs mt-1">
+                        If <span className="font-medium text-foreground">{email}</span> is registered,
+                        a sign-in link is on its way. The link expires in 15 minutes and can only be
+                        used once.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    className="w-full"
+                    disabled={!email || magicLinkSending}
+                    onClick={handleMagicLinkRequest}
+                  >
+                    {magicLinkSending ? (
+                      "Sending…"
+                    ) : (
+                      <>
+                        <Mail className="mr-2 h-4 w-4" />
+                        Email me a sign-in link
+                      </>
+                    )}
+                  </Button>
+                )}
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">Or use password</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required={false} autoComplete="current-password" />
+                </div>
+              </>
             )}
             {isRegister ? (
               canUsePasskey ? (

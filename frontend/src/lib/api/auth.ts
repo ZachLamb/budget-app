@@ -79,6 +79,21 @@ export const authApi = {
   passkeyAddVerify: (credential: Record<string, unknown>) =>
     api.post<{ ok: boolean }>("/auth/passkey/add/verify", { credential }).then((r) => r.data),
   /**
+   * Magic-link sign-in (passwordless). The request endpoint ALWAYS returns
+   * 200 regardless of whether the email exists in the DB — that's the
+   * anti-enumeration property we rely on. Callers should display a generic
+   * "check your email" message based on `ok` alone; the absence of an
+   * email in the inbox is the only signal the user receives if their email
+   * isn't registered. Do not surface "unknown email" UX from this response.
+   */
+  magicLinkRequest: (email: string) =>
+    api.post<{ ok: true }>("/auth/magic-link/request", { email }).then((r) => r.data),
+
+  /** Redeem the token from the email URL. Server sets the httpOnly session cookie. */
+  magicLinkVerify: (token: string) =>
+    api.get<{ ok: true }>(`/auth/magic-link/verify?token=${encodeURIComponent(token)}`).then((r) => r.data),
+
+  /**
    * Clear the httpOnly session cookie. Idempotent — safe to call on a
    * stale session. The frontend should call this in response to a user
    * logout action; the server-side cookie is the source of truth.
