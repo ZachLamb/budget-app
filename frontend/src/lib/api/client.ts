@@ -44,6 +44,20 @@ api.interceptors.request.use((config) => {
  * normalization, which makes the "pick the last registered rejected
  * handler" trick unreliable across versions.
  */
+/**
+ * Routes that are valid entry points for an unauthenticated user. The 401
+ * interceptor must NOT navigate to /login when we're already on one of
+ * these — otherwise the AuthProvider's mount-time /auth/me call (which
+ * 401s for any user without a session) bounces /login → /login → /login
+ * forever. The user sees a constant page-refresh loop.
+ */
+const UNAUTHENTICATED_ROUTES = new Set(["/login", "/register"]);
+function isOnUnauthenticatedRoute(): boolean {
+  if (typeof window === "undefined") return false;
+  const path = window.location.pathname;
+  return UNAUTHENTICATED_ROUTES.has(path) || path.startsWith("/auth/");
+}
+
 export function handleResponseError(err: {
   response?: { status?: number; data?: { detail?: unknown } };
   code?: string;
@@ -52,7 +66,12 @@ export function handleResponseError(err: {
   if (err.response?.status === 401 && typeof window !== "undefined") {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    window.location.href = "/login";
+    // Only navigate away if we're on an authenticated page. Inside the
+    // auth flow itself (/login, /register, /auth/*), a 401 just means
+    // "no session yet" and is expected; the per-page UI will handle it.
+    if (!isOnUnauthenticatedRoute()) {
+      window.location.href = "/login";
+    }
   }
   // Surface the server's detail message so toast/error handlers show something useful
   if (err.code === "ECONNABORTED") {
