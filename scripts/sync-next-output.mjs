@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 /**
- * Used when Vercel Root Directory is `.` (Git deploys). Copies frontend build
- * artifacts to the repo root and links /vercel/node_modules for file tracing.
- * Set Root Directory to frontend/ in Vercel settings to remove this script.
+ * Used when Vercel Root Directory is `.` (Git deploys). Copies .next + public
+ * from frontend/ to the repo root. Set Root Directory to frontend/ to remove.
  */
-import { cpSync, existsSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,11 +27,3 @@ if (!existsSync(join(frontend, ".next", "routes-manifest.json"))) {
 
 copyTree(join(frontend, ".next"), join(repoRoot, ".next"), ".next");
 copyTree(join(frontend, "public"), join(repoRoot, "public"), "public");
-copyTree(join(frontend, "node_modules"), join(repoRoot, "node_modules"), "node_modules");
-
-if (process.env.VERCEL === "1" && existsSync("/vercel")) {
-  const link = "/vercel/node_modules";
-  rmSync(link, { recursive: true, force: true });
-  symlinkSync(join(repoRoot, "node_modules"), link, "dir");
-  console.log(`sync-next-output: symlink ${link} → ${join(repoRoot, "node_modules")}`);
-}

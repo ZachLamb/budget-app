@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "npm ci --prefix frontend",
-  "buildCommand": "npm run build --prefix frontend && node scripts/sync-next-output.mjs"
+  "buildCommand": "npm run build --prefix frontend && node scripts/sync-next-output.mjs",
+  "build": {
+    "env": {
+      "VERCEL_FORCE_NO_BUILD_CACHE": "1"
+    }
+  }
 }

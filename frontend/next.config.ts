@@ -1,4 +1,9 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const frontendDir = path.dirname(fileURLToPath(import.meta.url));
+const monorepoRoot = path.join(frontendDir, "..");
 
 // Rewrite destination must be reachable from where Next.js runs.
 // Docker Compose sets NEXT_PUBLIC_API_DOCKER=1 so we use http://backend:8000.
@@ -23,6 +28,8 @@ function getApiRewriteDestination(): string {
 }
 
 const nextConfig: NextConfig = {
+  // Git deploys use Vercel Root Directory `.`; trace deps from the repo root.
+  outputFileTracingRoot: monorepoRoot,
   async rewrites() {
     const dest = getApiRewriteDestination();
     return [
