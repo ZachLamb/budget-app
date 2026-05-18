@@ -1,37 +1,26 @@
 #!/usr/bin/env bash
-# Simulates Vercel when Root Directory is the repo root (clarity project today).
+# Matches Vercel when project Root Directory is frontend/ (see frontend/vercel.json).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FRONTEND="$(cd "$SCRIPT_DIR/../frontend" && pwd)"
 
-cd "$ROOT"
-
-if [[ ! -d "$ROOT/frontend/src/app" ]]; then
+if [[ ! -d "$FRONTEND/src/app" ]]; then
   echo "error: expected frontend/src/app" >&2
   exit 1
 fi
 
 echo "== vercel-build-check: install =="
-npm ci --prefix frontend
+npm ci --prefix "$FRONTEND"
 
-echo "== vercel-build-check: vercel-build (build + sync to repo root) =="
-npm run vercel-build
+echo "== vercel-build-check: build =="
+npm run build --prefix "$FRONTEND"
 
 for path in .next/routes-manifest.json node_modules/next/package.json public/icons; do
-  if [[ ! -e "$ROOT/$path" ]]; then
-    echo "error: missing $path at repo root after vercel-build" >&2
+  if [[ ! -e "$FRONTEND/$path" ]]; then
+    echo "error: missing frontend/$path after build" >&2
     exit 1
   fi
 done
-
-if [[ "${VERCEL:-}" == "1" && -d /vercel ]]; then
-  for path in .next/routes-manifest.json node_modules/client-only/package.json; do
-    if [[ ! -e "/vercel/$path" ]]; then
-      echo "error: missing /vercel/$path after vercel-build" >&2
-      exit 1
-    fi
-  done
-fi
 
 echo "== vercel-build-check: OK =="

@@ -18,4 +18,4 @@ curl -fsS -X PATCH "https://api.vercel.com/v9/projects/${PROJECT_ID}?teamId=${TE
   -d '{"rootDirectory":"frontend"}' \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print('rootDirectory:', d.get('rootDirectory', d))"
 
-echo "Done. Redeploy; you can remove root vercel.json and scripts/sync-next-output.mjs after it passes."
+echo "Done. Redeploy the branch; Vercel should run npm run build inside frontend/."

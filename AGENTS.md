@@ -43,7 +43,7 @@ Dev server: `npm run dev` (default `http://localhost:3000`).
 
 GitHub Actions runs the backend and frontend jobs on every PR (see `.github/workflows/ci.yml`).
 
-**Vercel (frontend):** The Next.js app lives in `frontend/`. Either set **Root Directory** to `frontend` in the Vercel project, or keep the repo root and use the root `vercel.json` / `npm run vercel-build` (both delegate to `frontend/`). Before pushing UI changes, run from repo root:
+**Vercel (frontend):** The Next.js app lives in `frontend/`. Set **Root Directory** to `frontend` in the Vercel project (Settings → General). Do not add a root `vercel.json` — it forces repo-root builds and breaks deploys. Before pushing UI changes, run from repo root:
 
 ```bash
 ./scripts/ci-local.sh
