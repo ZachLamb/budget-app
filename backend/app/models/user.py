@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-from sqlalchemy import String, DateTime, ForeignKey
+from sqlalchemy import String, DateTime, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -24,6 +24,8 @@ class User(Base):
     # lock anyone out retroactively. The User matching settings.admin_email
     # is auto-promoted to "approved" on next login (see services.auth.admin_gate).
     status: Mapped[str] = mapped_column(String(20), default="pending")
+    # Bumped on logout (and future "sign out everywhere") to invalidate outstanding JWTs.
+    session_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     household: Mapped["Household"] = relationship(back_populates="users")

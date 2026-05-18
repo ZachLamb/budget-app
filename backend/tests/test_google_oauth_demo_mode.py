@@ -89,6 +89,7 @@ async def test_google_callback_demo_mode_blocks_new_google_user(
         "id": "google-new-1",
         "email": "brandnew@example.com",
         "name": "Brand New",
+        "verified_email": True,
     }
 
     mock_client = MagicMock()
@@ -138,6 +139,7 @@ async def test_google_callback_demo_mode_allows_existing_user_by_google_id(
         "id": "google-existing-1",
         "email": "existing@example.com",
         "name": "Existing User",
+        "verified_email": True,
     }
 
     mock_client = MagicMock()
@@ -212,6 +214,7 @@ async def test_google_callback_non_demo_still_allows_new_user_with_mock_db(
         "id": "google-new-2",
         "email": "new2@example.com",
         "name": "New Two",
+        "verified_email": True,
     }
 
     mock_client = MagicMock()

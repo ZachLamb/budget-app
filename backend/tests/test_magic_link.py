@@ -281,3 +281,17 @@ async def test_route_verify_rejects_garbage_token(route_db) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/auth/magic-link/verify?token=garbage-not-a-token-12345")
     assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_email_rate_limit_allows_three_then_blocks() -> None:
+    """Per-email cap is enforced in the service layer (3/hour)."""
+    from app.middleware.rate_limit_store import InMemoryStore
+    from app.services.auth import magic_link_rate
+
+    magic_link_rate.set_store_for_tests(InMemoryStore())
+    email = "ratelimit@test.com"
+    assert await magic_link_rate.is_email_rate_limited(email) is False
+    assert await magic_link_rate.is_email_rate_limited(email) is False
+    assert await magic_link_rate.is_email_rate_limited(email) is False
+    assert await magic_link_rate.is_email_rate_limited(email) is True

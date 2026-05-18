@@ -7,7 +7,8 @@ vi.mock("@/lib/toast-error", () => ({
 }));
 
 // Import after the mock so the module picks up the stub.
-const { handleMutationError, queryRetry, queryRetryDelay } = await import("./providers");
+const { handleMutationError, handleQueryCacheError, queryRetry, queryRetryDelay, shouldToastQueryError } =
+  await import("./providers");
 
 beforeEach(() => {
   toastMock.mockClear();
@@ -67,6 +68,35 @@ describe("queryRetry", () => {
     expect(queryRetry(0, httpError(403))).toBe(false);
     expect(queryRetry(0, httpError(404))).toBe(false);
     expect(queryRetry(0, httpError(422))).toBe(false);
+  });
+});
+
+describe("handleQueryCacheError", () => {
+  it("skips toast when meta.inlineError is true", () => {
+    handleQueryCacheError(
+      new Error("fail"),
+      { meta: { inlineError: true }, queryKey: ["accounts"] },
+      toastMock,
+    );
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it("toasts when inlineError is not set", () => {
+    handleQueryCacheError(new Error("fail"), { queryKey: ["accounts"] }, toastMock);
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    expect(toastMock.mock.calls[0][0]).toBe("Failed to load Accounts");
+  });
+
+  it("skips 401", () => {
+    const err = Object.assign(new Error("unauth"), { response: { status: 401 } });
+    handleQueryCacheError(err, { queryKey: ["x"] }, toastMock);
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("shouldToastQueryError", () => {
+  it("returns false for inlineError queries", () => {
+    expect(shouldToastQueryError({ meta: { inlineError: true } })).toBe(false);
   });
 });
 

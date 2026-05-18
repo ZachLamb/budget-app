@@ -43,7 +43,8 @@ class UserResponse(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token: str
+    """Login response. Session is established via httpOnly cookie; access_token is omitted for browsers."""
+    access_token: Optional[str] = None
     token_type: str = "bearer"
     user: UserResponse
 

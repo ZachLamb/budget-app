@@ -80,6 +80,17 @@ async def test_check_and_increment_fails_open_on_network_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_check_and_increment_fails_closed_when_requested() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("unreachable")
+
+    store = _make_store_with_handler(handler)
+    result = await store.check_and_increment("k", 3, 60, fail_open=False)
+    assert result.over is True
+    assert result.count == 4
+
+
+@pytest.mark.asyncio
 async def test_check_and_increment_surfaces_post_incr_count_for_headers() -> None:
     """The middleware derives RateLimit-Remaining from ``result.count``.
 

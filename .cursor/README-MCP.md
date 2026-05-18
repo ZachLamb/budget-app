@@ -1,22 +1,51 @@
-# Docker MCP (this project)
+# MCP servers (this project)
 
-The Docker MCP server is configured in `.cursor/mcp.json`. It lets the AI list containers, fetch logs, start/stop containers, manage images/volumes/networks, and help debug your Docker setup.
+Project MCP config: [`.cursor/mcp.json`](mcp.json). Restart Cursor after editing.
 
-## Requirements
+## Fly.io (`fly`)
 
-**Option A – uv (recommended)**  
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) (macOS: `brew install uv`), then restart Cursor. The config uses `uvx mcp-server-docker` and will work as-is.
+Uses the official [flyctl MCP server](https://fly.io/docs/flyctl/mcp-server/) so agents can manage apps, machines, secrets (names), logs, and deploys for **`clarity-backend`** / **`clarity-db`** without shell-only workflows.
 
-**Option B – Run the server in Docker**  
-If you prefer not to use uv:
+### Requirements
+
+1. [flyctl](https://fly.io/docs/hands-on/install-flyctl/) on your `PATH` (`brew install flyctl`).
+2. Logged in: `fly auth login` (token lives in `~/.fly/`, not in this repo).
+3. Restart Cursor so the `fly` MCP server loads.
+
+### Install / refresh (optional)
+
+To regenerate the entry from flyctl (may use an absolute `fly` path — edit to `"fly"` for portability):
+
+```bash
+fly mcp server --cursor --config .cursor/mcp.json --server fly
+```
+
+### Security
+
+- Do **not** put `FLY_API_ACCESS_TOKEN` or deploy URLs in tracked files — see [`.cursor/rules/secrets-and-credentials.mdc`](rules/secrets-and-credentials.mdc).
+- MCP tools can change production; confirm destructive actions in chat before approving tool calls.
+
+---
+
+## Docker (`docker` / `MCP_DOCKER`)
+
+The Docker MCP server lets the AI list containers, fetch logs, start/stop containers, manage images/volumes/networks, and help debug local Docker Compose.
+
+### Requirements (Option A – uv, recommended)
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) (macOS: `brew install uv`), then restart Cursor. The config uses `uvx mcp-server-docker`.
+
+### Requirements (Option B – run server in Docker)
 
 1. Clone and build the image:
+
    ```bash
    git clone https://github.com/ckreiling/mcp-server-docker.git /tmp/mcp-server-docker
    cd /tmp/mcp-server-docker && docker build -t mcp-server-docker .
    ```
 
 2. In `.cursor/mcp.json`, replace the `"docker"` entry with:
+
    ```json
    "docker": {
      "command": "docker",
@@ -32,5 +61,3 @@ If you prefer not to use uv:
    ```
 
 3. Restart Cursor.
-
-After that, the Docker MCP tools (e.g. list containers, fetch logs) will be available in Cursor for this project.

@@ -13,6 +13,7 @@ import { test, expect } from "@playwright/test";
  * `toBeEnabled`) rather than hard sleeps.
  */
 test("demo happy path: login, advisor, transactions, logout", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
   // --- Login ---
   await page.goto("/login");
 

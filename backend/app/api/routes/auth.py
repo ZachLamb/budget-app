@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-from jose import jwt
+from jose import JWTError, jwt
 from passlib.context import CryptContext
 from webauthn import generate_registration_options, verify_registration_response, generate_authentication_options, verify_authentication_response
 from webauthn.helpers import options_to_json, parse_registration_credential_json, parse_authentication_credential_json
@@ -43,14 +43,18 @@ from app.schemas.user import (
 )
 from app.api.deps import ALGORITHM, get_current_user
 from app.services.auth.session_cookie import (
+    COOKIE_NAME,
     set_session_cookie,
     clear_session_cookie,
 )
 from app.services.auth.admin_gate import apply_admin_bootstrap, check_approved
+from app.services.auth import challenges as auth_challenges
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+_REGISTRATION_FAILED_DETAIL = "Registration could not be completed"
 
 DEFAULT_CATEGORIES = {
     "Income": {"is_income": True, "cats": ["Salary", "Freelance", "Interest", "Other Income"]},
@@ -65,21 +69,23 @@ DEFAULT_CATEGORIES = {
 }
 
 
-def _create_token(user_id: str) -> str:
+def _create_token(user: User) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=30)
-    return jwt.encode({"sub": user_id, "exp": expire}, get_settings().secret_key, algorithm=ALGORITHM)
+    return jwt.encode(
+        {"sub": user.id, "exp": expire, "sv": user.session_version},
+        get_settings().secret_key,
+        algorithm=ALGORITHM,
+    )
 
 
 def _token_response(response: Response, token: str, user: User) -> TokenResponse:
-    """Set the session cookie + return the TokenResponse body.
+    """Set the session cookie and return the user payload (no JWT in body).
 
-    Every login path (password / register / passkey / Google / demo) goes
-    through here so the cookie is set in lockstep with the JWT in the body.
-    The body still carries ``access_token`` for the transition window — non-
-    browser clients (curl, mobile) keep working via Bearer header.
+    Browser clients use the httpOnly cookie. Non-browser API clients should
+  read the session cookie or use a future dedicated API-token mechanism.
     """
     set_session_cookie(response, token)
-    return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
+    return TokenResponse(user=UserResponse.model_validate(user))
 
 
 @router.post("/demo-login", response_model=TokenResponse)
@@ -91,7 +97,7 @@ async def demo_login(response: Response, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=503, detail="Demo data not ready")
-    token = _create_token(user.id)
+    token = _create_token(user)
     return _token_response(response, token, user)
 
 
@@ -99,7 +105,8 @@ async def demo_login(response: Response, db: AsyncSession = Depends(get_db)):
 async def register(data: UserCreate, response: Response, db: AsyncSession = Depends(get_db)):
     existing = await db.execute(select(User).where(User.email == data.email))
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email already registered")
+        logger.info("register_rejected duplicate_email")
+        raise HTTPException(status_code=400, detail=_REGISTRATION_FAILED_DETAIL)
 
     household = Household(name=data.household_name)
     db.add(household)
@@ -136,7 +143,7 @@ async def register(data: UserCreate, response: Response, db: AsyncSession = Depe
     await db.commit()
     await db.refresh(user)
     check_approved(user)  # raises 403 if pending/rejected
-    token = _create_token(user.id)
+    token = _create_token(user)
     return _token_response(response, token, user)
 
 
@@ -174,22 +181,45 @@ async def login(data: UserLogin, response: Response, db: AsyncSession = Depends(
         await db.commit()
         await db.refresh(user)
     check_approved(user)  # raises 403 if pending/rejected
-    token = _create_token(user.id)
+    token = _create_token(user)
     return _token_response(response, token, user)
 
 
 @router.post("/logout")
-async def logout(response: Response):
-    """Clear the session cookie. Returns 200 even if no cookie was set —
-    the contract is "after this call, the browser is logged out," and a
-    no-op delete on a non-existent cookie satisfies that.
+async def logout(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Clear the session cookie and invalidate the current JWT server-side.
 
-    Safe to call without authentication (intentionally no Depends here):
-    a stale cookie that no longer decodes is the exact case we want to
-    clear, and adding ``get_current_user`` would 401 the user out of
-    being able to log themselves out.
+    Safe to call without a valid session — we still clear the cookie. When a
+    token is present (even expired), bump ``session_version`` so stolen cookies
+    cannot be reused after logout.
     """
     clear_session_cookie(response)
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        auth_header = request.headers.get("authorization") or ""
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+    if token:
+        try:
+            payload = jwt.decode(
+                token,
+                get_settings().secret_key,
+                algorithms=[ALGORITHM],
+                options={"verify_exp": False, "require_sub": True},
+            )
+            user_id = payload.get("sub")
+            if user_id:
+                result = await db.execute(select(User).where(User.id == user_id))
+                user = result.scalar_one_or_none()
+                if user is not None:
+                    user.session_version += 1
+                    await db.commit()
+        except JWTError:
+            pass
     return {"ok": True}
 
 
@@ -198,45 +228,12 @@ async def get_me(user: User = Depends(get_current_user)):
     return UserResponse.model_validate(user)
 
 
-# --- Passkey (WebAuthn) ---
-# In-memory challenge store; key = base64url(challenge), value = { user_id, email, name, household_name } or user_id for add.
-# TTL 5 minutes. For production with multiple backend instances or restarts, use a shared store (e.g. Redis) with the same TTL.
-_passkey_registration_challenges: dict[str, tuple[dict, float]] = {}
-_passkey_auth_challenges: dict[str, float] = {}
-_passkey_add_challenges: dict[str, tuple[str, float]] = {}  # challenge_b64 -> (user_id, timestamp)
+# --- Passkey (WebAuthn) / OAuth ephemeral state ---
+# Stored in Upstash when configured (see app.services.auth.challenges).
 
-# One-time OAuth login code handed to the frontend via an HttpOnly cookie set
-# on the Google-callback redirect. Cookies keep the code out of browser
-# history, Referer headers, and proxy access logs (URL-query handoff leaked
-# it to all three). Still single-use and single-server — multi-worker deploys
-# need a shared store (Redis).
-_OAUTH_LOGIN_CODE_TTL = 60.0
+_OAUTH_LOGIN_CODE_TTL = float(auth_challenges.OAUTH_LOGIN_CODE_TTL)
 _OAUTH_LOGIN_CODE_COOKIE = "oauth_login_code"
-# Path-scope the cookie to the exchange endpoint so it isn't sent to any
-# other /api/auth/* route (smaller XS-leak / CSRF surface).
 _OAUTH_LOGIN_CODE_COOKIE_PATH = "/api/auth/google/exchange"
-_oauth_login_codes: dict[str, tuple[str, float]] = {}  # code -> (user_id, issued_ts)
-
-
-def _clean_oauth_login_codes() -> None:
-    now = time.time()
-    for k in list(_oauth_login_codes):
-        if now - _oauth_login_codes[k][1] > _OAUTH_LOGIN_CODE_TTL:
-            del _oauth_login_codes[k]
-_CHALLENGE_TTL = 300
-
-
-def _clean_challenges():
-    now = time.time()
-    for k in list(_passkey_registration_challenges):
-        if now - _passkey_registration_challenges[k][1] > _CHALLENGE_TTL:
-            del _passkey_registration_challenges[k]
-    for k in list(_passkey_auth_challenges):
-        if now - _passkey_auth_challenges[k] > _CHALLENGE_TTL:
-            del _passkey_auth_challenges[k]
-    for k in list(_passkey_add_challenges):
-        if now - _passkey_add_challenges[k][1] > _CHALLENGE_TTL:
-            del _passkey_add_challenges[k]
 
 
 def _get_origin(request: Request) -> str:
@@ -337,7 +334,8 @@ async def passkey_register_options(
         name = data.name
         existing = await db.execute(select(User).where(User.email == email))
         if existing.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Email already registered")
+            logger.info("passkey_register_options_rejected duplicate_email")
+            raise HTTPException(status_code=400, detail=_REGISTRATION_FAILED_DETAIL)
         settings = get_settings()
         rp_id = (settings.webauthn_rp_id or "localhost").strip() or "localhost"
         rp_name = (settings.webauthn_rp_name or "Budget App").strip() or "Budget App"
@@ -354,10 +352,14 @@ async def passkey_register_options(
             ),
         )
         challenge_b64 = base64.urlsafe_b64encode(options.challenge).rstrip(b"=").decode("ascii")
-        _clean_challenges()
-        _passkey_registration_challenges[challenge_b64] = (
-            {"user_id": user_id, "email": email, "name": name, "household_name": data.household_name or "My Household"},
-            time.time(),
+        await auth_challenges.put_passkey_registration_challenge(
+            challenge_b64,
+            {
+                "user_id": user_id,
+                "email": email,
+                "name": name,
+                "household_name": data.household_name or "My Household",
+            },
         )
         options_json = options_to_json(options)
         # Ensure we return a JSON-serializable string (some webauthn versions return dict)
@@ -388,10 +390,9 @@ async def passkey_register_verify(
         challenge_b64 = client_data.get("challenge", "")
         if not isinstance(challenge_b64, str):
             raise HTTPException(status_code=400, detail="Invalid passkey credential")
-        _clean_challenges()
-        if challenge_b64 not in _passkey_registration_challenges:
+        pending = await auth_challenges.pop_passkey_registration_challenge(challenge_b64)
+        if not pending:
             raise HTTPException(status_code=400, detail="Invalid or expired challenge")
-        pending, _ = _passkey_registration_challenges.pop(challenge_b64)
         pad = (4 - len(challenge_b64) % 4) % 4
         expected_challenge = base64.urlsafe_b64decode(challenge_b64 + ("=" * pad))
         settings = get_settings()
@@ -445,7 +446,7 @@ async def passkey_register_verify(
         await db.commit()  # persist user (and any bootstrap promotion) before the gate
         await db.refresh(user)
         check_approved(user)  # 403 for pending/rejected; admin bootstrap auto-passes
-        token = _create_token(user.id)
+        token = _create_token(user)
         return _token_response(response, token, user)
     except HTTPException:
         raise
@@ -485,8 +486,7 @@ async def passkey_authenticate_options(
             allow_credentials=allow_credentials,
         )
         challenge_b64 = base64.urlsafe_b64encode(options.challenge).rstrip(b"=").decode("ascii")
-        _clean_challenges()
-        _passkey_auth_challenges[challenge_b64] = time.time()
+        await auth_challenges.put_passkey_auth_challenge(challenge_b64)
         options_json = options_to_json(options)
         options_str = json.dumps(options_json) if isinstance(options_json, dict) else str(options_json)
         return {"options": options_str}
@@ -529,10 +529,8 @@ async def passkey_authenticate_verify(
     challenge_b64 = client_data.get("challenge", "")
     if not isinstance(challenge_b64, str):
         raise HTTPException(status_code=400, detail="Invalid passkey credential")
-    _clean_challenges()
-    if challenge_b64 not in _passkey_auth_challenges:
+    if not await auth_challenges.pop_passkey_auth_challenge(challenge_b64):
         raise HTTPException(status_code=400, detail="Invalid or expired challenge")
-    _passkey_auth_challenges.pop(challenge_b64, None)
     pad = (4 - len(challenge_b64) % 4) % 4
     expected_challenge = base64.urlsafe_b64decode(challenge_b64 + ("=" * pad))
     settings = get_settings()
@@ -561,7 +559,7 @@ async def passkey_authenticate_verify(
         await db.commit()
         await db.refresh(user)
     check_approved(user)
-    token = _create_token(user.id)
+    token = _create_token(user)
     return _token_response(response, token, user)
 
 
@@ -623,8 +621,7 @@ async def passkey_add_options(
             ),
         )
         challenge_b64 = base64.urlsafe_b64encode(options.challenge).rstrip(b"=").decode("ascii")
-        _clean_challenges()
-        _passkey_add_challenges[challenge_b64] = (user.id, time.time())
+        await auth_challenges.put_passkey_add_challenge(challenge_b64, user.id)
         options_json = options_to_json(options)
         options_str = json.dumps(options_json) if isinstance(options_json, dict) else str(options_json)
         return {"options": options_str}
@@ -652,10 +649,9 @@ async def passkey_add_verify(
     challenge_b64 = client_data.get("challenge", "")
     if not isinstance(challenge_b64, str):
         raise HTTPException(status_code=400, detail="Invalid passkey credential")
-    _clean_challenges()
-    if challenge_b64 not in _passkey_add_challenges:
+    pending_user_id = await auth_challenges.pop_passkey_add_challenge(challenge_b64)
+    if not pending_user_id:
         raise HTTPException(status_code=400, detail="Invalid or expired challenge")
-    pending_user_id, _ = _passkey_add_challenges.pop(challenge_b64)
     if pending_user_id != user.id:
         raise HTTPException(status_code=400, detail="Challenge does not match current user")
     pad = (4 - len(challenge_b64) % 4) % 4
@@ -801,6 +797,13 @@ async def google_callback(
     if not google_id or not email:
         return _oauth_complete_redirect(frontend_url, "/login?error=invalid_profile", is_secure=oauth_cookie_secure)
     email = (email or "").strip().lower()
+    verified_email = profile.get("verified_email") is True
+    if not verified_email:
+        return _oauth_complete_redirect(
+            frontend_url,
+            "/login?error=email_not_verified",
+            is_secure=oauth_cookie_secure,
+        )
 
     try:
         # Find existing user by google_id or email
@@ -816,6 +819,12 @@ async def google_callback(
                 is_secure=oauth_cookie_secure,
             )
         if user:
+            if user.google_id and user.google_id != google_id:
+                return _oauth_complete_redirect(
+                    frontend_url,
+                    "/login?error=account_conflict",
+                    is_secure=oauth_cookie_secure,
+                )
             if not user.google_id:
                 user.google_id = google_id
                 user.name = name
@@ -862,9 +871,8 @@ async def google_callback(
                 frontend_url, f"/login?error={err}", is_secure=oauth_cookie_secure
             )
 
-        _clean_oauth_login_codes()
         login_code = secrets.token_urlsafe(32)
-        _oauth_login_codes[login_code] = (user.id, time.time())
+        await auth_challenges.put_oauth_login_code(login_code, user.id)
         # Hand the login code to the frontend via an HttpOnly cookie instead
         # of a URL query param (no leak to history/Referer/proxy logs).
         # Path-scoped to the exchange endpoint, SameSite=Lax so the same-site
@@ -905,13 +913,9 @@ async def google_oauth_exchange(
     SameSite=Strict) so the user is logged in immediately — same as every
     other login path (password / passkey / demo).
     """
-    _clean_oauth_login_codes()
     code = (request.cookies.get(_OAUTH_LOGIN_CODE_COOKIE) or "").strip()
-    rec = _oauth_login_codes.pop(code, None) if code else None
-    if not rec:
-        raise HTTPException(status_code=400, detail="Invalid or expired login code")
-    user_id, ts = rec
-    if time.time() - ts > _OAUTH_LOGIN_CODE_TTL:
+    user_id = await auth_challenges.pop_oauth_login_code(code) if code else None
+    if not user_id:
         raise HTTPException(status_code=400, detail="Invalid or expired login code")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -929,5 +933,5 @@ async def google_oauth_exchange(
         key=_OAUTH_LOGIN_CODE_COOKIE,
         path=_OAUTH_LOGIN_CODE_COOKIE_PATH,
     )
-    token = _create_token(user.id)
+    token = _create_token(user)
     return _token_response(response, token, user)

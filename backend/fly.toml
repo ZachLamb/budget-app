@@ -2,8 +2,9 @@
 #
 # Postgres is provisioned separately (``fly postgres create``) and attached
 # via ``fly postgres attach`` — that sets ``DATABASE_URL`` as a secret on
-# this app. All other secrets (SECRET_KEY, LLM_BACKEND_*, etc.) are set
-# explicitly via ``fly secrets set``.
+# this app. All other secrets (SECRET_KEY, CORS_ORIGINS, TRUSTED_PROXIES,
+# UPSTASH_REDIS_REST_* or KV_REST_API_*, LLM_BACKEND_*, etc.) are set via
+# ``fly secrets set``. See docs/deployment-security-checklist.md.
 #
 # Build comes from ``backend/Dockerfile`` (this file lives next to it).
 # The Dockerfile's ENTRYPOINT runs ``alembic upgrade head`` before uvicorn,

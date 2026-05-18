@@ -10,6 +10,8 @@ from app.api.routes import router as api_router
 from app.api.routes.upload import router as upload_router
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.rate_limit_store import build_store
+from app.services.auth import challenges as auth_challenges
+from app.services.auth.ephemeral_store import build_ephemeral_store
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.origin_check import OriginCheckMiddleware
 from app.services.auth import lockout as _auth_lockout
@@ -89,12 +91,19 @@ app.add_middleware(
 # Build one rate-limit store at import and share it across the middleware
 # and the lockout service so we only hold one Upstash HTTP client per worker.
 # Exposing it on app.state lets /api/health probe it without re-reading env.
+_settings = get_settings()
 _rate_limit_store = build_store(
-    rest_url=get_settings().upstash_redis_rest_url,
-    rest_token=get_settings().upstash_redis_rest_token,
+    rest_url=_settings.upstash_redis_rest_url,
+    rest_token=_settings.upstash_redis_rest_token,
+)
+_ephemeral_store = build_ephemeral_store(
+    rest_url=_settings.upstash_redis_rest_url,
+    rest_token=_settings.upstash_redis_rest_token,
 )
 app.state.rate_limit_store = _rate_limit_store
+app.state.ephemeral_store = _ephemeral_store
 _auth_lockout.set_store(_rate_limit_store)
+auth_challenges.set_store(_ephemeral_store)
 import logging as _logging  # noqa: E402 — deliberately late to group with the banner below
 _logging.getLogger(__name__).info(
     "rate-limit store: %s", _rate_limit_store.backend_name

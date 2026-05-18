@@ -10,7 +10,7 @@
  *   else if (decision.kind === "needs_consent") ...show dialog...
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/providers";
 import { settingsApi } from "@/lib/api/settings";
@@ -37,11 +37,7 @@ export interface UseLlm {
 }
 
 export function useLlm(): UseLlm {
-  const { token } = useAuth();
-  const tokenRef = useRef<string | null>(token);
-  useEffect(() => {
-    tokenRef.current = token;
-  }, [token]);
+  const { user } = useAuth();
 
   const [capability, setCapability] = useState<CapabilitySnapshot | null>(null);
 
@@ -64,7 +60,7 @@ export function useLlm(): UseLlm {
   const grants = useQuery({
     queryKey: ["llmCloudConsent"],
     queryFn: () => llmApi.listCloudConsent(),
-    enabled: !!token,
+    enabled: !!user,
     staleTime: 30_000,
   });
 
@@ -77,7 +73,7 @@ export function useLlm(): UseLlm {
       providers: {
         nano: async (): Promise<LLMProvider> => nanoProvider,
         webLlm: async (): Promise<LLMProvider> => getWebLlmProvider(),
-        server: async (): Promise<LLMProvider> => makeServerProvider(feature, () => tokenRef.current),
+        server: async (): Promise<LLMProvider> => makeServerProvider(feature, () => null),
       },
     }),
     [aiSettings.data, grants.data],

@@ -3,13 +3,8 @@
 /**
  * Magic-link verify landing page.
  *
- * Email links point at /auth/magic-link?token=<token>. We pull the token,
- * call the backend, and on success let the auth provider hydrate from
- * the new session cookie before bouncing to the app.
- *
- * Generic error copy on failure — never reveal whether the token never
- * existed vs was already used vs expired. From a probing attacker's view,
- * all three look the same.
+ * Email links point at /auth/magic-link?token=<token>. We redeem the token,
+ * refresh session state from the new httpOnly cookie, then send the user home.
  */
 
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -19,15 +14,14 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { authApi } from "@/lib/api/auth";
+import { useAuth } from "@/lib/providers";
 
 function MagicLinkVerify() {
   const router = useRouter();
+  const { refreshSession } = useAuth();
   const params = useSearchParams();
   const token = params.get("token") || "";
 
-  // StrictMode double-mounts effects in dev. The backend redeem is single-use,
-  // so the second fire would 400 — guard with a ref to fire exactly once per
-  // mounted page instance.
   const ranRef = useRef(false);
   const [state, setState] = useState<"loading" | "ok" | "fail">("loading");
 
@@ -36,7 +30,6 @@ function MagicLinkVerify() {
     ranRef.current = true;
 
     if (!token) {
-      // Defer to next tick so we don't setState during render.
       queueMicrotask(() => setState("fail"));
       return;
     }
@@ -45,12 +38,12 @@ function MagicLinkVerify() {
     queueMicrotask(() => {
       authApi
         .magicLinkVerify(token)
+        .then(() => refreshSession())
         .then(() => {
           if (cancelled) return;
           setState("ok");
-          // Small delay so the user sees the success state, then bounce.
           bounceTimer = setTimeout(() => {
-            if (!cancelled) router.push("/");
+            if (!cancelled) router.replace("/");
           }, 600);
         })
         .catch(() => {
@@ -61,8 +54,12 @@ function MagicLinkVerify() {
       cancelled = true;
       if (bounceTimer !== null) clearTimeout(bounceTimer);
     };
-  }, [token, router]);
+  }, [token, router, refreshSession]);
 
+  return <MagicLinkCard state={state} />;
+}
+
+function MagicLinkCard({ state }: { state: "loading" | "ok" | "fail" }) {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
@@ -95,8 +92,8 @@ function MagicLinkVerify() {
           {state === "fail" && (
             <>
               <p className="text-muted-foreground">
-                That sign-in link isn&apos;t valid. It may have expired (15-minute
-                window), been used already, or been copy-pasted incorrectly.
+                That sign-in link isn&apos;t valid. It may have expired (15-minute window), been
+                used already, or been copy-pasted incorrectly.
               </p>
               <p className="text-muted-foreground">
                 Request a fresh one — they&apos;re free and only take a second.
@@ -111,6 +108,7 @@ function MagicLinkVerify() {
     </div>
   );
 }
+
 
 export default function MagicLinkVerifyPage() {
   return (

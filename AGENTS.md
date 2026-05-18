@@ -73,4 +73,4 @@ cd backend && alembic stamp head
 
 ## MCP (optional)
 
-Docker-related MCP is documented in `.cursor/README-MCP.md`. Prefer **Cursor user settings** for personal MCP servers so they are not committed.
+Fly.io and Docker MCP servers are configured in [`.cursor/mcp.json`](.cursor/mcp.json) — see [`.cursor/README-MCP.md`](.cursor/README-MCP.md). Prefer **Cursor user settings** only for personal MCP servers you do not want in the repo.

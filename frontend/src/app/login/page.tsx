@@ -63,7 +63,7 @@ function LoginPageContent() {
     setDemoLoading(true);
     try {
       const result = await authApi.demoLogin();
-      login(result.access_token, result.user);
+      login(result.user);
       router.push("/");
     } catch (e) {
       toastApiError("Demo login failed. Is the backend running in demo mode?", e);
@@ -103,7 +103,7 @@ function LoginPageContent() {
     setLoading(true);
     try {
       const result = await authApi.login({ email, password });
-      login(result.access_token, result.user);
+      login(result.user);
       router.push("/");
     } catch (e) {
       toastApiError("Invalid credentials", e);
@@ -134,7 +134,7 @@ function LoginPageContent() {
         return;
       }
       const result = await authApi.passkeyRegisterVerify(credentialToJSON(credential));
-      login(result.access_token, result.user);
+      login(result.user);
       router.push("/onboarding");
     } catch (err: unknown) {
       toastApiError("Passkey registration failed", err);
@@ -157,7 +157,7 @@ function LoginPageContent() {
         return;
       }
       const result = await authApi.passkeyAuthenticateVerify(credentialToJSON(credential));
-      login(result.access_token, result.user);
+      login(result.user);
       router.push("/");
     } catch (err: unknown) {
       toastApiError("Passkey sign-in failed", err);

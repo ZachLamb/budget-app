@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.services.sync.base import SyncProvider, SyncedAccount, SyncedTransaction
+from app.services.sync.simplefin_hosts import validate_simplefin_url
 
 logger = logging.getLogger(__name__)
 
@@ -69,9 +70,11 @@ class SimpleFINProvider(SyncProvider):
         is_access_url = bool(parsed_check.username)  # credentials present → already claimed
 
         if is_access_url:
+            validate_simplefin_url(claim_or_access_url, context="SimpleFIN access URL")
             self._base_url, username, password = _parse_access_url(claim_or_access_url)
             self._auth = (username, password)
         else:
+            validate_simplefin_url(claim_or_access_url, context="SimpleFIN claim URL")
             # Claim the setup token: POST to claim URL with Content-Length: 0 (per SimpleFIN spec)
             async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
                 response = await client.post(
@@ -84,6 +87,7 @@ class SimpleFINProvider(SyncProvider):
                         f"SimpleFIN claim failed (HTTP {response.status_code}): {response.text[:500]}"
                     )
                 claimed_url = response.text.strip()
+            validate_simplefin_url(claimed_url, context="SimpleFIN claimed access URL")
             parsed_claimed = urlparse(claimed_url)
             if not parsed_claimed.scheme or not parsed_claimed.username:
                 raise ValueError(

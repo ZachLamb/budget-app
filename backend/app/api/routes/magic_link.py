@@ -29,6 +29,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import User
 from app.services.auth import magic_link as ml_service
+from app.services.auth import magic_link_rate
 from app.services.auth.admin_gate import apply_admin_bootstrap, check_approved
 from app.services.auth.session_cookie import set_session_cookie
 from app.services.email import resend as email_service
@@ -84,6 +85,10 @@ async def request_magic_link(
     """
     email = data.email.lower().strip()
     settings = get_settings()
+
+    if await magic_link_rate.is_email_rate_limited(email):
+        logger.info("magic_link_request rate_limited email=%s", "<redacted>")
+        return MagicLinkRequestResponse()
 
     res = await db.execute(select(User).where(User.email == email))
     user = res.scalar_one_or_none()
@@ -174,7 +179,7 @@ async def verify_magic_link(
     # from password / passkey / Google once you're in.
     from app.api.routes.auth import _create_token  # local import avoids cycle
 
-    jwt = _create_token(user.id)
+    jwt = _create_token(user)
     set_session_cookie(response, jwt)
     logger.info("magic_link_redeemed user_id=%s", user.id)
     return {"ok": True}

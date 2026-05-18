@@ -127,14 +127,12 @@ function AiAdvisorInner() {
     // Auth via httpOnly session cookie — `credentials: "include"` ensures
     // the browser attaches it. Legacy fetch sites that read
     // localStorage("token") have been removed; the cookie is the source of truth.
-    const legacyToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     try {
       const resp = await fetch("/api/ai/execute-action", {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(legacyToken ? { Authorization: `Bearer ${legacyToken}` } : {}),
         },
         body: JSON.stringify({ action_type: actionType, data }),
       });
@@ -188,7 +186,6 @@ function AiAdvisorInner() {
     });
 
     setStreaming(true);
-    const legacyToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
@@ -198,7 +195,6 @@ function AiAdvisorInner() {
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(legacyToken ? { Authorization: `Bearer ${legacyToken}` } : {}),
         },
         body: JSON.stringify({
           messages: snapshot.map(({ role, content }) => ({ role, content })),

@@ -58,13 +58,13 @@ describe("client request interceptor", () => {
     expect(out.url).toBe("/api/transactions");
   });
 
-  it("attaches Authorization: Bearer <token> when a token is in localStorage", async () => {
+  it("does not attach Authorization from localStorage (session is cookie-only)", async () => {
     localStorage.setItem("token", "abc123");
     const out = await runRequestInterceptors({ url: "/api/me", method: "get" });
-    expect(out.headers.Authorization).toBe("Bearer abc123");
+    expect(out.headers.Authorization).toBeUndefined();
   });
 
-  it("omits Authorization when no token is present", async () => {
+  it("omits Authorization when no legacy token is present", async () => {
     const out = await runRequestInterceptors({ url: "/api/health", method: "get" });
     expect(out.headers.Authorization).toBeUndefined();
   });

@@ -51,7 +51,12 @@ class RateLimitStore(Protocol):
     """
 
     async def check_and_increment(
-        self, key: str, max_hits: int, window_seconds: int
+        self,
+        key: str,
+        max_hits: int,
+        window_seconds: int,
+        *,
+        fail_open: bool = True,
     ) -> RateLimitResult:
         ...
 
@@ -100,7 +105,12 @@ class InMemoryStore:
             del self._hits[key]
 
     async def check_and_increment(
-        self, key: str, max_hits: int, window_seconds: int
+        self,
+        key: str,
+        max_hits: int,
+        window_seconds: int,
+        *,
+        fail_open: bool = True,
     ) -> RateLimitResult:
         if len(self._hits) > self._MAX_TRACKED_KEYS and key not in self._hits:
             # Shed load rather than grow unboundedly. Report 0 so the
@@ -180,7 +190,12 @@ class UpstashStore:
         return self._client
 
     async def check_and_increment(
-        self, key: str, max_hits: int, window_seconds: int
+        self,
+        key: str,
+        max_hits: int,
+        window_seconds: int,
+        *,
+        fail_open: bool = True,
     ) -> RateLimitResult:
         client = self._client_or_create()
         # Pipeline: INCR returns the post-increment count; EXPIRE is NX-style
@@ -191,10 +206,11 @@ class UpstashStore:
             resp.raise_for_status()
             results = resp.json()
         except Exception as e:
-            # Fail open — availability beats strict enforcement. Report 0
-            # so the middleware falls back to "full budget" headers.
-            logger.warning("Upstash rate-limit call failed (%s); failing open", e)
-            return RateLimitResult(over=False, count=0)
+            if fail_open:
+                logger.warning("Upstash rate-limit call failed (%s); failing open", e)
+                return RateLimitResult(over=False, count=0)
+            logger.warning("Upstash rate-limit call failed (%s); failing closed", e)
+            return RateLimitResult(over=True, count=max_hits + 1)
 
         # results shape: [{"result": 1}, {"result": 1}] — pick first.
         try:

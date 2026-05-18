@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useSyncExternalStore } from "react";
+import { useMemo, useState, useEffect, useRef, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { categoriesApi, type CategoryGroup, type Category } from "@/lib/api/categories";
 import { configApi, type AppConfig } from "@/lib/api/config";
@@ -144,4 +144,30 @@ export function useChartColors(max = 8): string[] {
   }, [isClient, max]);
 
   return colors;
+}
+
+/** Observe when an element enters the viewport (once). Use to defer heavy queries. */
+export function useInView(options?: IntersectionObserverInit) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [inView, setInView] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || inView) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setInView(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "120px", threshold: 0, ...options },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+    // options intentionally omitted — callers should pass stable rootMargin/threshold
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inView, options?.root, options?.rootMargin, options?.threshold]);
+
+  return { ref, inView };
 }

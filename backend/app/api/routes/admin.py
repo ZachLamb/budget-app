@@ -86,7 +86,13 @@ async def _set_status(
     if user.status == new_status:
         # Idempotent — return current state without committing.
         return AdminUserItem.model_validate(user)
+    previous_status = user.status
     user.status = new_status
+    # Cut existing sessions when access is revoked or demoted from approved.
+    if new_status == "rejected" or (
+        previous_status == "approved" and new_status != "approved"
+    ):
+        user.session_version += 1
     await db.commit()
     await db.refresh(user)
     logger.info(

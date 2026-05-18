@@ -125,7 +125,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if path.startswith(prefix):
                 ip = client_ip_for_limit(request, self._trusted_proxies)
                 key = f"rl:{prefix}:{ip}"
-                result = await self._store.check_and_increment(key, max_hits, window)
+                settings = get_settings()
+                fail_open = not (
+                    settings.auth_rate_limit_strict and prefix.startswith("/api/auth/")
+                )
+                result = await self._store.check_and_increment(
+                    key, max_hits, window, fail_open=fail_open
+                )
                 # RFC 9331 draft: expose remaining budget on every response
                 # under a matched rule so clients can back off before the
                 # 429 instead of blindly retrying.

@@ -78,6 +78,16 @@ def test_upstash_token_falls_back_to_vercel_kv_name(monkeypatch: pytest.MonkeyPa
     assert Settings().upstash_redis_rest_token == "tok-kv"
 
 
+def test_webauthn_debug_refused_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SECRET_KEY", "x" * 40)
+    monkeypatch.setenv("WEBAUTHN_DEBUG", "true")
+    monkeypatch.setenv("FLY_APP_NAME", "clarity-backend")
+    get_settings.cache_clear()
+    with pytest.raises(RuntimeError, match="WEBAUTHN_DEBUG"):
+        get_settings()
+    get_settings.cache_clear()
+
+
 def test_upstash_primary_name_wins_over_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     """When both names are set, UPSTASH_* takes precedence over KV_REST_API_*."""
     monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "https://primary.example")

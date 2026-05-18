@@ -23,14 +23,6 @@ api.interceptors.request.use((config) => {
     config.baseURL = "";
     const p = (config.url || "").replace(/^https?:\/\/[^/]+/, "").replace(/\/+/g, "/") || "/";
     config.url = p.startsWith("/api") ? p : `/api${p.startsWith("/") ? p : `/${p}`}`;
-    // Transition fallback: existing browser sessions still hold a JWT in
-    // localStorage from before the cookie migration. Send it via Authorization
-    // header so they keep working until they next log in (which will set the
-    // cookie and clear the localStorage value via providers.tsx). Once a
-    // user has logged in post-migration, no token is in localStorage and
-    // this branch is a no-op.
-    const legacyToken = localStorage.getItem("token");
-    if (legacyToken) config.headers.Authorization = `Bearer ${legacyToken}`;
   } else {
     config.baseURL = getServerBaseURL();
   }

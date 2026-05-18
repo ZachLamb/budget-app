@@ -11,6 +11,7 @@ from sqlalchemy import select
 from app.database import get_db
 from app.config import get_settings
 from app.models.user import User
+from app.services.auth.admin_gate import check_approved
 from app.services.auth.session_cookie import COOKIE_NAME
 
 # auto_error=False: don't raise when the Authorization header is absent.
@@ -50,6 +51,7 @@ async def get_current_user(
         user_id: str = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        token_sv = payload.get("sv")
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
@@ -57,6 +59,12 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    # Tokens issued before session_version was added have no ``sv`` claim — treat
+    # as version 0 so existing sessions survive the migration until re-login.
+    expected_sv = 0 if token_sv is None else int(token_sv)
+    if user.session_version != expected_sv:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+    check_approved(user)
     return user
 
 

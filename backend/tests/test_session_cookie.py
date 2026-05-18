@@ -120,8 +120,8 @@ async def test_login_sets_session_cookie(override_db, monkeypatch) -> None:
         assert COOKIE_NAME + "=" in set_cookie
         assert "HttpOnly" in set_cookie
         assert "samesite=strict" in set_cookie.lower()
-        # Body still carries access_token for the transition window.
-        assert "access_token" in r.json()
+        # JWT is cookie-only — not returned in the response body.
+        assert r.json().get("access_token") is None
 
 
 @pytest.mark.asyncio
@@ -139,8 +139,9 @@ async def test_cookie_auth_resolves_current_user(override_db, monkeypatch) -> No
 async def test_header_auth_still_works_for_transition(override_db, monkeypatch) -> None:
     _approve_via_admin_bootstrap(monkeypatch, "cookie-hdr@test.com")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        body = await _register(client, email="cookie-hdr@test.com")
-        token = body["access_token"]
+        await _register(client, email="cookie-hdr@test.com")
+        token = client.cookies.get(COOKIE_NAME)
+        assert token
         client.cookies.delete(COOKIE_NAME)
         r = await client.get(
             "/api/auth/me",
@@ -188,8 +189,9 @@ async def test_origin_check_bypassed_for_header_only_bearer(override_db, monkeyp
     """A Bearer-only request without a cookie is exempt from the Origin check."""
     _approve_via_admin_bootstrap(monkeypatch, "cookie-bearer@test.com")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        body = await _register(client, email="cookie-bearer@test.com")
-        token = body["access_token"]
+        await _register(client, email="cookie-bearer@test.com")
+        token = client.cookies.get(COOKIE_NAME)
+        assert token
         client.cookies.delete(COOKIE_NAME)
         r = await client.post(
             "/api/auth/logout",
@@ -200,3 +202,27 @@ async def test_origin_check_bypassed_for_header_only_bearer(override_db, monkeyp
         )
         # The point of this test: OriginCheckMiddleware did NOT 403.
         assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_logout_invalidates_session_server_side(override_db, monkeypatch) -> None:
+    """After logout, the old JWT must not authenticate even via Bearer header."""
+    _approve_via_admin_bootstrap(monkeypatch, "cookie-revoke@test.com")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await _register(client, email="cookie-revoke@test.com")
+        token = client.cookies.get(COOKIE_NAME)
+        assert token
+        client.cookies.delete(COOKIE_NAME)
+        r_logout = await client.post(
+            "/api/auth/logout",
+            headers={
+                "Origin": _allowed_origin(),
+                "Authorization": f"Bearer {token}",
+            },
+        )
+        assert r_logout.status_code == 200
+        r_me = await client.get(
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r_me.status_code == 401

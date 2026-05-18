@@ -39,14 +39,6 @@ export function parseContentDispositionFilename(
   return plain?.[1]?.trim() || null;
 }
 
-/** Read any pre-cookie-migration JWT from localStorage. After the cookie
- *  migration, this returns null for new sessions; the cookie carries auth. */
-function legacyAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = window.localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 function isoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -97,7 +89,6 @@ export const meApi = {
     const resp = await fetch(url, {
       method: "GET",
       credentials: "include",
-      headers: { ...legacyAuthHeader() },
     });
     if (!resp.ok) {
       throw await buildHttpError(resp, "GET", url);
@@ -116,7 +107,6 @@ export const meApi = {
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...legacyAuthHeader(),
       },
       body: JSON.stringify({ confirm: DELETE_CONFIRMATION_PHRASE }),
     });

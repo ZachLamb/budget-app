@@ -35,28 +35,12 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     let cancelled = false;
 
-    const finishWithToken = (token: string) => {
-      authApi
-        .me()
-        .then((user) => {
-          if (cancelled) return;
-          login(token, user);
-          setStatus("done");
-          router.replace("/");
-        })
-        .catch(() => {
-          if (cancelled) return;
-          localStorage.removeItem("token");
-          setStatus("error");
-          toastPlainError("Sign-in failed. Please try again.");
-          router.replace("/login");
-        });
-    };
-
     exchangeGoogleCodeOnce()
       .then((res) => {
         if (cancelled) return;
-        finishWithToken(res.access_token);
+        login(res.user);
+        setStatus("done");
+        router.replace("/");
       })
       .catch(() => {
         if (cancelled) return;

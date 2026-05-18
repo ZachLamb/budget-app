@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from "@ta
 import { useState, createContext, useContext, useEffect, useCallback } from "react";
 import { authApi, type User } from "@/lib/api/auth";
 import { Toaster } from "@/components/ui/sonner";
-import { toastErrorDiagnostic } from "@/lib/toast-error";
+import { toastErrorDiagnostic, toastPlainError } from "@/lib/toast-error";
 
 /**
  * React Query retry predicate. Catches the cold-start window on the Fly
@@ -33,11 +33,23 @@ export function queryRetryDelay(attemptIndex: number): number {
   return Math.min(1000 * 2 ** attemptIndex, 8000);
 }
 
+/** Extract HTTP status and API detail from an axios-shaped error. */
+export function authErrorFromUnknown(err: unknown): { status?: number; detail?: string } {
+  const axiosErr = err as { response?: { status?: number; data?: { detail?: unknown } } };
+  const status = axiosErr.response?.status;
+  const raw = axiosErr.response?.data?.detail;
+  const detail =
+    typeof raw === "string" ? raw : raw !== undefined ? JSON.stringify(raw) : undefined;
+  return { status, detail };
+}
+
 interface AuthContextType {
   user: User | null;
   token: string | null;
-  login: (token: string, user: User) => void;
+  login: (user: User) => void;
   logout: () => void;
+  /** Re-fetch /api/auth/me after the server sets a session cookie. */
+  refreshSession: () => Promise<void>;
   loading: boolean;
 }
 
@@ -46,6 +58,7 @@ const AuthContext = createContext<AuthContextType>({
   token: null,
   login: () => {},
   logout: () => {},
+  refreshSession: async () => {},
   loading: true,
 });
 
@@ -59,6 +72,30 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   // login. New code must not depend on it.
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const clearLegacyAuthStorage = useCallback(() => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    setToken(null);
+    setUser(null);
+  }, []);
+
+  const refreshSession = useCallback(async () => {
+    try {
+      const u = await authApi.me();
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      setToken(null);
+      setUser(u);
+    } catch (err) {
+      const { status, detail } = authErrorFromUnknown(err);
+      clearLegacyAuthStorage();
+      if (status === 403 && detail) {
+        toastPlainError(detail);
+      }
+      throw err;
+    }
+  }, [clearLegacyAuthStorage]);
 
   useEffect(() => {
     let mounted = true;
@@ -74,29 +111,24 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
       .catch(() => undefined);
 
     queueMicrotask(() => {
-      // Carry forward any pre-migration localStorage token so the axios
-      // client still sends Authorization: Bearer for sessions that pre-date
-      // the cookie. This branch goes away naturally — once the user logs
-      // in or the legacy token expires, the localStorage entries are
-      // cleared and we live entirely on the cookie.
-      const legacyToken = localStorage.getItem("token");
-      if (legacyToken) setToken(legacyToken);
-
-      // Source of truth for "am I logged in" is now /api/auth/me. The cookie
+      // Source of truth for "am I logged in" is /api/auth/me. The cookie
       // is sent automatically (withCredentials: true on the axios client).
       authApi
         .me()
         .then((u) => {
-          if (mounted) setUser(u);
-        })
-        .catch(() => {
-          // 401 means no valid session. Clean up legacy localStorage in
-          // case the cookie never got set on this device.
-          localStorage.removeItem("token");
-          localStorage.removeItem("user");
           if (mounted) {
+            localStorage.removeItem("token");
+            localStorage.removeItem("user");
             setToken(null);
-            setUser(null);
+            setUser(u);
+          }
+        })
+        .catch((err) => {
+          if (!mounted) return;
+          const { status, detail } = authErrorFromUnknown(err);
+          clearLegacyAuthStorage();
+          if (status === 403 && detail) {
+            toastPlainError(detail);
           }
         })
         .finally(() => {
@@ -106,15 +138,14 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [clearLegacyAuthStorage]);
 
   // Kept for source-compatibility with existing callers (LoginPage, register
   // flow, passkey verify, Google callback). The server already set the
   // httpOnly cookie before we got here; we just hydrate React state.
   // We intentionally do NOT write the token to localStorage anymore — the
   // cookie is the durable session.
-  const login = useCallback((_newToken: string, newUser: User) => {
-    // Wipe any stale legacy entries from before the migration.
+  const login = useCallback((newUser: User) => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     setToken(null);
@@ -134,7 +165,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, token, login, logout, refreshSession, loading }}>
       {children}
     </AuthContext.Provider>
   );
@@ -219,6 +250,27 @@ export function handleMutationError(
   );
 }
 
+/** Skip global query error toast when the page shows inline ErrorState. */
+export function shouldToastQueryError(query: { meta?: { inlineError?: boolean } }): boolean {
+  return query.meta?.inlineError !== true;
+}
+
+/**
+ * Query-cache onError handler. Extracted for unit testing.
+ * Skips 401s and queries with meta.inlineError.
+ */
+export function handleQueryCacheError(
+  error: unknown,
+  query: { meta?: { inlineError?: boolean }; queryKey: readonly unknown[] },
+  toast: (title: string, message: string, err: unknown) => void,
+): void {
+  const axiosErr = error as Error & { response?: { status?: number } };
+  if (axiosErr?.response?.status === 401) return;
+  if (!shouldToastQueryError(query)) return;
+  const label = formatQueryResourceLabel(query.queryKey);
+  toast(`Failed to load ${label}`, extractErrorMessage(error), error);
+}
+
 /** Human-readable fragment for query error toasts (e.g. paySchedule → "pay schedule"). */
 function formatQueryResourceLabel(queryKey: readonly unknown[]): string {
   const raw = queryKey[0];
@@ -237,12 +289,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         queryCache: new QueryCache({
           onError: (error, query) => {
-            // Skip 401s — the auth interceptor already handles logout/redirect
-            const axiosErr = error as Error & { response?: { status?: number } };
-            if (axiosErr?.response?.status === 401) return;
-            const label = formatQueryResourceLabel(query.queryKey);
-            const title = `Failed to load ${label}`;
-            toastErrorDiagnostic(title, extractErrorMessage(error), error, { duration: 8000 });
+            handleQueryCacheError(error, query, (title, message, err) => {
+              toastErrorDiagnostic(title, message, err, { duration: 8000 });
+            });
           },
         }),
         mutationCache: new MutationCache({

@@ -1,14 +1,18 @@
 "use client";
 
+import type { MouseEvent } from "react";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
+import { buttonVariants } from "@/components/ui/button";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -16,7 +20,6 @@ interface ConfirmDialogProps {
   title?: string;
   description?: string;
   confirmLabel?: string;
-  /** Shown while `loading` is true (defaults to “Deleting…” for destructive dialogs). */
   loadingLabel?: string;
   variant?: "destructive" | "default";
   loading?: boolean;
@@ -36,31 +39,43 @@ export function ConfirmDialog({
   closeOnConfirm = true,
   onConfirm,
 }: ConfirmDialogProps) {
+  const handleOpenChange = (next: boolean) => {
+    if (!next && loading) return;
+    onOpenChange(next);
+  };
+
+  const handleConfirm = (e: MouseEvent) => {
+    e.preventDefault();
+    onConfirm();
+    if (closeOnConfirm && !loading) onOpenChange(false);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-            Cancel
-          </Button>
-          <Button
-            variant={variant}
-            onClick={() => {
-              onConfirm();
-              if (closeOnConfirm) onOpenChange(false);
-            }}
+    <AlertDialog open={open} onOpenChange={handleOpenChange}>
+      <AlertDialogContent
+        onEscapeKeyDown={(e) => {
+          if (loading) e.preventDefault();
+        }}
+      >
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleConfirm}
             disabled={loading}
+            className={cn(
+              variant === "destructive" && buttonVariants({ variant: "destructive" }),
+            )}
           >
             {loading
               ? (loadingLabel ?? (variant === "destructive" ? "Deleting…" : "Working…"))
               : confirmLabel}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

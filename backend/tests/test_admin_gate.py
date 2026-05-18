@@ -325,3 +325,59 @@ async def test_admin_approve_is_idempotent(route_db) -> None:
         assert r.json()["status"] == "approved"
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.mark.asyncio
+async def test_get_me_returns_403_for_pending_user(route_db) -> None:
+    """Approved gate on get_current_user blocks pending sessions on /me."""
+    from app.api.routes.auth import _create_token
+
+    async with route_db() as s:
+        pending = await _seed_user(s, email="pending-me@test.com", status="pending")
+        token = _create_token(pending)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get(
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 403
+    assert "approval" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_admin_reject_invalidates_existing_session(route_db) -> None:
+    """Rejecting a user bumps session_version; old JWT no longer works."""
+    from app.api.routes.auth import _create_token
+
+    async with route_db() as s:
+        await _seed_user(s, email="admin@test.com", role="admin", status="approved")
+        target = await _seed_user(s, email="target@test.com", status="approved")
+        token = _create_token(target)
+
+    from app.api.deps import get_current_user
+
+    async def _as_admin(_request=None):
+        async with route_db() as s2:
+            from sqlalchemy import select
+            res = await s2.execute(select(User).where(User.email == "admin@test.com"))
+            return res.scalar_one()
+
+    app.dependency_overrides[get_current_user] = _as_admin
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r_reject = await client.post(
+                f"/api/admin/users/{target.id}/reject",
+                headers={"Origin": _allowed_origin()},
+            )
+            assert r_reject.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r_me = await client.get(
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r_me.status_code == 401
+    assert "Session" in r_me.json()["detail"] or "expired" in r_me.json()["detail"].lower()

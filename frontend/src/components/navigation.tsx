@@ -32,6 +32,7 @@ import { toastApiError } from "@/lib/toast-error";
 import { shouldShowMobileSyncBanner } from "@/lib/ux-plan-logic";
 import { appToast } from "@/lib/app-toast";
 import { NotificationBell } from "@/components/notification-center";
+import { usePageTitle } from "@/components/page";
 
 const primaryNavItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -200,6 +201,7 @@ function SidebarFooter() {
 
 export function MobileHeader() {
   const [open, setOpen] = useState(false);
+  const { title } = usePageTitle();
 
   return (
     <div className="md:hidden sticky top-0 z-40 flex items-center gap-2 border-b bg-card px-4 py-3">
@@ -212,8 +214,8 @@ export function MobileHeader() {
         <Menu className="h-5 w-5" />
       </Button>
       <div className="flex items-center gap-2 min-w-0">
-        <Wallet className="h-5 w-5 shrink-0 text-primary" />
-        <span className="font-semibold truncate">Clarity</span>
+        <Wallet className="h-5 w-5 shrink-0 text-primary" aria-hidden />
+        <span className="font-semibold truncate">{title}</span>
       </div>
       <NotificationBell className="ml-auto" />
       <Sheet open={open} onOpenChange={setOpen}>

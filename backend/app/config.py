@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     # way out, which is intentional for the open-registration default.
     admin_email: str = ""
 
+    # When true and Upstash is configured, /api/auth/* rate limits fail closed
+    # (429) if Redis is unreachable instead of fail-open.
+    auth_rate_limit_strict: bool = False
+
     model_config = {"env_file": ".env"}
 
 
@@ -171,5 +175,11 @@ def get_settings() -> Settings:
             "Demo mode seeds fake data and mocks AI — it must never run in "
             "production. If this is intentional, unset the prod marker; "
             "otherwise unset DEMO_MODE."
+        )
+    if settings.webauthn_debug and _looks_like_production():
+        raise RuntimeError(
+            "WEBAUTHN_DEBUG=true is set alongside a production environment "
+            "marker. Refusing to start — the passkey debug endpoint must not "
+            "be exposed in production."
         )
     return settings
