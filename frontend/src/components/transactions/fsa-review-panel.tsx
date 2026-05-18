@@ -50,7 +50,11 @@ export interface FsaReviewPanelProps {
   fsaFetching: boolean;
   fsaError: boolean;
   fsaErrorDetail?: unknown;
-  fsaRefetch: () => void;
+  onScan: () => void;
+  onCloudScan: () => void;
+  onCancelScan?: () => void;
+  fsaTier?: 1 | 2 | 4 | null;
+  batchProgress?: { done: number; total: number } | null;
   filteredFsa: FsaEligibleTransaction[];
   handleFsaExportCsv: () => void;
   fsaStatusMutation: UseMutationResult<
@@ -83,7 +87,11 @@ export function FsaReviewPanel({
   fsaFetching,
   fsaError,
   fsaErrorDetail,
-  fsaRefetch,
+  onScan,
+  onCloudScan,
+  onCancelScan,
+  fsaTier,
+  batchProgress,
   filteredFsa,
   handleFsaExportCsv,
   fsaStatusMutation,
@@ -133,20 +141,31 @@ export function FsaReviewPanel({
               />
               Scan all outflows (slower; skips keyword pre-filter)
             </label>
-            <Button
-              size="sm"
-              onClick={() => fsaRefetch()}
-              disabled={fsaFetching}
-            >
+            <Button size="sm" onClick={onScan} disabled={fsaFetching}>
               {fsaFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Stethoscope className="mr-2 h-4 w-4" />}
               Scan now
             </Button>
+            <Button size="sm" variant="outline" onClick={onCloudScan} disabled={fsaFetching}>
+              Run with cloud AI
+            </Button>
+            {fsaFetching && onCancelScan ? (
+              <Button size="sm" variant="ghost" onClick={onCancelScan}>
+                Cancel
+              </Button>
+            ) : null}
+            {fsaTier ? (
+              <Badge variant="secondary" className="text-xs">
+                {fsaTier === 1 ? "On-device (Nano)" : fsaTier === 2 ? "On-device (WebGPU)" : "Cloud"}
+              </Badge>
+            ) : null}
           </div>
 
           {(fsaLoading || fsaFetching) && !fsaData ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-              Running FSA scan…
+              {batchProgress && batchProgress.total > 0
+                ? `Running FSA scan (batch ${batchProgress.done + 1} of ${batchProgress.total})…`
+                : "Running FSA scan…"}
             </p>
           ) : null}
 

@@ -25,3 +25,18 @@ export { getWebLlmProvider } from "./providers/web-llm";
 export { makeServerProvider, LLMError, isLLMError } from "./providers/server";
 export { scanPrompt } from "./pii-detect";
 export type { PIIFlag, PIIScan } from "./pii-detect";
+export {
+  parseJsonResponse,
+  parseFsaStructured,
+  parseCategorizeSuggestions,
+  demoStructuredResult,
+  StructuredParseError,
+} from "./contracts";
+export type {
+  FsaCandidatesResponse,
+  FsaCandidateRow,
+  FsaStructuredResult,
+  CategorizeCandidatesResponse,
+  CategorizeSuggestion,
+} from "./contracts";
+export { runStructuredJson, runBatchedStructuredJson, fsaBatchConfig } from "./run-structured";

@@ -24,6 +24,8 @@ interface AiSettings {
 
 export interface UseLlm {
   capability: CapabilitySnapshot | null;
+  /** Router context for structured runners and custom flows. */
+  getContext: (feature: FeatureId) => RouterContext;
   /** Pre-flight — what'll happen for this feature right now. */
   decide: (feature: FeatureId) => Promise<Decision>;
   /** Stream chunks. Throws if consent is missing — call `decide` first to handle that. */
@@ -106,5 +108,10 @@ export function useLlm(): UseLlm {
     setCapability(c);
   }, []);
 
-  return { capability, decide, run, refresh };
+  const getContext = useCallback(
+    (feature: FeatureId) => buildContext(feature),
+    [buildContext],
+  );
+
+  return { capability, getContext, decide, run, refresh };
 }

@@ -55,6 +55,7 @@ from app.services.ai.debt_plan import (
     suggest_debt_plan,
 )
 from app.services.ai.fsa import (
+    fetch_fsa_candidates,
     list_fsa_items as _list_fsa_items_service,
     run_fsa_review,
     update_fsa_item_status as _update_fsa_item_status_service,
@@ -803,6 +804,35 @@ async def suggest_interest_rates(
     except HTTPException as he:
         await write_audit(db, llm_ctx, status_code=he.status_code)
         raise
+
+
+class FsaCandidatesResponse(BaseModel):
+    candidates: list[dict]
+    scan_count: int
+    candidate_count: int
+    prefilter_skipped_count: int
+
+
+@router.post("/fsa-review/candidates", response_model=FsaCandidatesResponse)
+async def fsa_review_candidates(
+    req: FsaReviewRequest = FsaReviewRequest(),
+    household_id: str = Depends(_require_ai_enabled),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return FSA scan candidates without calling the LLM (for on-device review)."""
+    result = await fetch_fsa_candidates(
+        db,
+        household_id,
+        req.date_from,
+        req.date_to,
+        include_all_outflows=req.include_all_outflows,
+    )
+    return FsaCandidatesResponse(
+        candidates=result["candidates"],
+        scan_count=result["scan_count"],
+        candidate_count=result["candidate_count"],
+        prefilter_skipped_count=result["prefilter_skipped_count"],
+    )
 
 
 @router.post("/fsa-review", response_model=FsaReviewResponse)
