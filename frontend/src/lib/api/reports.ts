@@ -35,6 +35,17 @@ export interface BalancePoint {
   balance: number;
 }
 
+export interface CategorizeCandidatesResponse {
+  transactions: {
+    id: string;
+    payee: string;
+    amount: string;
+    date: string;
+    notes: string | null;
+  }[];
+  categories: { id: string; name: string }[];
+}
+
 export interface LlmSuggestion {
   transaction_id: string;
   suggested_category_id: string;
@@ -65,6 +76,13 @@ export const reportsApi = {
 
   balanceHistory: (accountId: string) =>
     api.get<BalancePoint[]>(`/reports/accounts/${accountId}/balance-history`).then((r) => r.data),
+
+  getCategorizeCandidates: (params?: SuggestCategoriesParams) =>
+    api
+      .post<CategorizeCandidatesResponse>("/categorization/suggest/candidates", params ?? {}, {
+        timeout: LLM_HTTP_TIMEOUT_MS,
+      })
+      .then((r) => r.data),
 
   suggestCategories: (params?: SuggestCategoriesParams) =>
     api

@@ -43,6 +43,14 @@ Dev server: `npm run dev` (default `http://localhost:3000`).
 
 GitHub Actions runs the backend and frontend jobs on every PR (see `.github/workflows/ci.yml`).
 
+**Vercel (frontend):** The Next.js app lives in `frontend/`. Either set **Root Directory** to `frontend` in the Vercel project, or keep the repo root and use the root `vercel.json` / `npm run vercel-build` (both delegate to `frontend/`). Before pushing UI changes, run from repo root:
+
+```bash
+./scripts/ci-local.sh
+# or only the Vercel gate:
+./scripts/vercel-build-check.sh
+```
+
 ## Database migrations
 
 Schema is managed by **Alembic** (`backend/alembic/`). The container

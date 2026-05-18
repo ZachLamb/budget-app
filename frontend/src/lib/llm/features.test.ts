@@ -15,6 +15,11 @@ describe("features", () => {
     expect(p.allowedTiers).toContain(4);
   });
 
+  it("fsa_review and categorize_transaction default to Tier 2 for structured JSON", () => {
+    expect(getFeaturePolicy("fsa_review").defaultTier).toBe(2);
+    expect(getFeaturePolicy("categorize_transaction").defaultTier).toBe(2);
+  });
+
   it("free_form_qa is cloud-only", () => {
     const p = getFeaturePolicy("free_form_qa");
     expect(p.allowedTiers).toEqual([4]);

@@ -48,7 +48,7 @@ const FEATURES: Record<FeatureId, FeaturePolicy> = {
     // Sensitive — prefer local. Cloud only on explicit user override.
     allowedTiers: [1, 2, 4],
     minimumTier: 1,
-    defaultTier: 1,
+    defaultTier: 2,
     cloudPossible: true,
   },
   spending_summary: {
@@ -107,7 +107,7 @@ const FEATURES: Record<FeatureId, FeaturePolicy> = {
     label: "FSA reimbursement review",
     allowedTiers: [1, 2, 4],
     minimumTier: 1,
-    defaultTier: 1,
+    defaultTier: 2,
     cloudPossible: true,
   },
 };

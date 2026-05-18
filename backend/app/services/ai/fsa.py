@@ -118,17 +118,14 @@ def _matches_fsa_hint(row) -> bool:
     return any(kw in text for kw in _FSA_HINT_KEYWORDS)
 
 
-async def run_fsa_review(
+async def fetch_fsa_candidates(
     db: AsyncSession,
     household_id: str,
     date_from: Optional[date],
     date_to: Optional[date],
     include_all_outflows: bool = False,
 ) -> dict[str, object]:
-    """Scan outflows in a date range, ask the LLM to flag potentially FSA-eligible ones.
-
-    Returns a dict shaped to populate `FsaReviewResponse` in the route layer.
-    """
+    """Load outflow rows for FSA review (no LLM). Shared by candidates API and server scan."""
     today = date.today()
     df = date_from or today.replace(month=1, day=1)
     dt = date_to or today
@@ -167,6 +164,56 @@ async def run_fsa_review(
     else:
         candidates = [r for r in rows if _matches_fsa_hint(r)]
         prefilter_skipped = total_scanned - len(candidates)
+
+    status_map: dict[str, str] = {}
+    if candidates:
+        txn_ids = [r.id for r in candidates]
+        status_result = await db.execute(
+            select(FsaReviewItem.transaction_id, FsaReviewItem.status)
+            .where(FsaReviewItem.household_id == household_id)
+            .where(FsaReviewItem.transaction_id.in_(txn_ids))
+        )
+        status_map = {row.transaction_id: row.status for row in status_result.all()}
+
+    candidate_rows = [
+        {
+            "transaction_id": r.id,
+            "date": str(r.date),
+            "payee_name": sanitize_user_text(r.payee_name, DEFAULT_PAYEE_MAX) or "Unknown",
+            "category_name": sanitize_user_text(r.category_name, DEFAULT_CATEGORY_MAX),
+            "amount": abs(float(r.amount)),
+            "notes": sanitize_user_text(r.notes, DEFAULT_NOTES_MAX),
+            "status": status_map.get(r.id, "pending"),
+        }
+        for r in candidates
+    ]
+
+    return {
+        "candidates": candidate_rows,
+        "scan_count": total_scanned,
+        "candidate_count": len(candidates),
+        "prefilter_skipped_count": prefilter_skipped,
+        "_candidate_rows": candidates,
+    }
+
+
+async def run_fsa_review(
+    db: AsyncSession,
+    household_id: str,
+    date_from: Optional[date],
+    date_to: Optional[date],
+    include_all_outflows: bool = False,
+) -> dict[str, object]:
+    """Scan outflows in a date range, ask the LLM to flag potentially FSA-eligible ones.
+
+    Returns a dict shaped to populate `FsaReviewResponse` in the route layer.
+    """
+    fetched = await fetch_fsa_candidates(
+        db, household_id, date_from, date_to, include_all_outflows=include_all_outflows
+    )
+    candidates = fetched["_candidate_rows"]
+    total_scanned = fetched["scan_count"]
+    prefilter_skipped = fetched["prefilter_skipped_count"]
 
     if not candidates:
         return {

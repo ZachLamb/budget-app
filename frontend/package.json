@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "node scripts/check-ui-imports.mjs && next build",
+    "vercel-build": "npm run build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest",

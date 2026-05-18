@@ -21,6 +21,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { appToast } from "@/lib/app-toast";
 import api from "@/lib/api/client";
 import { aiApi } from "@/lib/api/ai";
+import { useFsaReviewScan } from "@/hooks/use-fsa-review-scan";
+import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import { useFlatCategories, useIsClient, useDemoGuard } from "@/lib/hooks";
@@ -81,25 +83,18 @@ function TransactionsContent() {
     enabled: isClient,
   });
   const { allCategories } = useFlatCategories();
-  const {
-    data: fsaData,
-    isLoading: fsaLoading,
-    isFetching: fsaFetching,
-    isError: fsaError,
-    error: fsaErrorDetail,
-    refetch: fsaRefetch,
-  } = useQuery({
-    queryKey: ["fsa-review", fsaDateFrom, fsaDateTo, fsaIncludeAllOutflows],
-    queryFn: () =>
-      aiApi.getFsaReview({
-        date_from: fsaDateFrom,
-        date_to: fsaDateTo,
-        include_all_outflows: fsaIncludeAllOutflows,
-      }),
-    enabled: isClient && fsaOpen,
-    staleTime: 60 * 1000,
-    meta: { inlineError: true },
+  const fsaScan = useFsaReviewScan({
+    dateFrom: fsaDateFrom,
+    dateTo: fsaDateTo,
+    includeAllOutflows: fsaIncludeAllOutflows,
   });
+  const fsaData = fsaScan.data;
+  const fsaLoading = fsaScan.loading && !fsaData;
+  const fsaFetching = fsaScan.loading;
+  const fsaError = Boolean(fsaScan.error);
+  const fsaErrorDetail = fsaScan.error;
+
+  const categorizeAi = useCategorizeSuggestions();
 
   const filteredFsa = useMemo(() => {
     if (!fsaData?.eligible_transactions) return [];
@@ -139,24 +134,35 @@ function TransactionsContent() {
   const fsaStatusMutation = useMutation({
     mutationFn: ({ txnId, status }: { txnId: string; status: "pending" | "claimed" | "dismissed" }) =>
       aiApi.updateFsaItemStatus(txnId, status),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["fsa-review"] }),
+    onSuccess: (_, { txnId, status }) => {
+      fsaScan.setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              eligible_transactions: prev.eligible_transactions.map((t) =>
+                t.transaction_id === txnId ? { ...t, status } : t,
+              ),
+            }
+          : prev,
+      );
+    },
     onError: (e) => toastApiError("Could not update FSA status", e),
   });
 
   const suggestCategoriesMutation = useMutation({
     mutationFn: () =>
-      reportsApi.suggestCategories({
+      categorizeAi.suggest({
         account_id: filters.account_id,
         date_from: filters.date_from,
         date_to: filters.date_to,
         search: filters.search?.trim() || undefined,
         limit: 50,
       }),
-    onSuccess: (data) => {
+    onSuccess: (suggestions) => {
       setCategoryReviewOverrides({});
-      setLlmCategorySuggestions(data.suggestions);
+      setLlmCategorySuggestions(suggestions);
       setCategoryReviewOpen(true);
-      if (data.suggestions.length === 0) {
+      if (suggestions.length === 0) {
         appToast.info("No uncategorized transactions to suggest for.");
       }
     },
@@ -812,7 +818,11 @@ function TransactionsContent() {
         fsaFetching={fsaFetching}
         fsaError={fsaError}
         fsaErrorDetail={fsaErrorDetail}
-        fsaRefetch={fsaRefetch}
+        onScan={() => void fsaScan.scanLocal()}
+        onCloudScan={() => void fsaScan.scanCloud()}
+        onCancelScan={fsaScan.cancel}
+        fsaTier={fsaScan.tier}
+        batchProgress={fsaScan.batchProgress}
         filteredFsa={filteredFsa}
         handleFsaExportCsv={handleFsaExportCsv}
         fsaStatusMutation={fsaStatusMutation}

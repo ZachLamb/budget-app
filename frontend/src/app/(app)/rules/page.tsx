@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rulesApi, type Rule, type RuleCreate } from "@/lib/api/rules";
 import { reportsApi, type LlmSuggestion } from "@/lib/api/reports";
+import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
 import { useFlatCategories, useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
 import { Card, CardContent } from "@/components/ui/card";
@@ -55,6 +56,7 @@ function RulesContent() {
   });
 
   const { allCategories, catNameMap } = useFlatCategories();
+  const categorizeAi = useCategorizeSuggestions();
 
   const createMutation = useMutation({
     mutationFn: rulesApi.create,
@@ -90,14 +92,11 @@ function RulesContent() {
   });
 
   const suggestMutation = useMutation({
-    // Wrapped so `.mutate()` is callable with no args — the underlying
-    // fetcher accepts optional filters; on this page we always want the
-    // "recent uncategorized" default batch.
-    mutationFn: () => reportsApi.suggestCategories(),
-    onSuccess: (data) => {
-      setSuggestions(data.suggestions);
+    mutationFn: () => categorizeAi.suggest(),
+    onSuccess: (suggestions) => {
+      setSuggestions(suggestions);
       setSuggestOpen(true);
-      if (data.suggestions.length === 0) {
+      if (suggestions.length === 0) {
         appToast.info("No uncategorized transactions to suggest for");
       }
     },

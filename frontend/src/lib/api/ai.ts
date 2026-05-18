@@ -74,6 +74,21 @@ export interface FsaEligibleTransaction {
   status: "pending" | "claimed" | "dismissed";
 }
 
+export interface FsaCandidatesResponse {
+  candidates: {
+    transaction_id: string;
+    date: string;
+    payee_name: string;
+    category_name: string | null;
+    amount: number;
+    notes: string | null;
+    status?: "pending" | "claimed" | "dismissed";
+  }[];
+  scan_count: number;
+  candidate_count: number;
+  prefilter_skipped_count: number;
+}
+
 export interface FsaReviewResponse {
   eligible_transactions: FsaEligibleTransaction[];
   total_potential_amount: number;
@@ -106,6 +121,14 @@ export const aiApi = {
       .post<InterestRateSuggestionsResponse>("/ai/suggest-interest-rates", undefined, {
         timeout: LLM_HTTP_TIMEOUT_MS,
       })
+      .then((r) => r.data),
+  getFsaReviewCandidates: (params?: {
+    date_from?: string;
+    date_to?: string;
+    include_all_outflows?: boolean;
+  }) =>
+    api
+      .post<FsaCandidatesResponse>("/ai/fsa-review/candidates", params ?? {}, { timeout: LLM_HTTP_TIMEOUT_MS })
       .then((r) => r.data),
   getFsaReview: (params?: { date_from?: string; date_to?: string; include_all_outflows?: boolean }) =>
     api.post<FsaReviewResponse>("/ai/fsa-review", params ?? {}, { timeout: LLM_HTTP_TIMEOUT_MS }).then((r) => r.data),

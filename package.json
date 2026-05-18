@@ -1,0 +1,11 @@
+{
+  "name": "budget-app",
+  "private": true,
+  "description": "Monorepo root — Vercel builds must run the Next.js app in frontend/",
+  "scripts": {
+    "vercel-build": "npm run build --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "ci": "./scripts/ci-local.sh",
+    "ci:vercel": "./scripts/vercel-build-check.sh"
+  }
+}

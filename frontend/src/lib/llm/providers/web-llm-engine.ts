@@ -14,6 +14,7 @@
 import type { GenerateOptions, LLMProvider } from "../types";
 import { getCapability } from "../capability";
 import { getLocalConsent } from "../consent";
+import { withEngineLockGenerator } from "../engine-busy";
 
 const MODEL_3B = "Llama-3.2-3B-Instruct-q4f16_1-MLC";
 const MODEL_1B = "Llama-3.2-1B-Instruct-q4f16_1-MLC";
@@ -94,24 +95,25 @@ class WebLlmProvider implements LLMProvider {
   readonly privacy = "local" as const;
 
   async *generate(prompt: string, opts: GenerateOptions = {}): AsyncIterable<string> {
-    const eng = await ensureEngine();
-    // Reset prevents context bleed across unrelated calls. We don't share state.
-    await eng.resetChat();
-    const messages: { role: "system" | "user" | "assistant"; content: string }[] = [];
-    if (opts.system) messages.push({ role: "system", content: opts.system });
-    messages.push({ role: "user", content: prompt });
+    yield* withEngineLockGenerator(async function* () {
+      const eng = await ensureEngine();
+      await eng.resetChat();
+      const messages: { role: "system" | "user" | "assistant"; content: string }[] = [];
+      if (opts.system) messages.push({ role: "system", content: opts.system });
+      messages.push({ role: "user", content: prompt });
 
-    const stream = eng.chat.completions.create({
-      messages,
-      stream: true,
-      max_tokens: opts.maxTokens,
+      const stream = eng.chat.completions.create({
+        messages,
+        stream: true,
+        max_tokens: opts.maxTokens,
+      });
+
+      for await (const chunk of stream) {
+        if (opts.signal?.aborted) return;
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (delta) yield delta;
+      }
     });
-
-    for await (const chunk of stream) {
-      if (opts.signal?.aborted) return;
-      const delta = chunk.choices?.[0]?.delta?.content;
-      if (delta) yield delta;
-    }
   }
 }
 

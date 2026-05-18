@@ -14,7 +14,7 @@ echo "== frontend: lint =="
 echo "== frontend: tests =="
 ( cd "$ROOT/frontend" && npm run test:run )
 
-echo "== frontend: build =="
-( cd "$ROOT/frontend" && npm run build )
+echo "== frontend + vercel: production build (from repo root) =="
+( "$ROOT/scripts/vercel-build-check.sh" )
 
 echo "== ci-local: OK =="
