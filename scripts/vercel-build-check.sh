@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
-# Simulates a Vercel build when the linked project root is the repository root
-# (not frontend/). Catches "Couldn't find any pages or app directory" before push.
+# Validates the Next.js production build for Vercel (app in frontend/).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FRONTEND="$ROOT/frontend"
 
-cd "$ROOT"
-
-if [[ -d "$ROOT/frontend/src/app" ]]; then
-  :
-else
-  echo "error: expected frontend/src/app — is the Next.js app still under frontend/?" >&2
+if [[ ! -d "$FRONTEND/src/app" ]]; then
+  echo "error: expected frontend/src/app" >&2
   exit 1
 fi
 
@@ -20,19 +16,22 @@ if [[ -d "$ROOT/app" || -d "$ROOT/pages" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$ROOT/vercel.json" ]] || ! grep -q '"rootDirectory"[[:space:]]*:[[:space:]]*"frontend"' "$ROOT/vercel.json"; then
+  echo "warning: root vercel.json should set rootDirectory to frontend" >&2
+fi
+
 echo "== vercel-build-check: install (frontend) =="
-npm ci --prefix frontend
+npm ci --prefix "$FRONTEND"
 
-echo "== vercel-build-check: build (from repo root, like Vercel) =="
-npm run vercel-build
+echo "== vercel-build-check: build (frontend) =="
+npm run build --prefix "$FRONTEND"
 
-if [[ ! -f "$ROOT/.next/routes-manifest.json" ]]; then
-  echo "error: .next/routes-manifest.json missing at repo root (Vercel expects it here)" >&2
+if [[ ! -f "$FRONTEND/.next/routes-manifest.json" ]]; then
+  echo "error: frontend/.next/routes-manifest.json missing after build" >&2
   exit 1
 fi
-if [[ ! -e "$ROOT/node_modules/next/package.json" ]]; then
-  echo "error: node_modules not linked at repo root (Vercel resolves deps from here)" >&2
-  exit 1
-fi
+
+echo "== vercel-build-check: root vercel-build (monorepo fallback) =="
+npm run vercel-build --prefix "$ROOT"
 
 echo "== vercel-build-check: OK =="
