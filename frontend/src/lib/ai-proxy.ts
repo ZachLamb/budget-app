@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
 /** Cap proxy payload size to reduce abuse of the BFF routes. */
-export const MAX_AI_PROXY_BODY_BYTES = 512 * 1024;
+const MAX_AI_PROXY_BODY_BYTES = 512 * 1024;
 
 export function getAiBackendBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_DOCKER === "1"

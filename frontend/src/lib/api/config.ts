@@ -10,7 +10,7 @@
  */
 import api from "./client";
 
-export interface AuthMethods {
+interface AuthMethods {
   password: boolean;
   passkey: boolean;
   google: boolean;

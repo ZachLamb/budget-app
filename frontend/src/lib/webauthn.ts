@@ -3,7 +3,7 @@
  */
 
 /** Decode a base64url string to ArrayBuffer (handles padding). */
-export function decodeBase64url(s: string): ArrayBuffer {
+function decodeBase64url(s: string): ArrayBuffer {
   const base64 = s.replace(/-/g, "+").replace(/_/g, "/");
   const pad = base64.length % 4;
   const padded = pad ? base64 + "==".slice(0, 4 - pad) : base64;

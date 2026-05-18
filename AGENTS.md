@@ -36,6 +36,7 @@ Optional integration-style tests need Postgres and `RUN_PASSKEY_API_TESTS=1`—s
 ```bash
 npm run lint
 npm run test:run
+npm run quality:check   # lint + tests + fallow dead-code
 npm run build
 ```
 
@@ -78,6 +79,21 @@ cd backend && alembic stamp head
 - **Lint, tests, commits, push:** see `.cursor/rules/verify-quality-and-git.mdc` (always-on).
 - **Secrets:** never commit tokens, keys, real `.env` values, or production URLs—see `.cursor/rules/secrets-and-credentials.mdc`.
 - **Sub-agents / Task tool:** when to parallelize and how to prompt—see `.cursor/rules/subagents-and-parallel-work.mdc`.
+
+## Skills (Cursor / Claude)
+
+| Location | Purpose |
+|----------|---------|
+| `.cursor/skills/` | **Project:** `budget-app-verify` (full CI), `budget-app-quality` (frontend lint/test/fallow) |
+| `~/.cursor/skills/` | **Personal:** copies of `~/.claude/skills/` — edit Claude dir first, then re-copy to Cursor |
+
+**Frontend quality (after UI/TS changes):** `cd frontend && npm run quality:check` (lint, Vitest, fallow dead-code).
+
+**Full CI gate:** `./scripts/ci-local.sh` from repo root.
+
+**Deeper audit (periodic):** `cd frontend && npm run quality:audit` or personal `code-quality-audit` skill.
+
+Config: `frontend/fallow.toml`, `frontend/knip.json`.
 
 ## MCP (optional)
 

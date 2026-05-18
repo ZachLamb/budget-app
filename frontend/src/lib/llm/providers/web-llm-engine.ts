@@ -46,13 +46,6 @@ interface MLCModule {
 let engine: MLCEngine | null = null;
 let loading: Promise<MLCEngine> | null = null;
 
-/** Optional progress callback wired in by callers showing download UI. */
-let progressListener: ((p: { progress: number; text?: string }) => void) | null = null;
-
-export function setWebLlmProgressListener(cb: ((p: { progress: number; text?: string }) => void) | null): void {
-  progressListener = cb;
-}
-
 async function chooseModel(): Promise<string> {
   const cap = await getCapability();
   const local = getLocalConsent();
@@ -61,7 +54,9 @@ async function chooseModel(): Promise<string> {
   return MODEL_3B;
 }
 
-async function ensureEngine(): Promise<MLCEngine> {
+export async function ensureEngine(
+  onProgress?: (p: { progress: number; text?: string }) => void,
+): Promise<MLCEngine> {
   if (engine) return engine;
   if (loading) return loading;
 
@@ -70,13 +65,7 @@ async function ensureEngine(): Promise<MLCEngine> {
     // Dynamic import keeps the ~10 MB worker bundle off the critical path.
     const mod = (await import("@mlc-ai/web-llm")) as unknown as MLCModule;
     const created = await mod.CreateMLCEngine(modelId, {
-      initProgressCallback: (p) => {
-        try {
-          progressListener?.(p);
-        } catch {
-          // listener errors must not abort the load
-        }
-      },
+      initProgressCallback: onProgress,
       logLevel: "WARN",
     });
     engine = created;
@@ -87,6 +76,11 @@ async function ensureEngine(): Promise<MLCEngine> {
   } finally {
     loading = null;
   }
+}
+
+export function _resetEngineForTest(): void {
+  engine = null;
+  loading = null;
 }
 
 class WebLlmProvider implements LLMProvider {

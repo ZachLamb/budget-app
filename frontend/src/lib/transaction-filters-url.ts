@@ -1,16 +1,5 @@
 import type { TransactionFilters } from "@/lib/api/transactions";
 
-export type TransactionUrlParams = {
-  page?: string;
-  page_size?: string;
-  search?: string;
-  account_id?: string;
-  category_id?: string;
-  date_from?: string;
-  date_to?: string;
-  uncategorized?: string;
-};
-
 const DEFAULT_PAGE_SIZE = 50;
 
 export function parseTransactionFiltersFromSearchParams(
@@ -76,7 +65,3 @@ export function clampPage(page: number, totalPages: number): number {
   return Math.min(Math.max(1, page), totalPages);
 }
 
-/** Read URL once on mount; write URL when filters change (caller debounces search). */
-export function filtersDifferForUrl(a: TransactionFilters, b: TransactionFilters): boolean {
-  return transactionFiltersToSearchParams(a).toString() !== transactionFiltersToSearchParams(b).toString();
-}

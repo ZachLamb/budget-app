@@ -13,8 +13,9 @@ import { toastApiError } from "@/lib/toast-error";
 import type { Transaction } from "@/lib/api/transactions";
 import { formatCurrency } from "@/lib/format";
 import { CloudConsentDialog } from "./cloud-consent-dialog";
-import { DownloadConsentCard } from "./download-consent-card";
+import { LocalAiSetupWizard } from "./local-ai-setup-wizard";
 import { PiiWarningDialog } from "./pii-warning-dialog";
+import { useLocalAiSetup } from "@/hooks/use-local-ai-setup";
 
 interface Props {
   txn: Transaction;
@@ -67,8 +68,8 @@ export function ExplainCharge({ txn }: Props) {
   const [rateLimitError, setRateLimitError] = useState<LLMError | null>(null);
   const [tier, setTier] = useState<1 | 2 | 4 | null>(null);
   const [showCloudConsent, setShowCloudConsent] = useState(false);
-  const [showDownloadConsent, setShowDownloadConsent] = useState(false);
   const [piiScan, setPiiScan] = useState<PIIScan | null>(null);
+  const localAi = useLocalAiSetup();
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
 
   // Wall-clock seconds since loading started — drives the progressive
@@ -122,6 +123,7 @@ export function ExplainCharge({ txn }: Props) {
     setOutput("");
     setLoading(true);
     try {
+      await localAi.ensureReady(FEATURE);
       const decision = await llm.decide(FEATURE);
       if (decision.kind === "unavailable") {
         setError(decision.message);
@@ -131,7 +133,7 @@ export function ExplainCharge({ txn }: Props) {
       if (decision.kind === "needs_consent") {
         setLoading(false);
         if (decision.reason === "needs_cloud_consent") setShowCloudConsent(true);
-        else setShowDownloadConsent(true);
+        else return;
         return;
       }
       setTier(decision.tier);
@@ -159,7 +161,7 @@ export function ExplainCharge({ txn }: Props) {
       }
       setLoading(false);
     }
-  }, [llm, txn, streamPrompt]);
+  }, [llm, txn, streamPrompt, localAi]);
 
   const cancelPii = useCallback(() => {
     setPiiScan(null);
@@ -272,14 +274,7 @@ export function ExplainCharge({ txn }: Props) {
           void run();
         }}
       />
-      <DownloadConsentCard
-        open={showDownloadConsent}
-        onClose={() => setShowDownloadConsent(false)}
-        onGranted={() => {
-          setShowDownloadConsent(false);
-          void run();
-        }}
-      />
+      <LocalAiSetupWizard {...localAi.wizardProps} />
       {piiScan && (
         <PiiWarningDialog
           open={piiScan !== null}

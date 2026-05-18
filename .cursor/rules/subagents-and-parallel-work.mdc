@@ -1,0 +1,21 @@
+---
+description: When to parallelize Task sub-agents vs work sequentially
+alwaysApply: true
+---
+
+# Sub-agents and parallel work
+
+## Parallel Task / sub-agents
+
+- Use parallel sub-agents only for **disjoint** domains (e.g. unrelated test files, non-overlapping paths).
+- After parallel work, run **full** lint/test for every touched stack and resolve overlapping edits yourself.
+
+## Prefer sequential
+
+- **Auth, session, and security-hardening** slices: implement and review sequentially unless tasks are strictly isolated (separate packages or paths).
+- **Same file or shared types:** never split one file across parallel agents.
+
+## Prompts
+
+- Sub-agent prompts must be self-contained (stack, paths, acceptance criteria).
+- Never paste tokens, `.env` values, or production URLs into sub-agent prompts.

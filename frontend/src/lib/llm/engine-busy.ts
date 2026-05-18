@@ -20,20 +20,6 @@ function release(): void {
   next?.();
 }
 
-export function isEngineBusy(): boolean {
-  return locked;
-}
-
-/** Run async work under the engine lock (non-streaming). */
-export async function withEngineLock<T>(fn: () => Promise<T>): Promise<T> {
-  await acquire();
-  try {
-    return await fn();
-  } finally {
-    release();
-  }
-}
-
 /** Wrap an async generator so the lock is held for the full iteration. */
 export async function* withEngineLockGenerator<T>(
   fn: () => AsyncGenerator<T>,

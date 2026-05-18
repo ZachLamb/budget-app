@@ -1,10 +1,10 @@
-export type ChatEvidenceCategorySpending = {
+type ChatEvidenceCategorySpending = {
   type: "category_spending";
   month: string;
   lines: { category: string; amount: number }[];
 };
 
-export type ChatEvidenceGoalProgress = {
+type ChatEvidenceGoalProgress = {
   type: "goal_progress";
   goals: {
     name: string;
@@ -15,7 +15,7 @@ export type ChatEvidenceGoalProgress = {
   }[];
 };
 
-export type ChatEvidenceBudgetPace = {
+type ChatEvidenceBudgetPace = {
   type: "budget_pace";
   month: string;
   lines: { category: string; budgeted: number; spent: number; remaining: number }[];
