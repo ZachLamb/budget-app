@@ -1,0 +1,21 @@
+---
+description: Run local builds before pushing to catch errors early
+alwaysApply: true
+---
+
+# Pre-push build
+
+Before `git push` (or when the user asks to push), run the same checks CI runs locally and fix failures before pushing:
+
+```bash
+./scripts/ci-local.sh
+```
+
+For UI-only changes, at minimum:
+
+```bash
+./scripts/vercel-build-check.sh   # when root vercel.json / Git deploy path applies
+cd frontend && npm run lint && npm run test:run && npm run build
+```
+
+Do not push if these fail. Report what failed and fix it first.
