@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * Used when Vercel Root Directory is `.` (Git deploys today). Copies build output
- * from frontend/ to the repo root. Set Root Directory to frontend/ to remove this.
+ * Used when Vercel Root Directory is `.` (Git deploys). Copies frontend build
+ * artifacts to the repo root and links /vercel/node_modules for file tracing.
+ * Set Root Directory to frontend/ in Vercel settings to remove this script.
  */
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -27,19 +28,11 @@ if (!existsSync(join(frontend, ".next", "routes-manifest.json"))) {
 
 copyTree(join(frontend, ".next"), join(repoRoot, ".next"), ".next");
 copyTree(join(frontend, "public"), join(repoRoot, "public"), "public");
+copyTree(join(frontend, "node_modules"), join(repoRoot, "node_modules"), "node_modules");
 
-// Tracing reads /vercel/node_modules; copy only packages Next needs there (not the full tree).
 if (process.env.VERCEL === "1" && existsSync("/vercel")) {
-  const srcNm = join(frontend, "node_modules");
-  const destNm = "/vercel/node_modules";
-  mkdirSync(destNm, { recursive: true });
-  for (const pkg of ["client-only", "styled-jsx"]) {
-    const src = join(srcNm, pkg);
-    const dest = join(destNm, pkg);
-    if (existsSync(src)) {
-      rmSync(dest, { recursive: true, force: true });
-      cpSync(src, dest, { recursive: true });
-      console.log(`sync-next-output: ${pkg} → ${dest}`);
-    }
-  }
+  const link = "/vercel/node_modules";
+  rmSync(link, { recursive: true, force: true });
+  symlinkSync(join(repoRoot, "node_modules"), link, "dir");
+  console.log(`sync-next-output: symlink ${link} → ${join(repoRoot, "node_modules")}`);
 }
