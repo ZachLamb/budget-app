@@ -51,6 +51,12 @@ vi.mock("@/lib/api/settings", () => ({
   },
 }));
 
+vi.mock("@/lib/llm/ai-feature-gate", () => ({
+  useAiFeatureGate: () => ({
+    prepareFeature: vi.fn(async () => ({ ok: true })),
+  }),
+}));
+
 // Use a minimal local provider instead of the full providers module to
 // avoid dragging in AuthProvider / ThemeProvider side effects.
 vi.mock("@/lib/providers", () => ({

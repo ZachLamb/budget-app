@@ -9,6 +9,7 @@ import {
   type BudgetMonthResponse,
 } from "@/lib/api/budget";
 import { aiApi, type SpendingTrend, type BudgetSuggestion } from "@/lib/api/ai";
+import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -384,20 +385,32 @@ function AiSuggestionsPanel({
 function SpendingPatternsPanel({ month }: { month: string }) {
   const isClient = useIsClient();
   const queryClient = useQueryClient();
+  const gate = useAiFeatureGate();
   const [open, setOpen] = useState(false);
+  const [aiReady, setAiReady] = useState(false);
 
   const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: ["budgetInsights", month],
     queryFn: aiApi.getBudgetInsights,
     staleTime: 5 * 60 * 1000,
-    enabled: isClient && open,
+    enabled: isClient && open && aiReady,
     retry: false,
   });
+
+  const toggleOpen = async () => {
+    if (!open) {
+      const prepared = await gate.prepareFeature("financial_advice");
+      if (!prepared.ok) return;
+      setAiReady(true);
+    }
+    setOpen((o) => !o);
+  };
 
   return (
     <Card>
       <button
-        onClick={() => setOpen(!open)}
+        type="button"
+        onClick={() => void toggleOpen()}
         className="flex w-full items-center justify-between px-6 py-4 text-left"
       >
         <div className="flex flex-wrap items-center gap-2">
@@ -509,6 +522,7 @@ function SpendingPatternsPanel({ month }: { month: string }) {
 }
 
 function BudgetContent() {
+  const gate = useAiFeatureGate();
   const [month, setMonth] = useState(() => getMonthString(new Date()));
   const queryClient = useQueryClient();
   const isClient = useIsClient();
@@ -533,6 +547,9 @@ function BudgetContent() {
   });
 
   const handleAiSuggestions = async () => {
+    const prepared = await gate.prepareFeature("budget_recommendations");
+    if (!prepared.ok) return;
+
     setSuggestionsLoading(true);
     try {
       const result = await aiApi.getBudgetSuggestions();

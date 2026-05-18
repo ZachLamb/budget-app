@@ -14,6 +14,13 @@ from app.schemas.sync import SyncLogResponse, SyncStatusResponse
 router = APIRouter()
 
 
+def _as_utc(dt: datetime) -> datetime:
+    """Coerce a possibly tz-naive DB timestamp to UTC-aware for arithmetic."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 @router.get("/status", response_model=SyncStatusResponse)
 async def get_sync_status(
     household_id: str = Depends(get_household_id),
@@ -28,13 +35,14 @@ async def get_sync_status(
     last_sync = result.scalar_one_or_none()
 
     is_stale = True
+    now = datetime.now(timezone.utc)
     if last_sync and last_sync.completed_at:
-        age_minutes = (datetime.now(timezone.utc) - last_sync.completed_at).total_seconds() / 60
+        age_minutes = (now - _as_utc(last_sync.completed_at)).total_seconds() / 60
         is_stale = age_minutes > get_settings().sync_stale_minutes
 
     # A sync stuck in_progress for >10 minutes is a crashed background task — treat as failed
     if last_sync and last_sync.status == "in_progress":
-        age = datetime.now(timezone.utc) - last_sync.started_at.replace(tzinfo=timezone.utc)
+        age = now - _as_utc(last_sync.started_at)
         if age > timedelta(minutes=10):
             last_sync.status = "error"
             last_sync.error_message = "Sync timed out (no response within 10 minutes)"

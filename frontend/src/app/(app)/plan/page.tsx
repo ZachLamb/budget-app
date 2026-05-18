@@ -34,6 +34,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PageHeader } from "@/components/page";
 import { SkeletonTable } from "@/components/skeleton-table";
 import { AI_COPY } from "@/lib/ai-copy";
+import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -449,6 +450,7 @@ function GoalsTab() {
 // ── Debt Tab ──────────────────────────────────────────────────────────────────
 
 function DebtTab() {
+  const gate = useAiFeatureGate();
   const isClient = useIsClient();
   const queryClient = useQueryClient();
   const [strategy, setStrategy] = useState<DebtStrategy>("avalanche");
@@ -588,6 +590,9 @@ function DebtTab() {
   })) ?? [];
 
   const handleSuggestRates = async () => {
+    const prepared = await gate.prepareFeature("financial_advice");
+    if (!prepared.ok) return;
+
     setRateLoading(true);
     try {
       const result = await aiApi.suggestInterestRates();
@@ -661,6 +666,9 @@ function DebtTab() {
   };
 
   const handleGetAiRecommendation = async () => {
+    const prepared = await gate.prepareFeature("financial_advice");
+    if (!prepared.ok) return;
+
     const requestId = ++aiRequestIdRef.current;
     setAiLoading(true);
     setAiError(null);

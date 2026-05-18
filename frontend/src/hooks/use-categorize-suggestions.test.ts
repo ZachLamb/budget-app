@@ -3,11 +3,18 @@ import { renderHook, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
+const prepareFeatureMock = vi.fn();
 const decideMock = vi.fn();
 const getContextMock = vi.fn();
 const suggestCategoriesMock = vi.fn();
 const getCategorizeCandidatesMock = vi.fn();
 const scanPromptMock = vi.fn();
+
+vi.mock("@/lib/llm/ai-feature-gate", () => ({
+  useAiFeatureGate: () => ({
+    prepareFeature: prepareFeatureMock,
+  }),
+}));
 
 vi.mock("@/lib/llm/useLlm", () => ({
   useLlm: () => ({
@@ -51,6 +58,8 @@ function wrap({ children }: { children: React.ReactNode }) {
 }
 
 beforeEach(() => {
+  prepareFeatureMock.mockReset();
+  prepareFeatureMock.mockResolvedValue({ ok: true });
   decideMock.mockReset();
   getContextMock.mockReset();
   suggestCategoriesMock.mockReset();
@@ -61,24 +70,23 @@ beforeEach(() => {
 
 describe("useCategorizeSuggestions – suggest() error routing", () => {
   it("propagates consent errors from suggestLocal instead of falling back to cloud", async () => {
-    decideMock.mockResolvedValue({
-      kind: "needs_consent",
+    prepareFeatureMock.mockResolvedValue({
+      ok: false,
+      reason: "cancelled",
       message: "On-device AI needs to download a model",
-      reason: "needs_download_consent",
-      tier: 2,
     });
 
     const { result } = renderHook(() => useCategorizeSuggestions(), { wrapper: wrap });
 
     await expect(
       act(() => result.current.suggest()),
-    ).rejects.toThrow(/consent|download/i);
+    ).rejects.toThrow(/consent|download|cancelled/i);
 
     expect(suggestCategoriesMock).not.toHaveBeenCalled();
   });
 
   it("falls back to cloud on non-consent runtime errors", async () => {
-    decideMock.mockRejectedValue(new Error("inference failed"));
+    getCategorizeCandidatesMock.mockRejectedValue(new Error("inference failed"));
 
     scanPromptMock.mockReturnValue({ flags: [], matchedText: {} });
 

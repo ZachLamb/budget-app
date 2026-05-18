@@ -35,6 +35,7 @@ import Link from "next/link";
 import { appToast } from "@/lib/app-toast";
 import { shouldShowMobileSyncBanner } from "@/lib/ux-plan-logic";
 import { AI_COPY } from "@/lib/ai-copy";
+import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 
 const DEBT_TYPES = ["credit", "loan"];
 
@@ -55,7 +56,9 @@ function InsightsPanel({
 }) {
   const isClient = useIsClient();
   const queryClient = useQueryClient();
+  const gate = useAiFeatureGate();
   const [open, setOpen] = useState(false);
+  const [aiReady, setAiReady] = useState(false);
   const lastInvalidatedSyncRef = useRef<string | null>(null);
   const panelId = useId();
 
@@ -63,9 +66,18 @@ function InsightsPanel({
     queryKey: ["aiInsights"],
     queryFn: aiApi.getInsights,
     staleTime: 5 * 60 * 1000,
-    enabled: isClient && open && hasFinancialData,
+    enabled: isClient && open && aiReady && hasFinancialData,
     retry: false,
   });
+
+  const toggleOpen = async () => {
+    if (!open) {
+      const prepared = await gate.prepareFeature("financial_advice");
+      if (!prepared.ok) return;
+      setAiReady(true);
+    }
+    setOpen((o) => !o);
+  };
 
   // Invalidate AI insights when a sync has just completed so suggestions reflect latest data
   useEffect(() => {
@@ -80,7 +92,7 @@ function InsightsPanel({
       <button
         type="button"
         className="w-full text-left"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => void toggleOpen()}
         aria-expanded={open}
         aria-controls={panelId}
       >

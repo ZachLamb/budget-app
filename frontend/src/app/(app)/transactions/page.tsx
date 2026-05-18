@@ -23,8 +23,6 @@ import api from "@/lib/api/client";
 import { aiApi } from "@/lib/api/ai";
 import { useFsaReviewScan } from "@/hooks/use-fsa-review-scan";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
-import { useLocalAiSetup } from "@/hooks/use-local-ai-setup";
-import { LocalAiSetupWizard } from "@/components/llm/local-ai-setup-wizard";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import { useFlatCategories, useIsClient, useDemoGuard } from "@/lib/hooks";
@@ -97,7 +95,6 @@ function TransactionsContent() {
   const fsaErrorDetail = fsaScan.error;
 
   const categorizeAi = useCategorizeSuggestions();
-  const localAi = useLocalAiSetup();
 
   const filteredFsa = useMemo(() => {
     if (!fsaData?.eligible_transactions) return [];
@@ -153,16 +150,14 @@ function TransactionsContent() {
   });
 
   const suggestCategoriesMutation = useMutation({
-    mutationFn: async () => {
-      await localAi.ensureReady("categorize_transaction");
-      return categorizeAi.suggest({
+    mutationFn: async () =>
+      categorizeAi.suggest({
         account_id: filters.account_id,
         date_from: filters.date_from,
         date_to: filters.date_to,
         search: filters.search?.trim() || undefined,
         limit: 50,
-      });
-    },
+      }),
     onSuccess: (suggestions) => {
       setCategoryReviewOverrides({});
       setLlmCategorySuggestions(suggestions);
@@ -823,7 +818,7 @@ function TransactionsContent() {
         fsaFetching={fsaFetching}
         fsaError={fsaError}
         fsaErrorDetail={fsaErrorDetail}
-        onScan={() => void localAi.ensureReady("fsa_review").then(() => fsaScan.scanLocal())}
+        onScan={() => void fsaScan.scanLocal()}
         onCloudScan={() => void fsaScan.scanCloud()}
         onCancelScan={fsaScan.cancel}
         fsaTier={fsaScan.tier}
@@ -860,7 +855,6 @@ function TransactionsContent() {
         startSplit={startSplit}
         setDeleteId={setDeleteId}
       />
-      <LocalAiSetupWizard {...localAi.wizardProps} />
     </div>
   );
 }

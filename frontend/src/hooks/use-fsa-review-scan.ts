@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { aiApi, type FsaReviewResponse } from "@/lib/api/ai";
 import { isDemoMode } from "@/lib/demo-mode";
 import type { FsaCandidateRow } from "@/lib/llm/contracts";
+import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { useLlm } from "@/lib/llm/useLlm";
 import { fsaBatchConfig, runBatchedStructuredJson } from "@/lib/llm/run-structured";
 import { FSA_SYSTEM_PROMPT, buildFsaBatchPrompt, formatFsaCandidateLine } from "@/lib/llm/prompts/fsa";
@@ -46,6 +47,7 @@ export function useFsaReviewScan(params: {
   dateTo: string;
   includeAllOutflows: boolean;
 }) {
+  const gate = useAiFeatureGate();
   const llm = useLlm();
   const [data, setData] = useState<FsaReviewResponse | undefined>();
   const [loading, setLoading] = useState(false);
@@ -62,6 +64,9 @@ export function useFsaReviewScan(params: {
   }, []);
 
   const scanCloud = useCallback(async () => {
+    const prepared = await gate.prepareFeature("fsa_review");
+    if (!prepared.ok) return;
+
     setLoading(true);
     setError(null);
     try {
@@ -78,7 +83,7 @@ export function useFsaReviewScan(params: {
       setLoading(false);
       setBatchProgress(null);
     }
-  }, [params.dateFrom, params.dateTo, params.includeAllOutflows]);
+  }, [gate, params.dateFrom, params.dateTo, params.includeAllOutflows]);
 
   const scanLocal = useCallback(async () => {
     if (isDemoMode) {
@@ -86,11 +91,16 @@ export function useFsaReviewScan(params: {
       return;
     }
 
-    const decision = await llm.decide("fsa_review");
-    if (decision.kind === "needs_consent") {
-      throw new Error(decision.message);
+    const prepared = await gate.prepareFeature("fsa_review");
+    if (!prepared.ok) {
+      throw new Error(
+        prepared.reason === "cancelled"
+          ? "On-device AI setup was cancelled"
+          : prepared.message ?? "AI is not available for FSA review",
+      );
     }
-    if (decision.kind === "unavailable") {
+    const decision = prepared.decision ?? (await llm.decide("fsa_review"));
+    if (decision.kind !== "ready") {
       throw new Error(decision.message);
     }
 
@@ -167,7 +177,7 @@ export function useFsaReviewScan(params: {
       setBatchProgress(null);
       abortRef.current = null;
     }
-  }, [llm, params, scanCloud]);
+  }, [gate, llm, params, scanCloud]);
 
   return {
     data,

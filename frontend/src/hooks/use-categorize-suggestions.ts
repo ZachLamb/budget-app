@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { reportsApi, type LlmSuggestion, type SuggestCategoriesParams } from "@/lib/api/reports";
 import { isDemoMode } from "@/lib/demo-mode";
+import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { useLlm } from "@/lib/llm/useLlm";
 import { runStructuredJson } from "@/lib/llm/run-structured";
 import type { CategorizeSuggestion } from "@/lib/llm/contracts";
@@ -10,6 +11,7 @@ import { CATEGORIZE_SYSTEM_PROMPT, buildCategorizePrompt } from "@/lib/llm/promp
 import { scanPrompt } from "@/lib/llm/pii-detect";
 
 export function useCategorizeSuggestions() {
+  const gate = useAiFeatureGate();
   const llm = useLlm();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,11 +36,6 @@ export function useCategorizeSuggestions() {
     async (params?: SuggestCategoriesParams): Promise<LlmSuggestion[]> => {
       if (isDemoMode) {
         return (await suggestCloud(params)) ?? [];
-      }
-
-      const decision = await llm.decide("categorize_transaction");
-      if (decision.kind !== "ready") {
-        throw new Error(decision.message);
       }
 
       setLoading(true);
@@ -89,6 +86,14 @@ export function useCategorizeSuggestions() {
 
   const suggest = useCallback(
     async (params?: SuggestCategoriesParams): Promise<LlmSuggestion[]> => {
+      const prepared = await gate.prepareFeature("categorize_transaction");
+      if (!prepared.ok) {
+        throw new Error(
+          prepared.reason === "cancelled"
+            ? "On-device AI setup was cancelled"
+            : prepared.message ?? "AI is not available for categorization",
+        );
+      }
       try {
         return await suggestLocal(params);
       } catch (e) {
@@ -104,7 +109,7 @@ export function useCategorizeSuggestions() {
         return data;
       }
     },
-    [suggestLocal, suggestCloud],
+    [gate, suggestLocal, suggestCloud],
   );
 
   return { suggest, suggestLocal, suggestCloud, loading, error, tier };

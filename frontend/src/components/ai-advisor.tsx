@@ -19,6 +19,7 @@ import { useIsClient, detailFromJsonBody, useDemoGuard } from "@/lib/hooks";
 import Link from "next/link";
 import { parseChatEvidence, type ChatEvidenceItem } from "@/lib/ai-evidence";
 import { AI_COPY } from "@/lib/ai-copy";
+import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { ChatEvidencePanel } from "@/components/chat-evidence-panel";
 
 const SUGGESTIONS = [
@@ -60,6 +61,7 @@ interface Message extends ChatMessage {
 
 function AiAdvisorInner() {
   const { isDemo } = useDemoGuard();
+  const gate = useAiFeatureGate();
   const isClient = useIsClient();
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -76,14 +78,33 @@ function AiAdvisorInner() {
   const fabRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  const closePanel = useCallback(() => {
+    setOpen(false);
+    requestAnimationFrame(() => fabRef.current?.focus());
+  }, []);
+
+  const openAdvisor = useCallback(async () => {
+    const prepared = await gate.prepareFeature("free_form_qa");
+    if (!prepared.ok) return;
+    setOpen(true);
+  }, [gate]);
+
+  const toggleAdvisor = useCallback(async () => {
+    if (open) {
+      closePanel();
+      return;
+    }
+    await openAdvisor();
+  }, [open, openAdvisor, closePanel]);
+
   useEffect(() => {
     const shouldOpen = searchParams.get("ai_open") === "1";
     const prompt = searchParams.get("ai_prompt");
     if (!shouldOpen && !prompt) return;
-    if (shouldOpen) setOpen(true);
+    if (shouldOpen) void openAdvisor();
     if (prompt) setInput(decodeURIComponent(prompt));
     router.replace(pathname, { scroll: false });
-  }, [searchParams, pathname, router]);
+  }, [searchParams, pathname, router, openAdvisor]);
 
   const { data: aiSettings } = useQuery({
     queryKey: ["aiSettings"],
@@ -104,11 +125,6 @@ function AiAdvisorInner() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
-
-  const closePanel = useCallback(() => {
-    setOpen(false);
-    requestAnimationFrame(() => fabRef.current?.focus());
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -176,6 +192,10 @@ function AiAdvisorInner() {
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || streaming) return;
+
+    const prepared = await gate.prepareFeature("free_form_qa");
+    if (!prepared.ok) return;
+
     setInput("");
     setError(null);
 
@@ -280,7 +300,7 @@ function AiAdvisorInner() {
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [input, streaming]);
+  }, [gate, input, streaming]);
 
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -305,7 +325,7 @@ function AiAdvisorInner() {
       <button
         ref={fabRef}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => void toggleAdvisor()}
         className={cn(
           "fixed z-50 flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-all duration-200",
           "bg-primary text-primary-foreground hover:scale-105 hover:shadow-xl",

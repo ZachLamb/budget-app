@@ -1,14 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Cloud, Cpu, Smartphone, Trash2, ExternalLink } from "lucide-react";
+import { Cloud, Cpu, Download, Smartphone, Trash2, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { llmApi } from "@/lib/api/llm";
 import { listFeatures } from "@/lib/llm/features";
 import { getCapability } from "@/lib/llm/capability";
@@ -20,12 +21,15 @@ import { appToast } from "@/lib/app-toast";
 
 export function AiSettingsCard() {
   const qc = useQueryClient();
+  const gate = useAiFeatureGate();
   const [cap, setCap] = useState<CapabilitySnapshot | null>(null);
   const [downloadModelChoice, setDownloadModelChoice] = useState<"granted" | "denied" | "unset">("unset");
   const [useLite, setUseLite] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState<ModelDownloadStatus | null>(null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [setupLoading, setSetupLoading] = useState(false);
+  const autoSetupAttempted = useRef(false);
 
   const refreshDownloadStatus = useCallback(async (force = false) => {
     try {
@@ -88,6 +92,25 @@ export function AiSettingsCard() {
     onError: (e) => toastApiError("Failed to revoke consent", e),
   });
 
+  const startOnDeviceSetup = useCallback(async () => {
+    setSetupLoading(true);
+    try {
+      const prepared = await gate.prepareFeature("categorize_transaction");
+      if (!prepared.ok) return;
+      const local = getLocalConsent();
+      setDownloadModelChoice(local.downloadModel ?? "unset");
+      await refreshDownloadStatus(true);
+      const status = await getModelDownloadStatus(true);
+      if (status.kind === "downloaded") {
+        appToast.success("On-device AI model is ready");
+      }
+    } catch {
+      // User cancelled or setup failed — wizard surfaces errors.
+    } finally {
+      setSetupLoading(false);
+    }
+  }, [gate, refreshDownloadStatus]);
+
   const handleClearOnDeviceModel = useCallback(async () => {
     setClearing(true);
     try {
@@ -109,6 +132,17 @@ export function AiSettingsCard() {
   const cloudPossibleFeatures = listFeatures().filter((f) => f.cloudPossible);
   const isModelDownloaded = downloadStatus?.kind === "downloaded";
   const downloadedSizeLabel = isModelDownloaded ? downloadStatus.sizeLabel : null;
+  const webGpuReady = cap?.webgpu.available === true;
+  const setupIncomplete =
+    webGpuReady && !isModelDownloaded && downloadModelChoice !== "denied";
+
+  // "Allow download" used to only save consent — resume the real wizard for those users.
+  useEffect(() => {
+    if (autoSetupAttempted.current || !cap) return;
+    if (downloadModelChoice !== "granted" || !setupIncomplete) return;
+    autoSetupAttempted.current = true;
+    void startOnDeviceSetup();
+  }, [cap, downloadModelChoice, setupIncomplete, startOnDeviceSetup]);
 
   const tierStatus = (
     <div className="grid gap-3 sm:grid-cols-3">
@@ -152,8 +186,11 @@ export function AiSettingsCard() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>AI features</CardTitle>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Setup &amp; permissions</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          On-device models run in your browser. Cloud AI is opt-in per feature below.
+        </p>
       </CardHeader>
       <CardContent className="space-y-6">
         {tierStatus}
@@ -162,9 +199,10 @@ export function AiSettingsCard() {
 
         <section className="space-y-3">
           <header>
-            <h3 className="text-sm font-medium">On-device model storage</h3>
+            <h3 className="text-sm font-medium">On-device model</h3>
             <p className="text-sm text-muted-foreground">
-              Models are downloaded once and run entirely in your browser.
+              Download once (~700 MB–1.8 GB). The first time you use an AI feature, the setup wizard
+              may open automatically.
             </p>
           </header>
           {cap?.webgpu.available === false && (
@@ -184,62 +222,89 @@ export function AiSettingsCard() {
               </p>
             </div>
           )}
+          {setupIncomplete && (
+            <div
+              role="status"
+              className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm"
+            >
+              <p className="font-medium text-foreground">On-device model not downloaded yet</p>
+              <p className="mt-1 text-muted-foreground">
+                {downloadModelChoice === "granted"
+                  ? "You allowed downloads, but the model still needs to be fetched (~700 MB–1.8 GB). Start setup to download and verify it."
+                  : "Run the setup wizard to grant permission and download the model to your browser."}
+              </p>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant={downloadModelChoice === "granted" ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
-                setDownloadModel("granted");
-                setDownloadModelChoice("granted");
-              }}
-              disabled={cap?.webgpu.available !== true}
-            >
-              Allow download
-            </Button>
-            <Button
-              variant={downloadModelChoice === "denied" ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
-                setDownloadModel("denied");
-                setDownloadModelChoice("denied");
-              }}
-            >
-              Don&apos;t download
-            </Button>
-            <Button
-              variant={useLite ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
-                const next = !useLite;
-                setUseLiteModel(next);
-                setUseLite(next);
-              }}
-              disabled={cap?.webgpu.available !== true}
-            >
-              {useLite ? "Using Lite (700 MB)" : "Use Lite (700 MB)"}
-            </Button>
-            {isModelDownloaded && (
+            {setupIncomplete ? (
+              <Button
+                size="sm"
+                onClick={() => void startOnDeviceSetup()}
+                disabled={!webGpuReady || setupLoading}
+              >
+                <Download className="size-4" />
+                {setupLoading ? "Setting up…" : "Set up on-device AI"}
+              </Button>
+            ) : isModelDownloaded ? (
+              <p className="text-sm text-muted-foreground py-1">
+                On-device model ready{downloadedSizeLabel ? ` (${downloadedSizeLabel})` : ""}.
+              </p>
+            ) : downloadModelChoice === "denied" ? (
+              <p className="text-sm text-muted-foreground py-1">
+                On-device download declined. Cloud-only features may still work if authorized below.
+              </p>
+            ) : null}
+          </div>
+          <details className="rounded-md border px-3 py-2 text-sm">
+            <summary className="cursor-pointer font-medium text-foreground">
+              Advanced on-device options
+            </summary>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                variant={useLite ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  const next = !useLite;
+                  setUseLiteModel(next);
+                  setUseLite(next);
+                }}
+                disabled={cap?.webgpu.available !== true}
+              >
+                {useLite ? "Using Lite (700 MB)" : "Use Lite model (700 MB)"}
+              </Button>
+              {isModelDownloaded && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setConfirmClearOpen(true)}
+                  disabled={clearing}
+                >
+                  <Trash2 className="size-4" /> Clear cached model
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setConfirmClearOpen(true)}
-                disabled={clearing}
+                onClick={() => {
+                  setDownloadModel("denied");
+                  setDownloadModelChoice("denied");
+                }}
               >
-                <Trash2 className="size-4" /> Clear on-device model
+                Decline on-device download
               </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                clearLocalConsent();
-                setDownloadModelChoice("unset");
-                setUseLite(false);
-              }}
-            >
-              Reset choices
-            </Button>
-          </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  clearLocalConsent();
+                  setDownloadModelChoice("unset");
+                  setUseLite(false);
+                }}
+              >
+                Reset local choices
+              </Button>
+            </div>
+          </details>
         </section>
 
         <Separator />
@@ -318,7 +383,17 @@ export function AiSettingsCard() {
                           </Button>
                         </>
                       ) : (
-                        <Badge variant="outline" className="text-muted-foreground">Not authorized</Badge>
+                        <>
+                          <Badge variant="outline" className="text-muted-foreground">Not authorized</Badge>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => renewOne.mutate(f.id)}
+                            disabled={renewOne.isPending}
+                          >
+                            Authorize
+                          </Button>
+                        </>
                       )}
                     </div>
                   </li>

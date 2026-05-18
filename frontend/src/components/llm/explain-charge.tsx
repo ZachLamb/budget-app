@@ -12,10 +12,8 @@ import { llmApi } from "@/lib/api/llm";
 import { toastApiError } from "@/lib/toast-error";
 import type { Transaction } from "@/lib/api/transactions";
 import { formatCurrency } from "@/lib/format";
-import { CloudConsentDialog } from "./cloud-consent-dialog";
-import { LocalAiSetupWizard } from "./local-ai-setup-wizard";
 import { PiiWarningDialog } from "./pii-warning-dialog";
-import { useLocalAiSetup } from "@/hooks/use-local-ai-setup";
+import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 
 interface Props {
   txn: Transaction;
@@ -61,15 +59,14 @@ function localFallbackAvailable(
 
 export function ExplainCharge({ txn }: Props) {
   const llm = useLlm();
+  const gate = useAiFeatureGate();
   const qc = useQueryClient();
   const [output, setOutput] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rateLimitError, setRateLimitError] = useState<LLMError | null>(null);
   const [tier, setTier] = useState<1 | 2 | 4 | null>(null);
-  const [showCloudConsent, setShowCloudConsent] = useState(false);
   const [piiScan, setPiiScan] = useState<PIIScan | null>(null);
-  const localAi = useLocalAiSetup();
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
 
   // Wall-clock seconds since loading started — drives the progressive
@@ -123,17 +120,18 @@ export function ExplainCharge({ txn }: Props) {
     setOutput("");
     setLoading(true);
     try {
-      await localAi.ensureReady(FEATURE);
-      const decision = await llm.decide(FEATURE);
-      if (decision.kind === "unavailable") {
-        setError(decision.message);
+      const prepared = await gate.prepareFeature(FEATURE);
+      if (!prepared.ok) {
         setLoading(false);
+        if (prepared.reason !== "cancelled" && prepared.message) {
+          setError(prepared.message);
+        }
         return;
       }
-      if (decision.kind === "needs_consent") {
+      const decision = prepared.decision ?? (await llm.decide(FEATURE));
+      if (decision.kind !== "ready") {
+        setError(decision.message);
         setLoading(false);
-        if (decision.reason === "needs_cloud_consent") setShowCloudConsent(true);
-        else return;
         return;
       }
       setTier(decision.tier);
@@ -161,7 +159,7 @@ export function ExplainCharge({ txn }: Props) {
       }
       setLoading(false);
     }
-  }, [llm, txn, streamPrompt, localAi]);
+  }, [gate, llm, txn, streamPrompt]);
 
   const cancelPii = useCallback(() => {
     setPiiScan(null);
@@ -264,17 +262,6 @@ export function ExplainCharge({ txn }: Props) {
         </div>
       )}
 
-      <CloudConsentDialog
-        open={showCloudConsent}
-        feature={FEATURE}
-        featureLabel="Explain a charge"
-        onClose={() => setShowCloudConsent(false)}
-        onGranted={() => {
-          setShowCloudConsent(false);
-          void run();
-        }}
-      />
-      <LocalAiSetupWizard {...localAi.wizardProps} />
       {piiScan && (
         <PiiWarningDialog
           open={piiScan !== null}

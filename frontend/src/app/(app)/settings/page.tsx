@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { syncApi, type SyncLog } from "@/lib/api/sync";
+import { syncApi } from "@/lib/api/sync";
 import { authApi, credentialToJSON } from "@/lib/api/auth";
 import {
   settingsApi,
@@ -14,6 +14,8 @@ import { AiSettingsCard } from "@/components/llm/ai-settings-card";
 import { PrivacyDataCard } from "@/components/settings/privacy-data-card";
 import { HostingHealthCard } from "@/components/settings/hosting-health-card";
 import { AdminUsersCard } from "@/components/settings/admin-users-card";
+import { BankSyncCard } from "@/components/settings/bank-sync-card";
+import { SettingsSectionNav } from "@/components/settings/settings-section-nav";
 import { parseCreationOptions, supportsPasskey } from "@/lib/webauthn";
 import { useAuth } from "@/lib/providers";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -28,7 +30,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  KeyRound, Trash2, Link2, ExternalLink, Loader2, CheckCircle2, AlertCircle, RefreshCw, Sparkles,
+  KeyRound, Trash2, ExternalLink, Loader2, CheckCircle2, AlertCircle, Sparkles,
   CalendarDays,
 } from "lucide-react";
 import { useIsClient, getApiErrorMessage, useDemoGuard } from "@/lib/hooks";
@@ -44,8 +46,6 @@ import { formatCurrency } from "@/lib/format";
 import { SetupChecklist } from "@/components/setup-checklist";
 
 const SIMPLEFIN_CREATE_URL = "https://beta-bridge.simplefin.org/simplefin/create";
-const SIMPLEFIN_BRIDGE_URL = "https://beta-bridge.simplefin.org/";
-
 type SetupStep = "connect" | "paste" | "review";
 
 function SimplefinSetupDialog({
@@ -309,7 +309,6 @@ function SettingsContent() {
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [addingPasskey, setAddingPasskey] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
-  const [aiEnabledDraft, setAiEnabledDraft] = useState<boolean | null>(null);
   const isClient = useIsClient();
 
   const {
@@ -412,13 +411,13 @@ function SettingsContent() {
     mutationFn: (enabled: boolean) => settingsApi.updateAiSettings(enabled),
     onSuccess: (data: AiSettings) => {
       queryClient.invalidateQueries({ queryKey: ["aiSettings"] });
-      setAiEnabledDraft(null);
-      appToast.success(data.ai_enabled ? "AI advisor enabled" : "AI advisor disabled");
+      appToast.success(data.ai_enabled ? "AI enabled" : "AI disabled");
     },
     onError: (e) => toastApiError("Failed to save AI settings", e),
   });
 
-  const currentAiEnabled = aiEnabledDraft !== null ? aiEnabledDraft : (aiSettings?.ai_enabled ?? true);
+  const aiEnabled = aiSettings?.ai_enabled ?? true;
+  const isAdmin = user?.role === "admin";
 
   const handleRemovePasskey = async (id: string) => {
     setRemovingId(id);
@@ -456,15 +455,6 @@ function SettingsContent() {
     }
   };
 
-  const statusColor = (status: string) => {
-    switch (status) {
-      case "success": return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
-      case "error": return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200";
-      case "in_progress": return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200";
-      default: return "bg-gray-100 text-gray-800";
-    }
-  };
-
   const sectionSkeleton = (
     <div className="space-y-2">
       <div className="h-4 w-32 animate-pulse rounded bg-muted" />
@@ -476,16 +466,124 @@ function SettingsContent() {
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        description="Pay schedule, bank sync, passkeys, AI, and privacy preferences."
+        description="Account, bank sync, pay schedule, AI, and privacy — grouped below."
       />
 
-      <SetupChecklist variant="settings" />
+      <div className="lg:grid lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-8 lg:items-start">
+        <SettingsSectionNav showAdmin={isAdmin} className="mb-2 lg:mb-0" />
 
-      <Card>
+        <div className="space-y-6 min-w-0">
+      <section id="setup" className="scroll-mt-24">
+        <SetupChecklist variant="settings" />
+      </section>
+
+      <Card id="account" className="scroll-mt-24">
+        <CardHeader>
+          <CardTitle>Account</CardTitle>
+          <CardDescription>
+            Your profile. Households are single-user today—shared access is not available yet.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex justify-between gap-4 text-sm">
+            <span className="text-muted-foreground">Email</span>
+            <span className="text-right">{user?.email}</span>
+          </div>
+          <div className="flex justify-between gap-4 text-sm">
+            <span className="text-muted-foreground">Name</span>
+            <span className="text-right">{user?.name}</span>
+          </div>
+          <div className="flex justify-between gap-4 text-sm">
+            <span className="text-muted-foreground">Role</span>
+            <Badge variant="outline">{user?.role}</Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card id="security" className="scroll-mt-24">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="h-5 w-5" />
+            Sign-in (passkeys)
+          </CardTitle>
+          <CardDescription>
+            Passkeys let you sign in without a password. Remove a passkey if you no longer have that device.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <QueryState
+            isLoading={passkeysLoading}
+            isError={passkeysError}
+            error={passkeysErr}
+            onRetry={() => refetchPasskeys()}
+            isEmpty={passkeys.length === 0}
+            emptyDescription="No passkeys registered."
+            loadingFallback={<p className="text-muted-foreground text-sm">Loading passkeys…</p>}
+          >
+            <ul className="space-y-2">
+              {passkeys.map((pk) => (
+                <li
+                  key={pk.id}
+                  className="flex items-center justify-between rounded border px-3 py-2 text-sm"
+                >
+                  <span className="text-muted-foreground">
+                    Passkey · added {new Date(pk.created_at).toLocaleDateString()}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={removingId === pk.id}
+                    onClick={() => handleRemovePasskey(pk.id)}
+                    aria-label="Remove passkey"
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </QueryState>
+          {supportsPasskey() && !passkeysLoading && !passkeysError && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              disabled={addingPasskey}
+              onClick={handleAddPasskey}
+            >
+              {addingPasskey ? "Adding…" : "Add passkey"}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
+      <BankSyncCard
+        simplefinStatus={simplefinStatus}
+        simplefinLoading={simplefinLoading}
+        simplefinError={simplefinError}
+        simplefinErr={simplefinErr}
+        refetchSimplefin={refetchSimplefin}
+        syncStatus={syncStatus}
+        syncStatusLoading={syncStatusLoading}
+        syncStatusError={syncStatusError}
+        syncStatusErr={syncStatusErr}
+        refetchSyncStatus={refetchSyncStatus}
+        syncHistory={syncHistory}
+        syncHistoryLoading={syncHistoryLoading}
+        syncHistoryError={syncHistoryError}
+        syncHistoryErr={syncHistoryErr}
+        refetchSyncHistory={refetchSyncHistory}
+        onConnectClick={() => setSetupOpen(true)}
+      />
+
+      <SimplefinSetupDialog open={setupOpen} onOpenChange={setSetupOpen} />
+
+      <Card id="pay" className="scroll-mt-24">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CalendarDays className="h-5 w-5" />
-            Pay schedule &amp; dashboard
+            Pay schedule
           </CardTitle>
           <CardDescription>
             Anchor spending summaries to your paycheck cycle. Calendar-month budgeting on the Budget page is unchanged.
@@ -617,289 +715,77 @@ function SettingsContent() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Account</CardTitle>
-          <CardDescription>
-            Your profile. Households are single-user today—shared access is not available yet.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Email</span>
-            <span>{user?.email}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Name</span>
-            <span>{user?.name}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Role</span>
-            <Badge variant="outline">{user?.role}</Badge>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <KeyRound className="h-5 w-5" />
-            Passkeys
-          </CardTitle>
-          <CardDescription>
-            Passkeys registered to your account. Remove one if you lost the device.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <QueryState
-            isLoading={passkeysLoading}
-            isError={passkeysError}
-            error={passkeysErr}
-            onRetry={() => refetchPasskeys()}
-            isEmpty={passkeys.length === 0}
-            emptyDescription="No passkeys registered."
-            loadingFallback={<p className="text-muted-foreground text-sm">Loading passkeys…</p>}
-          >
-            <ul className="space-y-2">
-              {passkeys.map((pk) => (
-                <li
-                  key={pk.id}
-                  className="flex items-center justify-between rounded border px-3 py-2 text-sm"
-                >
-                  <span className="text-muted-foreground">
-                    Passkey · added {new Date(pk.created_at).toLocaleDateString()}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={removingId === pk.id}
-                    onClick={() => handleRemovePasskey(pk.id)}
-                    aria-label="Remove passkey"
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </QueryState>
-          {supportsPasskey() && !passkeysLoading && !passkeysError && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="mt-3"
-              disabled={addingPasskey}
-              onClick={handleAddPasskey}
-            >
-              {addingPasskey ? "Adding…" : "Add passkey"}
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-purple-500" />
-            AI Financial Advisor
-          </CardTitle>
-          <CardDescription>
-            Enable AI-powered insights, budget suggestions, and the chat advisor. When enabled with Ollama, your data stays on your device.{" "}
-            {AI_COPY.educationalDisclaimer}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">AI Advisor</p>
-              <p className="text-xs text-muted-foreground">Show the AI chat button and enable AI-powered features</p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={currentAiEnabled}
-              onClick={() => setAiEnabledDraft(!currentAiEnabled)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
-                currentAiEnabled ? "bg-primary" : "bg-muted-foreground/30"
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  currentAiEnabled ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
-          {aiEnabledDraft !== null && (
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={() => aiSettingsMutation.mutate(aiEnabledDraft)}
-                disabled={aiSettingsMutation.isPending}
-              >
-                {aiSettingsMutation.isPending ? "Saving..." : "Save"}
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setAiEnabledDraft(null)}>
-                Cancel
-              </Button>
-            </div>
-          )}
-          <div className="rounded-md bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground space-y-1">
-            <p><span className="font-medium text-foreground">What&apos;s shared with AI:</span> Account names, balances, spending by category, and goals. No account numbers, bank credentials, or passwords.</p>
-            <p><span className="font-medium text-foreground">Privacy:</span> Most AI features run on-device. Cloud AI is opt-in per feature — see &ldquo;AI features&rdquo; below.</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {currentAiEnabled && <AiSettingsCard />}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Link2 className="h-5 w-5" />
-            SimpleFIN Bank Connection
-          </CardTitle>
-          <CardDescription>
-            Connect your bank accounts via SimpleFIN Bridge for automatic transaction sync.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <QueryState
-            isLoading={simplefinLoading}
-            isError={simplefinError}
-            error={simplefinErr}
-            onRetry={() => refetchSimplefin()}
-            loadingFallback={sectionSkeleton}
-          >
-          {/* Auth error banner */}
-          {simplefinStatus?.configured && syncStatus?.last_sync?.status === "error" &&
-            syncStatus.last_sync.error_message?.toLowerCase().includes("expired or revoked") && (
-            <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950 dark:border-amber-800 p-3">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Connection expired</p>
-                <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
-                  Your SimpleFIN connection was revoked or expired. Reconnect to resume syncing.
+      <section id="ai" className="scroll-mt-24 space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-purple-500" />
+              AI
+            </CardTitle>
+            <CardDescription>
+              Master switch for the chat advisor and AI-powered features. Setup and cloud permissions are
+              below when enabled. {AI_COPY.educationalDisclaimer}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="ai-enabled-switch" className="text-sm font-medium">
+                  Enable AI
+                </Label>
+                <p id="ai-enabled-hint" className="text-xs text-muted-foreground mt-0.5">
+                  Saves immediately. Turns off the advisor button and all AI features app-wide.
                 </p>
               </div>
-              <Button size="sm" onClick={() => setSetupOpen(true)} className="shrink-0">
-                <RefreshCw className="mr-1.5 h-3 w-3" />
-                Reconnect
-              </Button>
-            </div>
-          )}
-          <div className="flex items-center gap-3">
-            <span className="text-muted-foreground text-sm">Status</span>
-            {simplefinStatus?.configured ? (
-              <Badge variant="outline" className={simplefinStatus.is_access_url ? "text-green-700 border-green-300" : "text-amber-700 border-amber-300"}>
-                {simplefinStatus.is_access_url ? "Connected" : "Setup token — awaiting first sync"}
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="text-muted-foreground">Not configured</Badge>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={() => setSetupOpen(true)}>
-              {simplefinStatus?.configured ? "Reconnect" : "Connect Bank"}
-            </Button>
-            {simplefinStatus?.configured && (
-              <Button
-                variant="outline"
-                onClick={() => window.open(SIMPLEFIN_BRIDGE_URL, "simplefin", "width=820,height=720,scrollbars=yes")}
+              <button
+                id="ai-enabled-switch"
+                type="button"
+                role="switch"
+                aria-checked={aiEnabled}
+                aria-describedby="ai-enabled-hint"
+                disabled={aiSettingsMutation.isPending || isDemo}
+                onClick={() => aiSettingsMutation.mutate(!aiEnabled)}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 ${
+                  aiEnabled ? "bg-primary" : "bg-muted-foreground/30"
+                }`}
               >
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Manage in Bridge
-              </Button>
-            )}
-          </div>
-          </QueryState>
-        </CardContent>
-      </Card>
-
-      <SimplefinSetupDialog open={setupOpen} onOpenChange={setSetupOpen} />
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Sync Status</CardTitle>
-          <CardDescription>
-            Bank sync runs automatically based on your sync interval, or manually via the sidebar button.
-            When data is older than your interval, the app marks it as stale so you know balances and activity might not
-            reflect your bank yet—run Sync now or wait for the next scheduled run.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <QueryState
-            isLoading={syncStatusLoading}
-            isError={syncStatusError}
-            error={syncStatusErr}
-            onRetry={() => refetchSyncStatus()}
-            loadingFallback={sectionSkeleton}
-          >
-          {syncStatus?.last_sync ? (
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Status</span>
-                <Badge className={statusColor(syncStatus.last_sync.status)}>{syncStatus.last_sync.status}</Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Last synced</span>
-                <span>{syncStatus.last_sync.completed_at ? new Date(syncStatus.last_sync.completed_at).toLocaleString() : "In progress"}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Transactions imported</span>
-                <span>{syncStatus.last_sync.transactions_imported}</span>
-              </div>
-              {syncStatus.last_sync.error_message && (
-                <p className="text-sm text-destructive">{syncStatus.last_sync.error_message}</p>
-              )}
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    aiEnabled ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
             </div>
-          ) : (
-            <p className="text-muted-foreground">No syncs yet. Connect your bank above and click &ldquo;Sync Now&rdquo; in the sidebar.</p>
-          )}
-          </QueryState>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Sync History</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <QueryState
-            isLoading={syncHistoryLoading}
-            isError={syncHistoryError}
-            error={syncHistoryErr}
-            onRetry={() => refetchSyncHistory()}
-            isEmpty={syncHistory.length === 0}
-            emptyDescription="No sync history."
-            loadingFallback={sectionSkeleton}
-          >
-            <div className="space-y-2">
-              {syncHistory.map((log: SyncLog) => (
-                <div key={log.id} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
-                  <div className="flex items-center gap-3">
-                    <Badge className={statusColor(log.status)} variant="secondary">{log.status}</Badge>
-                    <span>{new Date(log.started_at).toLocaleString()}</span>
-                  </div>
-                  <span className="text-muted-foreground">
-                    {log.accounts_synced} accounts, {log.transactions_imported} transactions
-                  </span>
-                </div>
-              ))}
+            <div className="rounded-md bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground space-y-1">
+              <p>
+                <span className="font-medium text-foreground">Shared with AI:</span> Account names,
+                balances, spending by category, and goals — never credentials or account numbers.
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Where it runs:</span> Prefer on-device
+                models in your browser; cloud is opt-in per feature when you enable it below.
+              </p>
             </div>
-          </QueryState>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+        {aiEnabled && <AiSettingsCard />}
+      </section>
 
-      <PrivacyDataCard />
+      <section id="privacy" className="scroll-mt-24">
+        <PrivacyDataCard />
+      </section>
 
-      <HostingHealthCard />
+      <section id="hosting" className="scroll-mt-24">
+        <HostingHealthCard />
+      </section>
 
-      {/* Admin-only: approve/reject sign-ups for the preview-app gate. The
-          server enforces role="admin" on every endpoint; this just hides
-          the panel for non-admins. */}
-      {user?.role === "admin" && <AdminUsersCard />}
+      {isAdmin && (
+        <section id="admin" className="scroll-mt-24">
+          <AdminUsersCard />
+        </section>
+      )}
+        </div>
+      </div>
     </div>
   );
 }
