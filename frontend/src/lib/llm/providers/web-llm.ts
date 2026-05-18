@@ -17,16 +17,9 @@ export async function getWebLlmProvider(): Promise<LLMProvider> {
       const mod = await import("./web-llm-engine");
       return mod.webLlmProvider;
     })();
+    loader.catch(() => {
+      loader = null;
+    });
   }
   return loader;
 }
-
-/** Stub used when web-llm hasn't been loaded yet. Throws if generate is called directly. */
-export const webLlmStubProvider: LLMProvider = {
-  name: "web-llm",
-  tier: 2,
-  privacy: "local",
-  generate(): AsyncIterable<string> {
-    throw new Error("web-llm provider not loaded — go through getWebLlmProvider().");
-  },
-};

@@ -91,7 +91,10 @@ export function useCategorizeSuggestions() {
     async (params?: SuggestCategoriesParams): Promise<LlmSuggestion[]> => {
       try {
         return await suggestLocal(params);
-      } catch {
+      } catch (e) {
+        if (e instanceof Error && /consent|not available|not ready|needs to download/i.test(e.message)) {
+          throw e;
+        }
         const prompt = JSON.stringify(params ?? {});
         const pii = scanPrompt(prompt);
         if (pii.flags.length > 0) {

@@ -5,6 +5,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rulesApi, type Rule, type RuleCreate } from "@/lib/api/rules";
 import { reportsApi, type LlmSuggestion } from "@/lib/api/reports";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
+import { useLocalAiSetup } from "@/hooks/use-local-ai-setup";
+import { LocalAiSetupWizard } from "@/components/llm/local-ai-setup-wizard";
 import { useFlatCategories, useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
 import { Card, CardContent } from "@/components/ui/card";
@@ -57,6 +59,7 @@ function RulesContent() {
 
   const { allCategories, catNameMap } = useFlatCategories();
   const categorizeAi = useCategorizeSuggestions();
+  const localAi = useLocalAiSetup();
 
   const createMutation = useMutation({
     mutationFn: rulesApi.create,
@@ -92,7 +95,10 @@ function RulesContent() {
   });
 
   const suggestMutation = useMutation({
-    mutationFn: () => categorizeAi.suggest(),
+    mutationFn: async () => {
+      await localAi.ensureReady("categorize_transaction");
+      return categorizeAi.suggest();
+    },
     onSuccess: (suggestions) => {
       setSuggestions(suggestions);
       setSuggestOpen(true);
@@ -224,6 +230,8 @@ function RulesContent() {
         description="This will permanently delete this auto-categorization rule."
         onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId); }}
       />
+
+      <LocalAiSetupWizard {...localAi.wizardProps} />
 
       <Card>
         <CardContent className="pt-6">
