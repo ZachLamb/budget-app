@@ -18,7 +18,7 @@ echo "== vercel-build-check: build + sync =="
 npm run build --prefix "$FRONTEND"
 node "$ROOT/scripts/sync-next-output.mjs"
 
-for path in .next/routes-manifest.json public/icons; do
+for path in .next/routes-manifest.json node_modules/next/package.json public/icons; do
   if [[ ! -e "$ROOT/$path" ]]; then
     echo "error: missing $path at repo root after sync" >&2
     exit 1
