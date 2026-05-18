@@ -3,7 +3,9 @@
 import type { UseMutationResult } from "@tanstack/react-query";
 import type { FsaEligibleTransaction, FsaReviewResponse } from "@/lib/api/ai";
 import { AI_COPY } from "@/lib/ai-copy";
+import { getApiErrorMessage } from "@/lib/hooks";
 import { formatCurrency } from "@/lib/format";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +49,7 @@ export interface FsaReviewPanelProps {
   fsaLoading: boolean;
   fsaFetching: boolean;
   fsaError: boolean;
+  fsaErrorDetail?: unknown;
   fsaRefetch: () => void;
   filteredFsa: FsaEligibleTransaction[];
   handleFsaExportCsv: () => void;
@@ -79,6 +82,7 @@ export function FsaReviewPanel({
   fsaLoading,
   fsaFetching,
   fsaError,
+  fsaErrorDetail,
   fsaRefetch,
   filteredFsa,
   handleFsaExportCsv,
@@ -147,9 +151,24 @@ export function FsaReviewPanel({
           ) : null}
 
           {fsaError && (
-            <p className="text-sm text-destructive">
-              Failed to scan transactions. Check that AI is enabled in Settings and your LLM is reachable.
-            </p>
+            <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              <p>
+                {getApiErrorMessage(
+                  fsaErrorDetail,
+                  "Failed to scan transactions. Check that AI is enabled in Settings and your LLM backend is reachable.",
+                )}
+              </p>
+              {(fsaErrorDetail as { response?: { status?: number } })?.response?.status === 403 && (
+                <p className="text-xs text-muted-foreground">
+                  Enable AI in Settings, then allow{" "}
+                  <span className="font-medium text-foreground">FSA reimbursement review</span> under cloud AI
+                  features (or use a local model when available).{" "}
+                  <Link href="/settings" className="text-primary underline-offset-4 hover:underline">
+                    Open Settings
+                  </Link>
+                </p>
+              )}
+            </div>
           )}
 
           {fsaData && !fsaFetching && (

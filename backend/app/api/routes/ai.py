@@ -809,7 +809,7 @@ async def suggest_interest_rates(
 async def fsa_review(
     req: FsaReviewRequest = FsaReviewRequest(),
     household_id: str = Depends(_require_ai_enabled),
-    llm_ctx: LlmCallContext = Depends(require_cloud_feature("categorize_transaction")),
+    llm_ctx: LlmCallContext = Depends(require_cloud_feature("fsa_review")),
     db: AsyncSession = Depends(get_db),
 ):
     """Review transactions for potential FSA-eligible purchases."""

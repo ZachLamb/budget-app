@@ -81,7 +81,14 @@ function TransactionsContent() {
     enabled: isClient,
   });
   const { allCategories } = useFlatCategories();
-  const { data: fsaData, isLoading: fsaLoading, isFetching: fsaFetching, isError: fsaError, refetch: fsaRefetch } = useQuery({
+  const {
+    data: fsaData,
+    isLoading: fsaLoading,
+    isFetching: fsaFetching,
+    isError: fsaError,
+    error: fsaErrorDetail,
+    refetch: fsaRefetch,
+  } = useQuery({
     queryKey: ["fsa-review", fsaDateFrom, fsaDateTo, fsaIncludeAllOutflows],
     queryFn: () =>
       aiApi.getFsaReview({
@@ -91,6 +98,7 @@ function TransactionsContent() {
       }),
     enabled: isClient && fsaOpen,
     staleTime: 60 * 1000,
+    meta: { inlineError: true },
   });
 
   const filteredFsa = useMemo(() => {
@@ -803,6 +811,7 @@ function TransactionsContent() {
         fsaLoading={fsaLoading}
         fsaFetching={fsaFetching}
         fsaError={fsaError}
+        fsaErrorDetail={fsaErrorDetail}
         fsaRefetch={fsaRefetch}
         filteredFsa={filteredFsa}
         handleFsaExportCsv={handleFsaExportCsv}

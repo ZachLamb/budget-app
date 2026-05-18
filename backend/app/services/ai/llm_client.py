@@ -76,7 +76,7 @@ _DEMO_RESPONSES = {
         "You'll be credit-card-debt-free in about 11 months and save approximately $280 in interest vs. the snowball method.\n\n"
         "**After the Visa is paid off**, redirect that $245/month (minimum + extra) to the car loan to accelerate payoff."
     ),
-    "fsa": '[{"transaction_id": "demo", "eligible": true, "category": "Medical", "confidence": "high", "reason": "Medical office visit copay"}]',
+    "fsa": '{"eligible": []}',
     "categorize": '{"category": "Groceries", "confidence": 0.92}',
     "action": '{"action": "none", "message": "I can help you with that! What would you like to do?"}',
 }

@@ -31,6 +31,7 @@ _ALLOWED_FEATURES: frozenset[str] = frozenset(
         "goal_planning",
         "free_form_qa",
         "financial_advice",
+        "fsa_review",
     }
 )
 
