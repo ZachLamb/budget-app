@@ -25,4 +25,13 @@ for path in .next/routes-manifest.json node_modules/next/package.json public/ico
   fi
 done
 
+if [[ "${VERCEL:-}" == "1" && -d /vercel ]]; then
+  for path in .next/routes-manifest.json node_modules/client-only/package.json; do
+    if [[ ! -e "/vercel/$path" ]]; then
+      echo "error: missing /vercel/$path after vercel-build" >&2
+      exit 1
+    fi
+  done
+fi
+
 echo "== vercel-build-check: OK =="
