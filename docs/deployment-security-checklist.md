@@ -14,7 +14,7 @@ Operational reference for the Vercel + Fly.io stack. Lists **environment variabl
 
 ## Vercel (frontend)
 
-**Monorepo layout:** Next.js lives in `frontend/`. Root [`vercel.json`](../vercel.json) sets `"rootDirectory": "frontend"` so Git deploys use [`frontend/vercel.json`](../frontend/vercel.json). If a deploy still builds from the repo root, set **Root Directory** = `frontend` in Vercel → Project Settings → General (should match `vercel.json`). Before pushing UI changes, run `./scripts/vercel-build-check.sh` or `./scripts/ci-local.sh` from the repo root.
+**Monorepo layout:** Next.js lives in `frontend/`. [`.vercel/repo.json`](../.vercel/repo.json) maps the **clarity** project to `frontend/`; [`frontend/vercel.json`](../frontend/vercel.json) holds install/build. If deploys still use repo root, set **Root Directory** = `frontend` in Vercel → Project Settings → General. Before pushing UI changes, run `./scripts/vercel-build-check.sh` or `./scripts/ci-local.sh`.
 
 Verify in the Vercel dashboard or `vercel env ls` (from `frontend/`):
 

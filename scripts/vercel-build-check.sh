@@ -11,13 +11,9 @@ if [[ ! -d "$FRONTEND/src/app" ]]; then
   exit 1
 fi
 
-if [[ -d "$ROOT/app" || -d "$ROOT/pages" ]]; then
-  echo "error: repo root must not contain app/ or pages/ (use frontend/ only)" >&2
+if [[ ! -f "$ROOT/.vercel/repo.json" ]]; then
+  echo "error: missing .vercel/repo.json (maps clarity → frontend/)" >&2
   exit 1
-fi
-
-if [[ ! -f "$ROOT/vercel.json" ]] || ! grep -q '"rootDirectory"[[:space:]]*:[[:space:]]*"frontend"' "$ROOT/vercel.json"; then
-  echo "warning: root vercel.json should set rootDirectory to frontend" >&2
 fi
 
 echo "== vercel-build-check: install (frontend) =="
@@ -30,8 +26,5 @@ if [[ ! -f "$FRONTEND/.next/routes-manifest.json" ]]; then
   echo "error: frontend/.next/routes-manifest.json missing after build" >&2
   exit 1
 fi
-
-echo "== vercel-build-check: root vercel-build (monorepo fallback) =="
-npm run vercel-build --prefix "$ROOT"
 
 echo "== vercel-build-check: OK =="
