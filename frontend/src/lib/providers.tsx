@@ -34,7 +34,7 @@ export function queryRetryDelay(attemptIndex: number): number {
 }
 
 /** Extract HTTP status and API detail from an axios-shaped error. */
-export function authErrorFromUnknown(err: unknown): { status?: number; detail?: string } {
+function authErrorFromUnknown(err: unknown): { status?: number; detail?: string } {
   const axiosErr = err as { response?: { status?: number; data?: { detail?: unknown } } };
   const status = axiosErr.response?.status;
   const raw = axiosErr.response?.data?.detail;

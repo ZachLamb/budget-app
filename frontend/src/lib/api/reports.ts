@@ -1,4 +1,5 @@
 import api from "./client";
+import type { CategorizeCandidatesResponse } from "../llm/contracts";
 import { LLM_HTTP_TIMEOUT_MS } from "./llm-timeout";
 
 export interface SpendingByCategory {
@@ -33,17 +34,6 @@ export interface ImportRecord {
 export interface BalancePoint {
   date: string;
   balance: number;
-}
-
-export interface CategorizeCandidatesResponse {
-  transactions: {
-    id: string;
-    payee: string;
-    amount: string;
-    date: string;
-    notes: string | null;
-  }[];
-  categories: { id: string; name: string }[];
 }
 
 export interface LlmSuggestion {

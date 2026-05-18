@@ -43,6 +43,8 @@ jobs:
         run: npm ci
       - name: Lint
         run: npm run lint
+      - name: Static analysis (fallow)
+        run: npm run quality:static
       - name: Unit tests
         run: npm run test:run
       - name: Build

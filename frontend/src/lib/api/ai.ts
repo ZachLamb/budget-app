@@ -1,4 +1,5 @@
 import api from "./client";
+import type { FsaCandidatesResponse } from "../llm/contracts";
 import { LLM_HTTP_TIMEOUT_MS } from "./llm-timeout";
 
 export interface AiStatus {
@@ -72,21 +73,6 @@ export interface FsaEligibleTransaction {
   fsa_category: string;
   reason: string;
   status: "pending" | "claimed" | "dismissed";
-}
-
-export interface FsaCandidatesResponse {
-  candidates: {
-    transaction_id: string;
-    date: string;
-    payee_name: string;
-    category_name: string | null;
-    amount: number;
-    notes: string | null;
-    status?: "pending" | "claimed" | "dismissed";
-  }[];
-  scan_count: number;
-  candidate_count: number;
-  prefilter_skipped_count: number;
 }
 
 export interface FsaReviewResponse {

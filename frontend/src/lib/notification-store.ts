@@ -73,8 +73,3 @@ export function useNotifications(): AppNotification[] {
     () => [],
   );
 }
-
-export function useUnreadNotificationCount(): number {
-  const list = useNotifications();
-  return list.filter((n) => !n.read).length;
-}

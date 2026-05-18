@@ -1,0 +1,23 @@
+---
+description: Tests, security rigor, verification commands, and git hygiene for agents
+alwaysApply: true
+---
+
+# Verify quality and git
+
+## Tests and behavior
+
+- **New behavior or bugfixes:** add or update tests in the same change when the repo already covers that layer (`backend/tests/`, frontend Vitest), unless the user explicitly defers tests.
+- **Security as product logic:** auth, sessions, cookies, CORS, redirects, and upload paths get the same rigor as business logic; validate and normalize API input; avoid logging tokens, full cookies, passwords, or recovery codes.
+
+## Verification before merge-ready claims
+
+- From repo root, run `./scripts/ci-local.sh` before claiming work is merge-ready (backend pytest, frontend lint/tests/static analysis, Vercel build gate).
+- After substantive **frontend** edits only: `cd frontend && npm run quality:check` is included in CI; do not skip it when you touched `frontend/`.
+- **UI flow changes:** run `npm run test:e2e` from `frontend/` when routes or critical UX paths change (not part of default CI).
+- Do not claim tests or builds pass without fresh command output in the session.
+
+## Git
+
+- **Commits:** small, coherent commits; before commit, review `git diff --staged` for debug noise and secrets.
+- **Push:** do not force-push `main` or the default branch without explicit maintainer instruction; push only after lint/tests pass for touched stacks (or document exceptions).

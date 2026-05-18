@@ -12,13 +12,6 @@ import { getFeaturePolicy } from "./features";
 import { getCapability } from "./capability";
 import { getLocalConsent } from "./consent";
 
-export type RouterReason =
-  | "ok"
-  | "needs_download_consent"
-  | "needs_cloud_consent"
-  | "unavailable_no_capable_tier"
-  | "ai_disabled_globally";
-
 export type Decision =
   | {
       kind: "ready";

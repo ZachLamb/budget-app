@@ -69,16 +69,3 @@ class NanoProvider implements LLMProvider {
 }
 
 export const nanoProvider: LLMProvider = new NanoProvider();
-
-/** Test/dev — drop the cached session (e.g., after a system prompt change). */
-export function _resetNanoSession(): void {
-  if (cached?.destroy) {
-    try {
-      cached.destroy();
-    } catch {
-      // ignore
-    }
-  }
-  cached = null;
-  cachedSystem = null;
-}

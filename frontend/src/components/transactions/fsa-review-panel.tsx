@@ -26,10 +26,10 @@ import {
   X,
 } from "lucide-react";
 
-export type FsaConfFilter = "all" | "high" | "medium" | "low";
-export type FsaSortCol = "date" | "amount" | "confidence";
+type FsaConfFilter = "all" | "high" | "medium" | "low";
+type FsaSortCol = "date" | "amount" | "confidence";
 
-export interface FsaReviewPanelProps {
+interface FsaReviewPanelProps {
   fsaOpen: boolean;
   setFsaOpen: (open: boolean) => void;
   fsaDateFrom: string;

@@ -90,7 +90,7 @@ export function detailFromJsonBody(body: unknown): string | null {
  * long because this value changes only on a deploy/restart and misses
  * would trigger re-fetches across the tree.
  */
-export function useAppConfig() {
+function useAppConfig() {
   const isClient = useIsClient();
   return useQuery<AppConfig>({
     queryKey: ["appConfig"],

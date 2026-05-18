@@ -21,7 +21,7 @@ import {
 
 const JSON_NUDGE = "\n\nReturn only valid JSON with no markdown fences or extra text.";
 
-export async function collectStream(
+async function collectStream(
   provider: LLMProvider,
   prompt: string,
   opts: { system?: string; maxTokens?: number; signal?: AbortSignal },

@@ -27,7 +27,7 @@ import { appToast } from "@/lib/app-toast";
 import { cn } from "@/lib/utils";
 import {
   TrendingDown, Target, PiggyBank, Shield, Plus, Trash2,
-  CheckCircle2, Calculator, Edit2, AlertCircle, Map,
+  CheckCircle2, Calculator, Edit2, AlertCircle,
   Sparkles, Loader2, X, Check, RefreshCw,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";

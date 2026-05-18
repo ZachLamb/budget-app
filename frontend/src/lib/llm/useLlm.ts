@@ -15,8 +15,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/providers";
 import { settingsApi } from "@/lib/api/settings";
 import { llmApi } from "@/lib/api/llm";
-import type { CapabilitySnapshot, Decision, FeatureId, LLMProvider, RouterContext } from "./index";
-import { decide as routerDecide, getCapability, nanoProvider, getWebLlmProvider, makeServerProvider } from "./index";
+import type { FeatureId } from "./features";
+import type { CapabilitySnapshot, LLMProvider } from "./types";
+import type { Decision, RouterContext } from "./router";
+import { decide as routerDecide } from "./router";
+import { getCapability } from "./capability";
+import { nanoProvider } from "./providers/nano";
+import { getWebLlmProvider } from "./providers/web-llm";
+import { makeServerProvider } from "./providers/server";
 
 interface AiSettings {
   ai_enabled?: boolean;

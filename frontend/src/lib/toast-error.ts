@@ -8,7 +8,7 @@ type AxiosLike = {
 };
 
 /** Full text for clipboard: title, detail, request/response hints, optional stack. */
-export function buildErrorDiagnostics(title: string, detail: string, error: unknown): string {
+function buildErrorDiagnostics(title: string, detail: string, error: unknown): string {
   const lines = [title, "", detail];
   if (error && typeof error === "object") {
     const ax = error as AxiosLike & { message?: string; stack?: string };
