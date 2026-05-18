@@ -287,10 +287,18 @@ function VerifyStep({
         </>
       )}
 
+      {verifyStatus === "idle" && (
+        <p className="text-center text-sm text-muted-foreground">
+          Preparing verification…
+        </p>
+      )}
+
       {verifyStatus === "error" && (
         <>
           <p className="text-sm text-destructive">
-            Verification failed. The model may be corrupted.
+            {verifyResult
+              ? `Verification failed: ${verifyResult}`
+              : "Verification failed. The model may be corrupted."}
           </p>
           <div className="mt-4 flex justify-end gap-2">
             {cloudAvailable && (

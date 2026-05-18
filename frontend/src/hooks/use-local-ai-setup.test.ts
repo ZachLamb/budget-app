@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 
 const getModelDownloadStatusMock = vi.fn();
 const getCapabilityMock = vi.fn();
@@ -7,13 +7,18 @@ const getFeaturePolicyMock = vi.fn();
 const setDownloadModelMock = vi.fn();
 const setUseLiteModelMock = vi.fn();
 const ensureEngineMock = vi.fn();
-const webLlmProviderMock = { generate: vi.fn() };
+async function* mockGenerate(chunks: string[]) {
+  for (const c of chunks) yield c;
+}
+
+const webLlmProviderMock = { generate: vi.fn(() => mockGenerate(["Groceries"])) };
 
 let mockIsDemoMode = false;
 
 vi.mock("@/lib/llm/storage", () => ({
   getModelDownloadStatus: (...args: unknown[]) =>
     getModelDownloadStatusMock(...args),
+  invalidateModelDownloadStatus: vi.fn(),
 }));
 
 vi.mock("@/lib/llm/capability", () => ({
@@ -220,5 +225,66 @@ describe("useLocalAiSetup", () => {
       result.current.wizardProps.onNext();
     });
     expect(result.current.wizardProps.step).toBe("device-check");
+  });
+
+  it("normalizes download progress to 0–100", async () => {
+    let progressCb: ((p: { progress: number; text?: string }) => void) | undefined;
+    ensureEngineMock.mockImplementation((cb) => {
+      progressCb = cb;
+      return Promise.resolve({});
+    });
+
+    const { result } = renderHook(() => useLocalAiSetup());
+    await openWizard(result);
+
+    act(() => {
+      result.current.wizardProps.onNext();
+      result.current.wizardProps.onGrantConsent();
+    });
+
+    act(() => {
+      progressCb?.({ progress: 0.42, text: "Fetching wasm" });
+    });
+    expect(result.current.wizardProps.progress).toBe(42);
+    expect(result.current.wizardProps.progressText).toBe("Fetching wasm");
+  });
+
+  it("maps download errors to user-facing messages", async () => {
+    ensureEngineMock.mockRejectedValue(new Error("Failed to fetch"));
+
+    const { result } = renderHook(() => useLocalAiSetup());
+    await openWizard(result);
+
+    act(() => {
+      result.current.wizardProps.onNext();
+      result.current.wizardProps.onGrantConsent();
+    });
+    await flush();
+    act(() => {});
+
+    expect(result.current.wizardProps.downloadError).toMatch(/network|huggingface/i);
+  });
+
+  it("auto-runs verification after download and consumes streamed output", async () => {
+    ensureEngineMock.mockResolvedValue({});
+
+    const { result } = renderHook(() => useLocalAiSetup());
+    await openWizard(result);
+
+    act(() => {
+      result.current.wizardProps.onNext();
+      result.current.wizardProps.onGrantConsent();
+    });
+
+    await waitFor(() => {
+      expect(result.current.wizardProps.step).toBe("verify");
+    });
+
+    await waitFor(() => {
+      expect(result.current.wizardProps.verifyStatus).toBe("success");
+    });
+
+    expect(webLlmProviderMock.generate).toHaveBeenCalled();
+    expect(result.current.wizardProps.verifyResult).toBe("Groceries");
   });
 });

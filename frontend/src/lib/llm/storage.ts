@@ -101,8 +101,13 @@ export async function clearModelFromCache(): Promise<void> {
   inflight = null;
 }
 
-/** Test helper — clear the memoized status. */
-export function _resetModelStatusCache(): void {
+/** Clear memoized download status (e.g. after a successful wizard download). */
+export function invalidateModelDownloadStatus(): void {
   cached = null;
   inflight = null;
+}
+
+/** Test helper — clear the memoized status. */
+export function _resetModelStatusCache(): void {
+  invalidateModelDownloadStatus();
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import type { FeatureId } from "@/lib/llm/features";
 import type {
   UseLocalAiSetup,
@@ -8,7 +8,10 @@ import type {
   VerifyStatus,
 } from "./local-ai-setup-types";
 import { isDemoMode } from "@/lib/demo-mode";
-import { getModelDownloadStatus } from "@/lib/llm/storage";
+import {
+  getModelDownloadStatus,
+  invalidateModelDownloadStatus,
+} from "@/lib/llm/storage";
 import { getCapability } from "@/lib/llm/capability";
 import { getFeaturePolicy } from "@/lib/llm/features";
 import { setDownloadModel, setUseLiteModel } from "@/lib/llm/consent";
@@ -16,6 +19,10 @@ import {
   ensureEngine,
   webLlmProvider,
 } from "@/lib/llm/providers/web-llm-engine";
+import {
+  formatWebLlmDownloadError,
+  normalizeInitProgress,
+} from "@/lib/llm/web-llm-download";
 import type { CapabilitySnapshot } from "@/lib/llm/types";
 
 interface PendingPromise {
@@ -43,14 +50,17 @@ export function useLocalAiSetup(): UseLocalAiSetup {
     setProgressText(undefined);
 
     ensureEngine((p) => {
-      setProgress(p.progress);
+      setProgress(normalizeInitProgress(p.progress));
       setProgressText(p.text);
     })
       .then(() => {
+        invalidateModelDownloadStatus();
+        setVerifyStatus("idle");
+        setVerifyResult(undefined);
         setStep("verify");
       })
       .catch((err: unknown) => {
-        setDownloadError(err instanceof Error ? err.message : String(err));
+        setDownloadError(formatWebLlmDownloadError(err));
       });
   }, []);
 
@@ -58,16 +68,26 @@ export function useLocalAiSetup(): UseLocalAiSetup {
     setVerifyStatus("running");
     setVerifyResult(undefined);
     try {
-      const text = await webLlmProvider.generate(
+      let text = "";
+      for await (const chunk of webLlmProvider.generate(
         "Classify: Coffee shop $4.50",
         { system: "Reply with just a category name.", maxTokens: 20 },
-      );
-      setVerifyResult(typeof text === "string" ? text : String(text));
+      )) {
+        text += chunk;
+      }
+      setVerifyResult(text.trim() || "(empty response)");
       setVerifyStatus("success");
-    } catch {
+    } catch (err: unknown) {
+      setVerifyResult(formatWebLlmDownloadError(err));
       setVerifyStatus("error");
     }
   }, []);
+
+  useEffect(() => {
+    if (open && step === "verify" && verifyStatus === "idle" && !downloadError) {
+      void runVerification();
+    }
+  }, [open, step, verifyStatus, downloadError, runVerification]);
 
   const ensureReady = useCallback(
     async (feature: FeatureId): Promise<void> => {
