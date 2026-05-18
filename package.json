@@ -3,7 +3,6 @@
   "private": true,
   "description": "Monorepo root — Next.js app lives in frontend/",
   "scripts": {
-    "build": "npm run build --prefix frontend",
     "ci": "./scripts/ci-local.sh",
     "ci:vercel": "./scripts/vercel-build-check.sh"
   }

@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+/**
+ * Used when Vercel Root Directory is `.` (Git deploys today). Copies build output
+ * from frontend/ to the repo root. Set Root Directory to frontend/ to remove this.
+ */
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const frontend = join(repoRoot, "frontend");
+
+function copyTree(src, dest, label) {
+  if (!existsSync(src)) {
+    console.error(`sync-next-output: missing ${label} at ${src}`);
+    process.exit(1);
+  }
+  rmSync(dest, { recursive: true, force: true });
+  cpSync(src, dest, { recursive: true });
+  console.log(`sync-next-output: ${label} → ${dest}`);
+}
+
+if (!existsSync(join(frontend, ".next", "routes-manifest.json"))) {
+  console.error("sync-next-output: missing frontend/.next/routes-manifest.json");
+  process.exit(1);
+}
+
+copyTree(join(frontend, ".next"), join(repoRoot, ".next"), ".next");
+copyTree(join(frontend, "public"), join(repoRoot, "public"), "public");
+
+// Tracing reads /vercel/node_modules; copy only packages Next needs there (not the full tree).
+if (process.env.VERCEL === "1" && existsSync("/vercel")) {
+  const srcNm = join(frontend, "node_modules");
+  const destNm = "/vercel/node_modules";
+  mkdirSync(destNm, { recursive: true });
+  for (const pkg of ["client-only", "styled-jsx"]) {
+    const src = join(srcNm, pkg);
+    const dest = join(destNm, pkg);
+    if (existsSync(src)) {
+      rmSync(dest, { recursive: true, force: true });
+      cpSync(src, dest, { recursive: true });
+      console.log(`sync-next-output: ${pkg} → ${dest}`);
+    }
+  }
+}
