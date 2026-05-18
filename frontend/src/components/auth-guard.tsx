@@ -9,6 +9,7 @@ import { AiAdvisor } from "./ai-advisor";
 import { MobileSyncBanner } from "./mobile-sync-banner";
 import { DemoBanner } from "./demo-banner";
 import { PageTitleProvider } from "@/components/page";
+import { AiFeatureGateProvider } from "@/lib/llm/ai-feature-gate";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -38,28 +39,30 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   return (
     <PageTitleProvider>
-      <div className="relative flex h-screen">
-        <a
-          href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-100 focus:rounded-md focus:bg-background focus:border focus:px-3 focus:py-2 focus:text-sm"
-        >
-          Skip to main content
-        </a>
-        <Navigation />
-        <main
-          id="main-content"
-          className="flex-1 overflow-auto bg-background"
-          aria-label="Main content"
-        >
-          <DemoBanner />
-          <MobileHeader />
-          <MobileSyncBanner />
-          <div className="mx-auto max-w-6xl p-4 md:p-6">
-            <ErrorBoundary>{children}</ErrorBoundary>
-          </div>
-        </main>
-        <AiAdvisor />
-      </div>
+      <AiFeatureGateProvider>
+        <div className="relative flex h-screen">
+          <a
+            href="#main-content"
+            className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-100 focus:rounded-md focus:bg-background focus:border focus:px-3 focus:py-2 focus:text-sm"
+          >
+            Skip to main content
+          </a>
+          <Navigation />
+          <main
+            id="main-content"
+            className="flex-1 overflow-auto bg-background"
+            aria-label="Main content"
+          >
+            <DemoBanner />
+            <MobileHeader />
+            <MobileSyncBanner />
+            <div className="mx-auto max-w-6xl p-4 md:p-6">
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </div>
+          </main>
+          <AiAdvisor />
+        </div>
+      </AiFeatureGateProvider>
     </PageTitleProvider>
   );
 }
