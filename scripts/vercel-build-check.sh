@@ -30,5 +30,9 @@ if [[ ! -f "$ROOT/.next/routes-manifest.json" ]]; then
   echo "error: .next/routes-manifest.json missing at repo root (Vercel expects it here)" >&2
   exit 1
 fi
+if [[ ! -e "$ROOT/node_modules/next/package.json" ]]; then
+  echo "error: node_modules not linked at repo root (Vercel resolves deps from here)" >&2
+  exit 1
+fi
 
 echo "== vercel-build-check: OK =="
