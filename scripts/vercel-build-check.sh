@@ -26,4 +26,9 @@ npm ci --prefix frontend
 echo "== vercel-build-check: build (from repo root, like Vercel) =="
 npm run vercel-build
 
+if [[ ! -f "$ROOT/.next/routes-manifest.json" ]]; then
+  echo "error: .next/routes-manifest.json missing at repo root (Vercel expects it here)" >&2
+  exit 1
+fi
+
 echo "== vercel-build-check: OK =="
