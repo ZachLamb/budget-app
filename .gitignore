@@ -25,3 +25,7 @@ frontend/.next/
 .cursor/plans/
 caddy_data/
 caddy_config/
+
+# Created by local vercel-build-check; never commit
+/node_modules
+/public
