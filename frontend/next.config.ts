@@ -52,11 +52,9 @@ const nextConfig: NextConfig = {
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      // web-llm fetches model weights from huggingface.co (mirror of the MLC
-      // prebuilt models); allow that origin explicitly. /api/* connects to
-      // 'self' (Next.js rewrites /api → backend). Add other origins here
-      // intentionally rather than widening to https:.
-      "connect-src 'self' https://huggingface.co https://*.huggingface.co",
+      // web-llm fetches model weights from huggingface.co; LFS files redirect
+      // to *.hf.co (xethub CDN). Allow both explicitly.
+      "connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co",
       "worker-src 'self' blob:",
       "frame-ancestors 'none'",
       "base-uri 'self'",
