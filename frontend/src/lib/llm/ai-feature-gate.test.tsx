@@ -150,3 +150,29 @@ describe("useAiFeatureGate prepareFeature", () => {
     expect(prepared!.reason).toBe("cancelled");
   });
 });
+
+describe("useAiFeatureGate ensureLocalSetup", () => {
+  it("delegates to localAi.ensureReady", async () => {
+    ensureReadyMock.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useAiFeatureGate(), { wrapper: wrap });
+
+    await act(async () => {
+      await result.current.ensureLocalSetup("categorize_transaction");
+    });
+
+    expect(ensureReadyMock).toHaveBeenCalledWith("categorize_transaction");
+  });
+
+  it("propagates rejection when user cancels", async () => {
+    ensureReadyMock.mockRejectedValue(new Error("User cancelled setup"));
+
+    const { result } = renderHook(() => useAiFeatureGate(), { wrapper: wrap });
+
+    await expect(
+      act(async () => {
+        await result.current.ensureLocalSetup("categorize_transaction");
+      }),
+    ).rejects.toThrow("User cancelled setup");
+  });
+});

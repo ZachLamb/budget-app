@@ -36,6 +36,8 @@ interface CloudConsentWaiter {
 interface AiFeatureGateContextValue {
   /** Run before any AI API call or local LLM use. Opens setup/consent dialogs as needed. */
   prepareFeature: (feature: FeatureId) => Promise<PrepareFeatureResult>;
+  /** Ensure local AI model is downloaded and ready for the given feature. */
+  ensureLocalSetup: (feature: FeatureId) => Promise<void>;
 }
 
 const AiFeatureGateContext = createContext<AiFeatureGateContextValue | null>(null);
@@ -75,6 +77,11 @@ export function AiFeatureGateProvider({ children }: { children: ReactNode }) {
       waiter.reject(new Error("Cloud AI consent cancelled"));
     }
   }, []);
+
+  const ensureLocalSetup = useCallback(
+    (feature: FeatureId) => localAi.ensureReady(feature),
+    [localAi],
+  );
 
   const prepareFeature = useCallback(
     async (feature: FeatureId): Promise<PrepareFeatureResult> => {
@@ -136,7 +143,7 @@ export function AiFeatureGateProvider({ children }: { children: ReactNode }) {
     cloudConsentFeature !== null ? getFeaturePolicy(cloudConsentFeature).label : "";
 
   return (
-    <AiFeatureGateContext.Provider value={{ prepareFeature }}>
+    <AiFeatureGateContext.Provider value={{ prepareFeature, ensureLocalSetup }}>
       {children}
       <LocalAiSetupWizard {...localAi.wizardProps} />
       {cloudConsentFeature !== null && (
