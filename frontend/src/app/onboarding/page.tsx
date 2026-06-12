@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/providers";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { settingsApi, type SimplefinClaimAccount } from "@/lib/api/settings";
 import { syncApi } from "@/lib/api/sync";
@@ -318,7 +319,28 @@ function AllSetStep({ onDashboard }: { onDashboard: () => void }) {
 export default function OnboardingPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { user, loading: authLoading } = useAuth();
   const [step, setStep] = useState<OnboardingStep>(1);
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace("/login?next=/onboarding");
+    }
+  }, [authLoading, user, router]);
+
+  if (authLoading || !user) {
+    return (
+      <div
+        className="flex min-h-screen flex-col items-center justify-center gap-3"
+        role="status"
+        aria-busy="true"
+        aria-label="Loading onboarding"
+      >
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </div>
+    );
+  }
 
   const handleSkip = () => {
     router.push("/");

@@ -5,6 +5,8 @@
   "scripts": {
     "ci": "./scripts/ci-local.sh",
     "ci:vercel": "./scripts/vercel-build-check.sh",
-    "quality:frontend": "npm run quality:check --prefix frontend"
+    "quality:frontend": "npm run quality:check --prefix frontend",
+    "dev:up": "docker compose up --build",
+    "dev:down": "docker compose down"
   }
 }

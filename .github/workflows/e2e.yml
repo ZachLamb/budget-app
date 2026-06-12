@@ -31,6 +31,18 @@ jobs:
         # cert bootstrap is unnecessary for smoke tests.
         run: docker compose up -d --build postgres backend frontend
 
+      - name: Wait for backend
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://localhost:8000/api/health > /dev/null; then
+              echo "backend up"; exit 0
+            fi
+            sleep 5
+          done
+          echo "backend did not come up in time"
+          docker compose logs backend
+          exit 1
+
       - name: Wait for frontend
         # The frontend container runs `npm run dev` and can take a
         # minute to compile on a cold build. Poll until it answers.
@@ -76,3 +88,7 @@ jobs:
           name: compose-logs
           path: compose-logs.txt
           retention-days: 7
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose down -v

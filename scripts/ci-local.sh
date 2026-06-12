@@ -11,6 +11,9 @@ echo "== backend: pytest =="
 echo "== frontend: lint =="
 ( cd "$ROOT/frontend" && npm run lint )
 
+echo "== frontend: typecheck =="
+( cd "$ROOT/frontend" && npm run typecheck )
+
 echo "== frontend: static analysis (fallow) =="
 ( cd "$ROOT/frontend" && npm run quality:static )
 

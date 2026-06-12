@@ -99,6 +99,38 @@ function AiAdvisorInner() {
     await openAdvisor();
   }, [open, openAdvisor, closePanel]);
 
+  // Keep keyboard focus inside the panel while it is open.
+  useEffect(() => {
+    if (!open || !panelRef.current) return;
+    const panel = panelRef.current;
+    const selector =
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const getFocusable = () =>
+      Array.from(panel.querySelectorAll<HTMLElement>(selector)).filter(
+        (el) => !el.hasAttribute("disabled") && el.offsetParent !== null,
+      );
+
+    requestAnimationFrame(() => getFocusable()[0]?.focus());
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const focusable = getFocusable();
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    panel.addEventListener("keydown", onKeyDown);
+    return () => panel.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   useEffect(() => {
     const shouldOpen = searchParams.get("ai_open") === "1";
     const prompt = searchParams.get("ai_prompt");
@@ -405,6 +437,7 @@ function AiAdvisorInner() {
                 className="h-7 w-7 text-muted-foreground hover:text-foreground"
                 onClick={clearChat}
                 title="Clear chat"
+                aria-label="Clear chat"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
