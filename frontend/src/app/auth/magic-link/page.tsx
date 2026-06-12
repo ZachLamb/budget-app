@@ -3,8 +3,11 @@
 /**
  * Magic-link verify landing page.
  *
- * Email links point at /auth/magic-link?token=<token>. We redeem the token,
- * refresh session state from the new httpOnly cookie, then send the user home.
+ * Email links point at /auth/magic-link#token=<token> — the token rides in
+ * the URL fragment, which browsers never send to servers (no access logs,
+ * no Referer leakage). We read it client-side, POST it to the verify
+ * endpoint, refresh session state from the new httpOnly cookie, then send
+ * the user home. Legacy ?token= links from older emails still work.
  */
 
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -16,11 +19,21 @@ import { Button } from "@/components/ui/button";
 import { authApi } from "@/lib/api/auth";
 import { useAuth } from "@/lib/providers";
 
+/** Token from `#token=…` (current emails) or `?token=…` (legacy emails). */
+function readTokenFromLocation(queryToken: string | null): string {
+  if (typeof window !== "undefined" && window.location.hash.length > 1) {
+    const hashParams = new URLSearchParams(window.location.hash.slice(1));
+    const fromHash = hashParams.get("token");
+    if (fromHash) return fromHash;
+  }
+  return queryToken || "";
+}
+
 function MagicLinkVerify() {
   const router = useRouter();
   const { refreshSession } = useAuth();
   const params = useSearchParams();
-  const token = params.get("token") || "";
+  const token = readTokenFromLocation(params.get("token"));
 
   const ranRef = useRef(false);
   const [state, setState] = useState<"loading" | "ok" | "fail">("loading");
@@ -28,6 +41,11 @@ function MagicLinkVerify() {
   useEffect(() => {
     if (ranRef.current) return;
     ranRef.current = true;
+
+    // Scrub the token from the visible URL/history as soon as we've read it.
+    if (typeof window !== "undefined" && (window.location.hash || params.get("token"))) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
 
     if (!token) {
       queueMicrotask(() => setState("fail"));
@@ -54,7 +72,7 @@ function MagicLinkVerify() {
       cancelled = true;
       if (bounceTimer !== null) clearTimeout(bounceTimer);
     };
-  }, [token, router, refreshSession]);
+  }, [token, router, refreshSession, params]);
 
   return <MagicLinkCard state={state} />;
 }

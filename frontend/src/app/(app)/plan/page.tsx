@@ -512,16 +512,19 @@ function DebtTab() {
 
   useEffect(() => {
     if (!planPrefs || hasUserInteracted.current) return;
-    if (
-      planPrefs.debt_strategy === "avalanche" ||
-      planPrefs.debt_strategy === "snowball" ||
-      planPrefs.debt_strategy === "hybrid"
-    ) {
-      setStrategy(planPrefs.debt_strategy as DebtStrategy);
-    }
-    if (planPrefs.debt_extra_monthly != null) {
-      setExtraMonthly(planPrefs.debt_extra_monthly);
-    }
+    queueMicrotask(() => {
+      if (hasUserInteracted.current) return;
+      if (
+        planPrefs.debt_strategy === "avalanche" ||
+        planPrefs.debt_strategy === "snowball" ||
+        planPrefs.debt_strategy === "hybrid"
+      ) {
+        setStrategy(planPrefs.debt_strategy as DebtStrategy);
+      }
+      if (planPrefs.debt_extra_monthly != null) {
+        setExtraMonthly(planPrefs.debt_extra_monthly);
+      }
+    });
   }, [planPrefs]);
 
   const persistPreferences = useCallback((s: DebtStrategy, extra: number) => {

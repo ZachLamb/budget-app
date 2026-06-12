@@ -85,6 +85,8 @@ export function useLocalAiSetup(): UseLocalAiSetup {
 
   useEffect(() => {
     if (open && step === "verify" && verifyStatus === "idle" && !downloadError) {
+      // Auto-run verification when the wizard lands on the verify step.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- kicks off async verification
       void runVerification();
     }
   }, [open, step, verifyStatus, downloadError, runVerification]);

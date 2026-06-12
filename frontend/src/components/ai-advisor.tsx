@@ -33,6 +33,8 @@ interface ParsedAction {
   action_type: string;
   data: Record<string, unknown>;
   confirmation_text: string;
+  /** Single-use server-issued token; required by /execute-action. */
+  confirmation_token: string;
 }
 
 function SourceBadge({ source }: { source: string }) {
@@ -101,9 +103,17 @@ function AiAdvisorInner() {
     const shouldOpen = searchParams.get("ai_open") === "1";
     const prompt = searchParams.get("ai_prompt");
     if (!shouldOpen && !prompt) return;
-    if (shouldOpen) void openAdvisor();
-    if (prompt) setInput(decodeURIComponent(prompt));
-    router.replace(pathname, { scroll: false });
+    queueMicrotask(() => {
+      if (shouldOpen) void openAdvisor();
+      if (prompt) {
+        try {
+          setInput(decodeURIComponent(prompt));
+        } catch {
+          setInput(prompt);
+        }
+      }
+      router.replace(pathname, { scroll: false });
+    });
   }, [searchParams, pathname, router, openAdvisor]);
 
   const { data: aiSettings } = useQuery({
@@ -139,7 +149,12 @@ function AiAdvisorInner() {
     return () => document.removeEventListener("keydown", onKey);
   }, [open, closePanel]);
 
-  const executeAction = useCallback(async (msgIdx: number, actionType: string, data: Record<string, unknown>) => {
+  const executeAction = useCallback(async (
+    msgIdx: number,
+    actionType: string,
+    data: Record<string, unknown>,
+    confirmationToken: string,
+  ) => {
     // Auth via httpOnly session cookie — `credentials: "include"` ensures
     // the browser attaches it. Legacy fetch sites that read
     // localStorage("token") have been removed; the cookie is the source of truth.
@@ -150,7 +165,11 @@ function AiAdvisorInner() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ action_type: actionType, data }),
+        body: JSON.stringify({
+          action_type: actionType,
+          data,
+          confirmation_token: confirmationToken,
+        }),
       });
       const raw = await resp.text();
       let body: unknown = null;
@@ -259,6 +278,7 @@ function AiAdvisorInner() {
             action_type: obj.action_type,
             data: dataObj,
             confirmation_text: String(obj.confirmation_text ?? ""),
+            confirmation_token: String(obj.confirmation_token ?? ""),
           },
           actionStatus: "pending",
           editData: Object.fromEntries(
@@ -545,6 +565,7 @@ function AiAdvisorInner() {
                             i,
                             m.pendingAction.action_type,
                             mergedData as Record<string, unknown>,
+                            m.pendingAction.confirmation_token,
                           ).finally(() => setExecutingActionIdx(null));
                         }}
                       >

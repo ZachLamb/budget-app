@@ -75,10 +75,10 @@ export function ExplainCharge({ txn }: Props) {
   // aware text means the user knows the request isn't stuck.
   const loadingStartRef = useRef<number | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
+  const displayElapsedSec = loading ? elapsedSec : 0;
   useEffect(() => {
     if (!loading) {
       loadingStartRef.current = null;
-      setElapsedSec(0);
       return;
     }
     if (loadingStartRef.current === null) loadingStartRef.current = Date.now();
@@ -199,13 +199,13 @@ export function ExplainCharge({ txn }: Props) {
   // cloud server is almost certainly warming.
   let loadingHint: string | null = null;
   if (loading && output.length === 0) {
-    if (elapsedSec >= 60) {
+    if (displayElapsedSec >= 60) {
       loadingHint = "Still working — cold start can take ~90s. Future requests will be fast.";
-    } else if (elapsedSec >= 25) {
+    } else if (displayElapsedSec >= 25) {
       loadingHint = "The AI server is warming up from sleep — this only happens after long idle.";
-    } else if (elapsedSec >= 10) {
+    } else if (displayElapsedSec >= 10) {
       loadingHint = "Setting up cloud AI — the first request can be slow.";
-    } else if (elapsedSec >= 3) {
+    } else if (displayElapsedSec >= 3) {
       loadingHint = "Working on it…";
     }
   }

@@ -176,6 +176,15 @@ def get_settings() -> Settings:
             "production. If this is intentional, unset the prod marker; "
             "otherwise unset DEMO_MODE."
         )
+    # Loud warning (not a hard fail — the lock-everyone-out default is
+    # documented as intentional): with no ADMIN_EMAIL, every new registration
+    # stays "pending" forever because nobody can approve them.
+    if not settings.admin_email and not settings.demo_mode and _looks_like_production():
+        logging.warning(
+            "ADMIN_EMAIL is not set on a production deploy: new sign-ups will "
+            "remain 'pending' with no way to approve them. Set ADMIN_EMAIL to "
+            "the bootstrap admin's email if registrations should be usable."
+        )
     if settings.webauthn_debug and _looks_like_production():
         raise RuntimeError(
             "WEBAUTHN_DEBUG=true is set alongside a production environment "

@@ -7,8 +7,13 @@ type AxiosLike = {
   config?: { method?: string; baseURL?: string; url?: string };
 };
 
-/** Full text for clipboard: title, detail, request/response hints, optional stack. */
+/** Clipboard text: title, detail, request method/path, and HTTP status.
+
+Raw response bodies and stack traces are included only in development —
+production payloads can contain server internals (validation structures,
+upstream error text) that don't belong on a user's clipboard. */
 function buildErrorDiagnostics(title: string, detail: string, error: unknown): string {
+  const includeSensitive = process.env.NODE_ENV !== "production";
   const lines = [title, "", detail];
   if (error && typeof error === "object") {
     const ax = error as AxiosLike & { message?: string; stack?: string };
@@ -24,7 +29,7 @@ function buildErrorDiagnostics(title: string, detail: string, error: unknown): s
       const stText = ax.response.statusText || "";
       lines.push("", `HTTP: ${st}${stText ? ` ${stText}` : ""}`);
       const data = ax.response.data;
-      if (data !== undefined && data !== null) {
+      if (includeSensitive && data !== undefined && data !== null) {
         lines.push(
           "",
           "Response body:",
@@ -32,7 +37,7 @@ function buildErrorDiagnostics(title: string, detail: string, error: unknown): s
         );
       }
     }
-    if (typeof ax.stack === "string" && ax.stack.length > 0) {
+    if (includeSensitive && typeof ax.stack === "string" && ax.stack.length > 0) {
       lines.push("", "Stack:", ax.stack);
     }
   }

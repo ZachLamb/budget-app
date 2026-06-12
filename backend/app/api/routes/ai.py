@@ -39,6 +39,7 @@ from app.models import Category, Household, Transaction, Account
 from app.services.ai import llm_client
 from app.services.ai.household_rate_limit import enforce_household_ai_rate_limit
 from app.services.ai.json_extract import parse_llm_json_object
+from app.services.ai.action_token import issue_action_token, redeem_action_token
 from app.services.ai.action import (
     _find_account_for_execute_transaction,  # re-exported for backwards compat
     execute_parsed_action,
@@ -135,346 +136,43 @@ async def _require_ai_enabled_rate_limited(
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
-
-class ChatMessage(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str = Field(..., max_length=5000)
-
-
-class ChatRequest(BaseModel):
-    messages: list[ChatMessage]
-
-
-class AdvisorTurnResponse(BaseModel):
-    """Single-call advisor: either a structured action to confirm or a chat reply."""
-
-    branch: Literal["action", "chat"]
-    model_source: str
-    action_type: Optional[str] = None
-    data: Optional[dict] = None
-    confirmation_text: Optional[str] = None
-    reply: Optional[str] = None
-    evidence: list[dict] = Field(default_factory=list)
-
-
-def normalize_advisor_turn_payload(
-    raw: dict,
-    *,
-    model_source: str,
-    evidence_list: list[dict],
-) -> AdvisorTurnResponse:
-    """Validate JSON from the LLM into AdvisorTurnResponse (no trust beyond shape)."""
-    branch = raw.get("branch")
-    if branch == "action":
-        at = raw.get("action_type")
-        if at not in ("add_transaction", "add_debt"):
-            raise ValueError("invalid action_type")
-        data = raw.get("data")
-        if not isinstance(data, dict):
-            data = {}
-        conf = str(raw.get("confirmation_text") or "").strip()
-        if not conf:
-            raise ValueError("missing confirmation_text")
-        return AdvisorTurnResponse(
-            branch="action",
-            model_source=model_source,
-            action_type=at,
-            data=data,
-            confirmation_text=conf,
-            evidence=[],
-        )
-    if branch == "chat":
-        reply = str(raw.get("reply") or "").strip()
-        if not reply:
-            raise ValueError("empty reply")
-        return AdvisorTurnResponse(
-            branch="chat",
-            model_source=model_source,
-            reply=reply,
-            evidence=list(evidence_list),
-        )
-    raise ValueError("invalid branch")
-
-
-class CategorySpendingLine(BaseModel):
-    category: str = Field(..., max_length=200)
-    amount: float = Field(..., ge=0)
-
-
-class ChatEvidenceCategorySpending(BaseModel):
-    type: Literal["category_spending"] = "category_spending"
-    month: str = Field(..., pattern=r"^\d{4}-\d{2}$")
-    lines: list[CategorySpendingLine] = Field(default_factory=list, max_length=25)
-
-
-class GoalProgressLine(BaseModel):
-    name: str = Field(..., max_length=200)
-    goal_type: str = Field(..., max_length=80)
-    current_amount: float = Field(..., ge=0)
-    target_amount: float = Field(..., ge=0)
-    pct_complete: float = Field(..., ge=0, le=100)
-
-
-class ChatEvidenceGoalProgress(BaseModel):
-    type: Literal["goal_progress"] = "goal_progress"
-    goals: list[GoalProgressLine] = Field(default_factory=list, max_length=8)
-
-
-class BudgetPaceLine(BaseModel):
-    category: str = Field(..., max_length=200)
-    budgeted: float = Field(..., ge=0)
-    spent: float = Field(..., ge=0)
-    remaining: float
-
-
-class ChatEvidenceBudgetPace(BaseModel):
-    type: Literal["budget_pace"] = "budget_pace"
-    month: str = Field(..., pattern=r"^\d{4}-\d{2}$")
-    lines: list[BudgetPaceLine] = Field(default_factory=list, max_length=12)
-
-
-def build_category_spending_evidence(
-    month_key: str, rows: list[tuple[str, Decimal]]
-) -> list[dict]:
-    """Pure helper for deterministic chat evidence (tested without DB)."""
-    lines: list[CategorySpendingLine] = []
-    for name, amt in rows:
-        lines.append(CategorySpendingLine(category=name, amount=float(abs(amt))))
-    item = ChatEvidenceCategorySpending(month=month_key, lines=lines)
-    return [item.model_dump()]
-
-
-def build_goal_progress_evidence_rows(
-    rows: list[tuple[str, str, Decimal, Decimal]],
-) -> Optional[dict]:
-    """Pure helper: (name, goal_type, current_amount, target_amount) tuples."""
-    if not rows:
-        return None
-    goal_lines: list[GoalProgressLine] = []
-    for name, gt, cur, tgt in rows[:8]:
-        tgt_f = float(tgt)
-        cur_f = float(cur)
-        pct = min(100.0, (cur_f / tgt_f * 100.0) if tgt_f > 0 else 0.0)
-        goal_lines.append(
-            GoalProgressLine(
-                name=name[:200],
-                goal_type=(gt or "goal")[:80],
-                current_amount=cur_f,
-                target_amount=tgt_f,
-                pct_complete=round(pct, 1),
-            )
-        )
-    return ChatEvidenceGoalProgress(goals=goal_lines).model_dump()
-
-
-def build_budget_pace_evidence_rows(month_key: str, rows: list[tuple[str, float, float]]) -> Optional[dict]:
-    """Pure helper: (category, budgeted, spent); remaining = budgeted - spent."""
-    if not rows:
-        return None
-    pace_lines: list[BudgetPaceLine] = []
-    for cat, bud, sp in rows[:12]:
-        pace_lines.append(
-            BudgetPaceLine(
-                category=cat[:200],
-                budgeted=bud,
-                spent=sp,
-                remaining=round(bud - sp, 2),
-            )
-        )
-    return ChatEvidenceBudgetPace(month=month_key, lines=pace_lines).model_dump()
-
-
-async def _build_chat_evidence_list(
-    db: AsyncSession, household_id: str
-) -> list[dict]:
-    """Display-only snippets: category spend, active goals, budget vs spent (budget accounts)."""
-    today = date.today()
-    month_start = today.replace(day=1)
-    month_key = month_start.strftime("%Y-%m")
-
-    spend_result = await db.execute(
-        select(Category.name, func.sum(Transaction.amount))
-        .join(Transaction, Transaction.category_id == Category.id)
-        .join(Account, Transaction.account_id == Account.id)
-        .where(Account.household_id == household_id)
-        .where(Transaction.date >= month_start)
-        .where(Transaction.amount < 0)
-        .group_by(Category.name)
-        .order_by(func.sum(Transaction.amount))
-        .limit(12)
-    )
-    cat_rows = list(spend_result.all())
-    out: list[dict] = []
-    out.extend(build_category_spending_evidence(month_key, cat_rows))
-
-    goals_result = await db.execute(
-        select(FinancialGoal.name, FinancialGoal.goal_type, FinancialGoal.current_amount, FinancialGoal.target_amount)
-        .where(FinancialGoal.household_id == household_id)
-        .where(FinancialGoal.is_completed == False)  # noqa: E712
-        .order_by(FinancialGoal.target_amount.desc())
-        .limit(8)
-    )
-    goal_tuples = [(n, gt, cur, tgt) for n, gt, cur, tgt in goals_result.all()]
-    goal_ev = build_goal_progress_evidence_rows(goal_tuples)
-    if goal_ev:
-        out.append(goal_ev)
-
-    from sqlalchemy import extract
-
-    budget_account_subq = (
-        select(Account.id)
-        .where(Account.household_id == household_id)
-        .where(Account.is_budget_account.is_(True))
-        .where(Account.closed_at.is_(None))
-        .scalar_subquery()
-    )
-    y, m = today.year, today.month
-    spent_by_cat: dict[str, Decimal] = {}
-    spent_result = await db.execute(
-        select(Transaction.category_id, func.sum(Transaction.amount))
-        .where(Transaction.account_id.in_(budget_account_subq))
-        .where(extract("year", Transaction.date) == y)
-        .where(extract("month", Transaction.date) == m)
-        .where(Transaction.amount < 0)
-        .where(Transaction.category_id.isnot(None))
-        .group_by(Transaction.category_id)
-    )
-    for cid, amt in spent_result.all():
-        spent_by_cat[cid] = abs(amt)
-
-    assign_result = await db.execute(
-        select(Category.name, BudgetAssignment.category_id, BudgetAssignment.assigned_amount)
-        .join(Category, BudgetAssignment.category_id == Category.id)
-        .where(BudgetAssignment.household_id == household_id)
-        .where(BudgetAssignment.month == month_key)
-    )
-    pace_rows: list[tuple[str, float, float]] = []
-    for cat_name, cat_id, assigned in assign_result.all():
-        sp = float(spent_by_cat.get(cat_id, Decimal("0")))
-        bud = float(assigned)
-        pace_rows.append((cat_name, bud, sp))
-    pace_rows.sort(key=lambda x: x[2] - x[1])
-    pace_ev = build_budget_pace_evidence_rows(month_key, pace_rows[:12])
-    if pace_ev:
-        out.append(pace_ev)
-
-    return out
-
-
-class InsightsResponse(BaseModel):
-    insights: list[str]
-    model_source: str
-
-
-class SpendingTrend(BaseModel):
-    category: str
-    trend: str          # "up" | "down" | "stable"
-    pct_change: float
-
-
-class BudgetInsightsResponse(BaseModel):
-    insights: list[str]
-    patterns: list[SpendingTrend]
-    model_source: str
-
-
-class FsaEligibleTransaction(BaseModel):
-    transaction_id: str
-    date: str
-    payee_name: str
-    category_name: Optional[str]
-    amount: float
-    confidence: Literal["high", "medium", "low"]
-    fsa_category: str
-    reason: str
-    status: Literal["pending", "claimed", "dismissed"] = "pending"
-
-
-class FsaReviewRequest(BaseModel):
-    date_from: Optional[date] = None
-    date_to: Optional[date] = None
-    include_all_outflows: bool = Field(
-        default=False,
-        description="Send all scanned outflows to the LLM (max 500 rows). Higher cost/latency than keyword pre-filter.",
-    )
-
-
-class FsaItemUpdateRequest(BaseModel):
-    status: Literal["pending", "claimed", "dismissed"]
-
-
-class FsaReviewResponse(BaseModel):
-    eligible_transactions: list[FsaEligibleTransaction]
-    total_potential_amount: float
-    scan_count: int
-    model_source: str
-    parse_errors: int = 0
-    llm_batch_failures: int = Field(
-        default=0,
-        description="Batches with no LLM response (e.g. Ollama unreachable).",
-    )
-    candidate_count: int = Field(
-        default=0,
-        description="Rows sent to the LLM after pre-filter (or all scanned if include_all_outflows).",
-    )
-    prefilter_skipped_count: int = Field(
-        default=0,
-        description="Rows skipped by keyword pre-filter; 0 when include_all_outflows.",
-    )
-
-
-class BudgetSuggestion(BaseModel):
-    category_id: str
-    category_name: str
-    suggested_amount: float
-    reasoning: str
-
-
-class BudgetSuggestionsResponse(BaseModel):
-    suggestions: list[BudgetSuggestion]
-    model_source: str
-
-
-class DebtPlanSuggestion(BaseModel):
-    strategy: str          # "avalanche" | "snowball" | "hybrid"
-    rationale: str
-    priority_order: list[str]
-    monthly_extra: float
-    model_source: str
-
-
-class ParseActionRequest(BaseModel):
-    message: str = Field(..., max_length=500)
-
-
-class ParseActionResponse(BaseModel):
-    action_type: Optional[str]
-    data: Optional[Dict]
-    confirmation_text: str
-
-
-class ExecuteActionRequest(BaseModel):
-    action_type: str
-    data: dict
-
-
-class ExecuteActionResponse(BaseModel):
-    success: bool
-    message: str
-
-
-class InterestRateSuggestion(BaseModel):
-    account_id: str
-    account_name: str
-    suggested_apr: float        # as a decimal, e.g. 0.2499 for 24.99%
-    suggested_min_payment: float
-    reasoning: str
-
-
-class InterestRateSuggestionsResponse(BaseModel):
-    suggestions: list[InterestRateSuggestion]
-    model_source: str
-    note: str
+# Schemas live in app.schemas.ai; chat evidence assembly in
+# app.services.ai.evidence. Names are re-exported here because existing
+# tests and callers import them from this module.
+
+from app.schemas.ai import (  # noqa: E402
+    AdvisorTurnResponse,
+    BudgetInsightsResponse,
+    BudgetPaceLine,
+    BudgetSuggestion,
+    BudgetSuggestionsResponse,
+    CategorySpendingLine,
+    ChatEvidenceBudgetPace,
+    ChatEvidenceCategorySpending,
+    ChatEvidenceGoalProgress,
+    ChatMessage,
+    ChatRequest,
+    DebtPlanSuggestion,
+    ExecuteActionRequest,
+    ExecuteActionResponse,
+    FsaCandidatesResponse,
+    FsaEligibleTransaction,
+    FsaItemUpdateRequest,
+    FsaReviewRequest,
+    FsaReviewResponse,
+    GoalProgressLine,
+    InsightsResponse,
+    InterestRateSuggestion,
+    InterestRateSuggestionsResponse,
+    ParseActionRequest,
+    ParseActionResponse,
+    SpendingTrend,
+    build_budget_pace_evidence_rows,
+    build_category_spending_evidence,
+    build_goal_progress_evidence_rows,
+    normalize_advisor_turn_payload,
+)
+from app.services.ai.evidence import build_chat_evidence_list as _build_chat_evidence_list  # noqa: E402
 
 
 # ── Back-compat wrapper ────────────────────────────────────────────────────────
@@ -687,6 +385,10 @@ Use "action" sparingly — only when they are asking you to add something to the
     try:
         parsed = parse_llm_json_object(response)
         result = normalize_advisor_turn_payload(parsed, model_source=source, evidence_list=evidence_list)
+        if result.branch == "action" and result.action_type:
+            result.confirmation_token = await issue_action_token(
+                household_id, result.action_type
+            )
         await write_audit(
             db, llm_ctx, status_code=200, prompt_text=prompt, completion_text=response
         )
@@ -760,6 +462,10 @@ async def parse_action(
     """Parse a natural language message to detect data-entry action intents."""
     try:
         result = await parse_action_message(req.message)
+        if result.get("action_type"):
+            result["confirmation_token"] = await issue_action_token(
+                household_id, str(result["action_type"])
+            )
         await write_audit(
             db, llm_ctx, status_code=200, prompt_text=req.message
         )
@@ -777,9 +483,15 @@ async def execute_action(
 ):
     """Execute a parsed action intent (create transaction or debt account).
 
-    No LLM call: this is a CRUD operation that writes whatever was already
-    parsed. The companion ``/parse-action`` route is the LLM-gated one.
+    No LLM call here, but the write is gated on a single-use confirmation
+    token issued by ``/advisor-turn`` or ``/parse-action`` — without it this
+    would be an open mutation endpoint accepting arbitrary payloads.
     """
+    if not await redeem_action_token(req.confirmation_token, household_id, req.action_type):
+        raise HTTPException(
+            403,
+            "Action confirmation expired or invalid. Ask the advisor again to retry.",
+        )
     return ExecuteActionResponse(
         **await execute_parsed_action(db, household_id, req.action_type, req.data)
     )
@@ -804,13 +516,6 @@ async def suggest_interest_rates(
     except HTTPException as he:
         await write_audit(db, llm_ctx, status_code=he.status_code)
         raise
-
-
-class FsaCandidatesResponse(BaseModel):
-    candidates: list[dict]
-    scan_count: int
-    candidate_count: int
-    prefilter_skipped_count: int
 
 
 @router.post("/fsa-review/candidates", response_model=FsaCandidatesResponse)

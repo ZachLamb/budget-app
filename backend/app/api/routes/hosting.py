@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from app.api.deps import get_current_user
+from app.api.deps import require_admin
 from app.models.user import User
 from app.services.hosting import fly as fly_service
 
@@ -66,8 +66,10 @@ class HostingHealthResponse(BaseModel):
 @router.get("/health", response_model=HostingHealthResponse)
 async def hosting_health(
     refresh: bool = Query(False, description="Bypass the 5-min cache"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ) -> HostingHealthResponse:
+    """Infrastructure health (Fly machines/regions) — admin-only: machine
+    names and regions are deployment fingerprints regular members don't need."""
     health = await fly_service.fetch_health(force=refresh)
     apps = [
         HostingApp(

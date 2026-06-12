@@ -7,6 +7,7 @@ from sqlalchemy import select, desc
 from app.database import async_session
 from app.models import Household, SyncLog
 from app.services.ai.audit_retention import scheduled_prune_audit
+from app.services.sync.claim import try_claim_sync
 from app.services.sync.manager import run_sync
 
 logger = logging.getLogger(__name__)
@@ -52,24 +53,12 @@ async def scheduled_sync():
                 if elapsed < timedelta(hours=household.sync_interval_hours):
                     continue
 
-            in_progress = await db.execute(
-                select(SyncLog).where(
-                    SyncLog.household_id == household.id,
-                    SyncLog.status == "in_progress",
-                )
-            )
-            if in_progress.scalar_one_or_none():
+            # Atomic claim: the partial unique index on sync_log guarantees a
+            # concurrent claimer (manual trigger or another replica) loses.
+            sync_log = await try_claim_sync(db, household.id)
+            if sync_log is None:
                 logger.info("Scheduled sync: skipping household %s (sync already in progress)", household.id)
                 continue
-
-            sync_log = SyncLog(
-                household_id=household.id,
-                provider="simplefin",
-                status="in_progress",
-            )
-            db.add(sync_log)
-            await db.flush()
-            await db.commit()
             sync_log_id = sync_log.id
 
         try:

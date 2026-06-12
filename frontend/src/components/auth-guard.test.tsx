@@ -14,7 +14,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/providers", () => ({
   useAuth: () => ({
-    user: { id: "u1", email: "a@b.com" },
+    user: { id: "u1", email: "a@b.com", status: "approved" },
     loading: false,
     token: "t",
     login: vi.fn(),

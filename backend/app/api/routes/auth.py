@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 from typing import Optional
 import logging
@@ -16,8 +17,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+import jwt
+from app.services.auth.passwords import hash_password, verify_password
+from app.services.auth.tokens import create_session_token
 from webauthn import generate_registration_options, verify_registration_response, generate_authentication_options, verify_authentication_response
 from webauthn.helpers import options_to_json, parse_registration_credential_json, parse_authentication_credential_json
 from webauthn.helpers.structs import (
@@ -41,7 +43,7 @@ from app.schemas.user import (
     PasskeyAuthenticateVerifyRequest,
     PasskeyCredentialListItem,
 )
-from app.api.deps import ALGORITHM, get_current_user
+from app.api.deps import ALGORITHM, get_current_user, get_current_user_any_status
 from app.services.auth.session_cookie import (
     COOKIE_NAME,
     set_session_cookie,
@@ -52,7 +54,6 @@ from app.services.auth import challenges as auth_challenges
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 _REGISTRATION_FAILED_DETAIL = "Registration could not be completed"
 
@@ -69,13 +70,9 @@ DEFAULT_CATEGORIES = {
 }
 
 
-def _create_token(user: User) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(days=30)
-    return jwt.encode(
-        {"sub": user.id, "exp": expire, "sv": user.session_version},
-        get_settings().secret_key,
-        algorithm=ALGORITHM,
-    )
+# Kept as a module-level alias: several routes in this file and historical
+# imports refer to ``_create_token``.
+_create_token = create_session_token
 
 
 def _token_response(response: Response, token: str, user: User) -> TokenResponse:
@@ -115,7 +112,7 @@ async def register(data: UserCreate, response: Response, db: AsyncSession = Depe
     user = User(
         email=data.email,
         name=data.name,
-        password_hash=pwd_context.hash(data.password),
+        password_hash=hash_password(data.password),
         household_id=household.id,
         role="owner",
         status="pending",  # admin gate; bootstrap below may promote to "approved"
@@ -170,7 +167,7 @@ async def login(data: UserLogin, response: Response, db: AsyncSession = Depends(
         hashlib.sha256((data.password or "").encode("utf-8")).hexdigest()
         await lockout.record_login_failure(email)
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    if not pwd_context.verify(data.password, user.password_hash):
+    if not verify_password(data.password, user.password_hash):
         await lockout.record_login_failure(email)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -209,7 +206,7 @@ async def logout(
                 token,
                 get_settings().secret_key,
                 algorithms=[ALGORITHM],
-                options={"verify_exp": False, "require_sub": True},
+                options={"verify_exp": False, "require": ["sub"]},
             )
             user_id = payload.get("sub")
             if user_id:
@@ -218,13 +215,19 @@ async def logout(
                 if user is not None:
                     user.session_version += 1
                     await db.commit()
-        except JWTError:
+        except jwt.PyJWTError:
             pass
     return {"ok": True}
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(user: User = Depends(get_current_user)):
+async def get_me(user: User = Depends(get_current_user_any_status)):
+    """Return the caller's own profile.
+
+    Intentionally skips the approval gate: a pending user must be able to
+    learn their own status so the frontend can show the "awaiting approval"
+    page instead of a bare 403. All data routes still require approval.
+    """
     return UserResponse.model_validate(user)
 
 
@@ -455,6 +458,23 @@ async def passkey_register_verify(
         raise HTTPException(status_code=500, detail="Invalid passkey response") from e
 
 
+def _fake_credential_descriptors(email: str) -> list[PublicKeyCredentialDescriptor]:
+    """Deterministic decoy credential ids for unknown emails.
+
+    Without these, /passkey/authenticate/options is an account-enumeration
+    oracle: a known email returns allowCredentials entries, an unknown one
+    returns an empty list. The decoys are HMAC-derived from the email so the
+    same address always yields the same (useless) descriptors — repeated
+    probes can't even use response instability as a signal.
+    """
+    digest = hmac.new(
+        get_settings().secret_key.encode("utf-8"),
+        f"passkey-decoy:{email.lower()}".encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return [PublicKeyCredentialDescriptor(id=digest + digest[:16])]
+
+
 @router.post("/passkey/authenticate/options")
 async def passkey_authenticate_options(
     data: PasskeyAuthenticateOptionsRequest,
@@ -481,6 +501,10 @@ async def passkey_authenticate_options(
                         "Passkey auth options: could not load credentials for user (continuing with empty allowCredentials)",
                         exc_info=True,
                     )
+            # Anti-enumeration: unknown email or passkey-less account gets
+            # indistinguishable decoy descriptors instead of an empty list.
+            if not allow_credentials:
+                allow_credentials = _fake_credential_descriptors(data.email)
         options = generate_authentication_options(
             rp_id=rp_id,
             allow_credentials=allow_credentials,

@@ -11,25 +11,35 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
 from app.models import Account, AccountSnapshot, Transaction, Payee, SyncLog, ImportBatch, Household
+from app.services.crypto import decrypt_value, encrypt_value, is_encrypted
 from app.services.sync.simplefin import SimpleFINProvider
 from app.services.categorization.rules import apply_rules
 
 
 async def _get_simplefin_url(db: AsyncSession, household_id: str) -> str | None:
-    """Return the SimpleFIN access URL for the household (DB is sole source of truth)."""
+    """Return the decrypted SimpleFIN access URL (DB is sole source of truth).
+
+    Bank credentials are encrypted at rest (services.crypto); plaintext rows
+    written before encryption shipped are upgraded in place on first read.
+    """
     result = await db.execute(select(Household).where(Household.id == household_id))
     household = result.scalar_one_or_none()
-    if household and household.simplefin_access_url:
-        return household.simplefin_access_url
-    return None
+    if not household or not household.simplefin_access_url:
+        return None
+    stored = household.simplefin_access_url
+    url = decrypt_value(stored)
+    if url and not is_encrypted(stored):
+        household.simplefin_access_url = encrypt_value(url)
+        await db.commit()
+    return url
 
 
 async def _persist_access_url(db: AsyncSession, household_id: str, access_url: str):
-    """Save the claimed SimpleFIN access URL so we never re-claim the setup token."""
+    """Save the claimed SimpleFIN access URL (encrypted) so we never re-claim the setup token."""
     result = await db.execute(select(Household).where(Household.id == household_id))
     household = result.scalar_one_or_none()
     if household:
-        household.simplefin_access_url = access_url
+        household.simplefin_access_url = encrypt_value(access_url)
         await db.commit()
 
 
@@ -54,7 +64,7 @@ async def run_sync(household_id: str, sync_log_id: str):
     error_msg = None
 
     try:
-        end_date = date.today()
+        end_date = datetime.now(timezone.utc).date()
         default_start = end_date - timedelta(days=30)
 
         # Incremental sync: use the earliest last_synced_at across all
@@ -86,8 +96,13 @@ async def run_sync(household_id: str, sync_log_id: str):
 
         async with async_session() as db:
             for synced_acct in sync_result.accounts:
+                # Scope by household: simplefin_id values are provider-assigned and
+                # must never resolve to (or mutate) another household's account.
                 result = await db.execute(
-                    select(Account).where(Account.simplefin_id == synced_acct.provider_id)
+                    select(Account).where(
+                        Account.household_id == household_id,
+                        Account.simplefin_id == synced_acct.provider_id,
+                    )
                 )
                 account = result.scalar_one_or_none()
 
@@ -159,9 +174,12 @@ async def run_sync(household_id: str, sync_log_id: str):
                             continue
                         seen_ids.add(synced_txn.provider_id)
 
+                        # Dedup within this account only; provider txn ids are not
+                        # globally unique across unrelated households.
                         existing = await db.execute(
                             select(Transaction).where(
-                                Transaction.simplefin_transaction_id == synced_txn.provider_id
+                                Transaction.account_id == account.id,
+                                Transaction.simplefin_transaction_id == synced_txn.provider_id,
                             )
                         )
                         if existing.scalar_one_or_none():

@@ -42,7 +42,9 @@ class Transaction(Base):
     __table_args__ = (
         Index("ix_transactions_account_date", "account_id", "date"),
         Index("ix_transactions_category", "category_id"),
-        Index("ix_transactions_simplefin_id", "simplefin_transaction_id", unique=True),
+        # Provider transaction ids are only unique within an account; a global
+        # unique index would let one household's import block another's.
+        Index("uq_transactions_account_simplefin", "account_id", "simplefin_transaction_id", unique=True),
         Index("ix_transactions_parent", "parent_transaction_id"),
         Index("ix_transactions_transfer_pair", "transfer_pair_id"),
     )

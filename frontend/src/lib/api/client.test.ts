@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from "axios";
 
-import api, { handleResponseError } from "./client";
+import api, { handleResponseError, formatErrorDetail } from "./client";
 
 beforeEach(() => {
   localStorage.clear();
@@ -130,12 +130,12 @@ describe("client response interceptor", () => {
     }
   });
 
-  it("does NOT redirect on 401 when on /register", async () => {
+  it("redirects on 401 from /register (route no longer exists, not an auth entry point)", async () => {
     const loc = stubLocation("/register");
     try {
       const err = { response: { status: 401, data: {} } } as Partial<AxiosError>;
       await runErrorInterceptor(err);
-      expect(loc.getRedirect()).toBe("");
+      expect(loc.getRedirect()).toBe("/login");
     } finally {
       loc.restore();
     }
@@ -175,7 +175,7 @@ describe("client response interceptor", () => {
     expect(rejected.message).toBe("Email already in use");
   });
 
-  it("JSON-stringifies non-string detail so it reaches the toast in some form", async () => {
+  it("formats FastAPI validation arrays into a readable field message", async () => {
     const err = {
       response: {
         status: 422,
@@ -186,6 +186,40 @@ describe("client response interceptor", () => {
       message: "Request failed with status code 422",
     } as Partial<AxiosError>;
     const rejected = (await runErrorInterceptor(err)) as AxiosError;
-    expect(rejected.message).toContain("value is not a valid email");
+    expect(rejected.message).toBe("email: value is not a valid email");
+  });
+});
+
+describe("formatErrorDetail", () => {
+  it("passes strings through unchanged", () => {
+    expect(formatErrorDetail("Nope")).toBe("Nope");
+  });
+
+  it("joins multiple validation errors and caps at three", () => {
+    const detail = [
+      { loc: ["body", "name"], msg: "field required" },
+      { loc: ["body", "amount"], msg: "must be a number" },
+      { loc: ["body", "date"], msg: "invalid date" },
+      { loc: ["body", "extra"], msg: "should not appear" },
+    ];
+    const msg = formatErrorDetail(detail);
+    expect(msg).toBe(
+      "name: field required; amount: must be a number; date: invalid date",
+    );
+  });
+
+  it("handles nested field locations", () => {
+    expect(
+      formatErrorDetail([{ loc: ["body", "items", 0, "amount"], msg: "required" }]),
+    ).toBe("items.0.amount: required");
+  });
+
+  it("never dumps raw JSON for unknown shapes", () => {
+    expect(formatErrorDetail({ some: { nested: "thing" } })).toBe(
+      "Request failed. Please check your input and try again.",
+    );
+    expect(formatErrorDetail(42)).toBe(
+      "Request failed. Please check your input and try again.",
+    );
   });
 });

@@ -43,7 +43,7 @@ api.interceptors.request.use((config) => {
  * 401s for any user without a session) bounces /login → /login → /login
  * forever. The user sees a constant page-refresh loop.
  */
-const UNAUTHENTICATED_ROUTES = new Set(["/login", "/register"]);
+const UNAUTHENTICATED_ROUTES = new Set(["/login"]);
 function isOnUnauthenticatedRoute(): boolean {
   if (typeof window === "undefined") return false;
   const path = window.location.pathname;
@@ -71,10 +71,36 @@ export function handleResponseError(err: {
   } else if (err.code === "ERR_CANCELED") {
     err.message = "Request canceled.";
   } else if (err.response?.data?.detail) {
-    const detail = err.response.data.detail;
-    err.message = typeof detail === "string" ? detail : JSON.stringify(detail);
+    err.message = formatErrorDetail(err.response.data.detail);
   }
   return Promise.reject(err);
+}
+
+/** Turn FastAPI error details (string, validation array, or object) into a
+human-readable message instead of dumping raw JSON at the user. */
+export function formatErrorDetail(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (item && typeof item === "object") {
+          const { loc, msg } = item as { loc?: unknown[]; msg?: string };
+          if (typeof msg === "string") {
+            // Skip the leading "body"/"query" segment of the location path.
+            const field = Array.isArray(loc) ? loc.slice(1).join(".") : "";
+            return field ? `${field}: ${msg}` : msg;
+          }
+        }
+        return null;
+      })
+      .filter((m): m is string => m !== null);
+    if (messages.length > 0) return messages.slice(0, 3).join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    const msg = (detail as { msg?: unknown }).msg;
+    if (typeof msg === "string") return msg;
+  }
+  return "Request failed. Please check your input and try again.";
 }
 
 api.interceptors.response.use((r) => r, handleResponseError);

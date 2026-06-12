@@ -328,8 +328,9 @@ async def test_admin_approve_is_idempotent(route_db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_me_returns_403_for_pending_user(route_db) -> None:
-    """Approved gate on get_current_user blocks pending sessions on /me."""
+async def test_get_me_returns_pending_status_but_data_routes_403(route_db) -> None:
+    """/me lets a pending user see their own status (so the frontend can show
+    the awaiting-approval page); every data route stays behind the gate."""
     from app.api.routes.auth import _create_token
 
     async with route_db() as s:
@@ -337,12 +338,18 @@ async def test_get_me_returns_403_for_pending_user(route_db) -> None:
         token = _create_token(pending)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        r = await client.get(
+        r_me = await client.get(
             "/api/auth/me",
             headers={"Authorization": f"Bearer {token}"},
         )
-    assert r.status_code == 403
-    assert "approval" in r.json()["detail"].lower()
+        r_data = await client.get(
+            "/api/accounts",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r_me.status_code == 200
+    assert r_me.json()["status"] == "pending"
+    assert r_data.status_code == 403
+    assert "approval" in r_data.json()["detail"].lower()
 
 
 @pytest.mark.asyncio

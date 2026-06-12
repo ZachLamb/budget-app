@@ -27,10 +27,6 @@ _VALID_BUDGET_FRAMING = frozenset({"strict", "reflective"})
 router = APIRouter()
 
 
-class SimplefinTokenUpdate(BaseModel):
-    token: str
-
-
 class SimplefinClaimRequest(BaseModel):
     token: str
 
@@ -62,10 +58,13 @@ async def get_simplefin_status(
     result = await db.execute(select(Household).where(Household.id == household_id))
     household = result.scalar_one_or_none()
 
-    url = household.simplefin_access_url if household else None
-    if not url:
+    from app.services.crypto import decrypt_value
+
+    stored = household.simplefin_access_url if household else None
+    if not stored:
         return SimplefinStatusResponse(configured=False, is_access_url=False)
 
+    url = decrypt_value(stored) or ""
     is_access_url = "://" in url and "@" in url
     return SimplefinStatusResponse(configured=True, is_access_url=is_access_url)
 
@@ -105,9 +104,9 @@ async def claim_simplefin_token(
         raise HTTPException(502, f"SimpleFIN returned HTTP {e.response.status_code}")
     except httpx.ConnectError:
         raise HTTPException(502, "Could not connect to SimpleFIN Bridge. Check your network and try again.")
-    except Exception as e:
+    except Exception:
         logger.exception("Unexpected error claiming SimpleFIN token")
-        raise HTTPException(500, f"Unexpected error: {str(e)[:200]}")
+        raise HTTPException(500, "Unexpected error claiming SimpleFIN token. Please try again.")
 
     resolved_url = provider.resolved_access_url
     if not resolved_url:
@@ -118,8 +117,10 @@ async def claim_simplefin_token(
     if not household:
         raise HTTPException(404, "Household not found")
 
-    old_url = household.simplefin_access_url
-    household.simplefin_access_url = resolved_url
+    from app.services.crypto import decrypt_value, encrypt_value
+
+    old_url = decrypt_value(household.simplefin_access_url)
+    household.simplefin_access_url = encrypt_value(resolved_url)
 
     # If replacing an existing connection, unlink old accounts so they
     # become manual accounts. The next full sync will re-match them by
@@ -415,24 +416,3 @@ async def update_plan_preferences(
         debt_strategy=household.debt_strategy,
         debt_extra_monthly=float(household.debt_extra_monthly) if household.debt_extra_monthly is not None else None,
     )
-
-
-@router.post("/simplefin")
-async def update_simplefin_token(
-    body: SimplefinTokenUpdate,
-    household_id: str = Depends(get_household_id),
-    db: AsyncSession = Depends(get_db),
-):
-    """Set or replace the SimpleFIN setup token / access URL (legacy endpoint)."""
-    token = body.token.strip()
-    if not token:
-        raise HTTPException(400, "Token must not be empty")
-
-    result = await db.execute(select(Household).where(Household.id == household_id))
-    household = result.scalar_one_or_none()
-    if not household:
-        raise HTTPException(404, "Household not found")
-
-    household.simplefin_access_url = token
-    await db.commit()
-    return {"ok": True}

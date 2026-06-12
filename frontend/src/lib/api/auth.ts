@@ -95,9 +95,11 @@ export const authApi = {
   magicLinkRequest: (email: string) =>
     api.post<{ ok: true }>("/auth/magic-link/request", { email }).then((r) => r.data),
 
-  /** Redeem the token from the email URL. Server sets the httpOnly session cookie. */
+  /** Redeem the token from the email URL. POST body (never the query string)
+   *  so the token stays out of server access logs. Server sets the httpOnly
+   *  session cookie. */
   magicLinkVerify: (token: string) =>
-    api.get<{ ok: true }>(`/auth/magic-link/verify?token=${encodeURIComponent(token)}`).then((r) => r.data),
+    api.post<{ ok: true }>("/auth/magic-link/verify", { token }).then((r) => r.data),
 
   /**
    * Clear the httpOnly session cookie. Idempotent — safe to call on a

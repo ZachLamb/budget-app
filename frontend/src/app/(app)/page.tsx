@@ -642,7 +642,7 @@ function DashboardContent() {
                       {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                     </Pie>
                     <Tooltip
-                      formatter={(v: number | undefined) => {
+                      formatter={(v) => {
                         const n = typeof v === "number" ? v : Number(v);
                         return [formatCurrency(Number.isFinite(n) ? n : 0), ""];
                       }}

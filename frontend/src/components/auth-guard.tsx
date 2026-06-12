@@ -15,13 +15,22 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
 
-  useEffect(() => {
-    if (!loading && !user) {
-      router.push("/login");
-    }
-  }, [loading, user, router]);
+  const approved = user?.status === "approved";
 
-  if (loading) {
+  useEffect(() => {
+    if (loading) return;
+    if (!user) {
+      router.push("/login");
+    } else if (!approved) {
+      // Server enforces the approval gate on every API route; this keeps a
+      // pending/rejected user out of the app shell with a friendly page.
+      router.replace("/pending-approval");
+    }
+  }, [loading, user, approved, router]);
+
+  // Same shell for "loading" and "redirecting" — a blank frame between the
+  // two causes a jarring flash before navigation completes.
+  if (loading || !user || !approved) {
     return (
       <div
         className="flex h-screen flex-col items-center justify-center gap-3"
@@ -34,8 +43,6 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-
-  if (!user) return null;
 
   return (
     <PageTitleProvider>

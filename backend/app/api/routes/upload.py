@@ -49,31 +49,43 @@ async def upload_csv(
     db.add(batch)
     await db.flush()
 
+    # Batch payee resolution: one query for every name in the file, one flush
+    # for the misses — not two queries per row.
+    payee_names = {p.payee_name for p in result.transactions}
+    payees_result = await db.execute(
+        select(Payee).where(
+            Payee.household_id == household_id,
+            Payee.name.in_(payee_names),
+        )
+    )
+    payees_by_name = {p.name: p for p in payees_result.scalars().all()}
+    for name in payee_names - payees_by_name.keys():
+        payee = Payee(household_id=household_id, name=name)
+        db.add(payee)
+        payees_by_name[name] = payee
+    await db.flush()  # assign ids to new payees
+
+    # Batch dedup: pull this account's transactions for the file's date range
+    # once and compare in memory on (date, amount, payee_id).
+    dates = [p.date for p in result.transactions]
+    existing_result = await db.execute(
+        select(Transaction.date, Transaction.amount, Transaction.payee_id).where(
+            Transaction.account_id == account_id,
+            Transaction.date >= min(dates),
+            Transaction.date <= max(dates),
+        )
+    )
+    existing_keys = {(row.date, row.amount, row.payee_id) for row in existing_result.all()}
+
     imported = 0
     skipped = 0
     for parsed in result.transactions:
-        # Get or create payee
-        payee_result = await db.execute(
-            select(Payee).where(Payee.household_id == household_id, Payee.name == parsed.payee_name)
-        )
-        payee = payee_result.scalar_one_or_none()
-        if not payee:
-            payee = Payee(household_id=household_id, name=parsed.payee_name)
-            db.add(payee)
-            await db.flush()
-
-        # Basic dedup: same account, date, amount, payee
-        existing = await db.execute(
-            select(Transaction).where(
-                Transaction.account_id == account_id,
-                Transaction.date == parsed.date,
-                Transaction.amount == parsed.amount,
-                Transaction.payee_id == payee.id,
-            )
-        )
-        if existing.scalar_one_or_none():
+        payee = payees_by_name[parsed.payee_name]
+        key = (parsed.date, parsed.amount, payee.id)
+        if key in existing_keys:
             skipped += 1
             continue
+        existing_keys.add(key)  # also dedup within the file itself
 
         txn = Transaction(
             account_id=account_id,

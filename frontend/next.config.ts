@@ -52,9 +52,9 @@ const nextConfig: NextConfig = {
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      // web-llm fetches model weights from huggingface.co; LFS files redirect
-      // to *.hf.co (xethub CDN). Allow both explicitly.
-      "connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co",
+      // web-llm fetches model weights from huggingface.co (LFS redirects to
+      // *.hf.co) and config/wasm from raw.githubusercontent.com (mlc-ai).
+      "connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com",
       "worker-src 'self' blob:",
       "frame-ancestors 'none'",
       "base-uri 'self'",

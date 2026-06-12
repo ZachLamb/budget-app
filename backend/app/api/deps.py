@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
+import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -22,16 +22,21 @@ security = HTTPBearer(auto_error=False)
 ALGORITHM = "HS256"
 
 
-async def get_current_user(
+async def get_current_user_any_status(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Resolve the current user from session cookie OR Authorization header.
+    """Resolve the current user from session cookie OR Authorization header,
+    WITHOUT the approval-status gate.
 
     Cookie-first because that's the secure path. Header is the legacy
     fallback used by curl, mobile clients, and any old browser session
     that hasn't logged in again since the cookie migration shipped.
+
+    Only ``/auth/me`` should use this directly — it lets a pending user see
+    their own status so the frontend can render an "awaiting approval" page.
+    Every data route must depend on ``get_current_user`` instead.
     """
     token: Optional[str] = request.cookies.get(COOKIE_NAME)
     if not token and credentials is not None:
@@ -46,13 +51,13 @@ async def get_current_user(
             token,
             get_settings().secret_key,
             algorithms=[ALGORITHM],
-            options={"require_exp": True, "require_sub": True},
+            options={"require": ["exp", "sub"]},
         )
         user_id: str = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         token_sv = payload.get("sv")
-    except JWTError:
+    except jwt.PyJWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
     result = await db.execute(select(User).where(User.id == user_id))
@@ -64,6 +69,13 @@ async def get_current_user(
     expected_sv = 0 if token_sv is None else int(token_sv)
     if user.session_version != expected_sv:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+    return user
+
+
+async def get_current_user(
+    user: User = Depends(get_current_user_any_status),
+) -> User:
+    """Authenticated AND approved user — the default auth dependency."""
     check_approved(user)
     return user
 

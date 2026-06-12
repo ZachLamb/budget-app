@@ -19,7 +19,7 @@ class Account(Base):
     institution: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="USD")
     is_budget_account: Mapped[bool] = mapped_column(Boolean, default=True)
-    simplefin_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
+    simplefin_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     # Debt tracking (credit/loan accounts)
@@ -35,6 +35,9 @@ class Account(Base):
 
     __table_args__ = (
         Index("ix_accounts_household_type", "household_id", "account_type"),
+        # simplefin_id uniqueness is per-household: the same provider id may
+        # legitimately appear in unrelated households (e.g. shared accounts).
+        Index("uq_accounts_household_simplefin", "household_id", "simplefin_id", unique=True),
     )
 
 

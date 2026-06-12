@@ -253,7 +253,7 @@ async def test_route_verify_redeems_and_sets_cookie(route_db) -> None:
         token = await ml_service.issue(s, user.id)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        r = await client.get(f"/api/auth/magic-link/verify?token={token}")
+        r = await client.post("/api/auth/magic-link/verify", json={"token": token})
     assert r.status_code == 200, r.text
     assert r.json() == {"ok": True}
     set_cookie = r.headers.get("set-cookie", "")
@@ -267,9 +267,12 @@ async def test_route_verify_rejects_used_token(route_db) -> None:
         user = await _seed_user(s, "used@test.com")
         token = await ml_service.issue(s, user.id)
 
+    # Browsers send an Origin header on every POST; after the first verify the
+    # client carries a session cookie, so the origin-check middleware enforces.
+    origin = {"origin": "http://localhost:3000"}
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        first = await client.get(f"/api/auth/magic-link/verify?token={token}")
-        second = await client.get(f"/api/auth/magic-link/verify?token={token}")
+        first = await client.post("/api/auth/magic-link/verify", json={"token": token}, headers=origin)
+        second = await client.post("/api/auth/magic-link/verify", json={"token": token}, headers=origin)
     assert first.status_code == 200
     assert second.status_code == 400
     # Generic error — never reveal whether the token never existed vs was already used.
@@ -279,7 +282,9 @@ async def test_route_verify_rejects_used_token(route_db) -> None:
 @pytest.mark.asyncio
 async def test_route_verify_rejects_garbage_token(route_db) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        r = await client.get("/api/auth/magic-link/verify?token=garbage-not-a-token-12345")
+        r = await client.post(
+            "/api/auth/magic-link/verify", json={"token": "garbage-not-a-token-12345"}
+        )
     assert r.status_code == 400
 
 

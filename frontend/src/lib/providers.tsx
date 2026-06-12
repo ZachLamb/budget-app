@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from "@tanstack/react-query";
 import { useState, createContext, useContext, useEffect, useCallback } from "react";
 import { authApi, type User } from "@/lib/api/auth";
+import { formatErrorDetail } from "@/lib/api/client";
 import { Toaster } from "@/components/ui/sonner";
 import { toastErrorDiagnostic, toastPlainError } from "@/lib/toast-error";
 
@@ -38,8 +39,7 @@ function authErrorFromUnknown(err: unknown): { status?: number; detail?: string 
   const axiosErr = err as { response?: { status?: number; data?: { detail?: unknown } } };
   const status = axiosErr.response?.status;
   const raw = axiosErr.response?.data?.detail;
-  const detail =
-    typeof raw === "string" ? raw : raw !== undefined ? JSON.stringify(raw) : undefined;
+  const detail = raw !== undefined ? formatErrorDetail(raw) : undefined;
   return { status, detail };
 }
 
@@ -220,8 +220,7 @@ function extractErrorMessage(error: unknown): string {
       const status = axiosErr.response.status;
       const detail = axiosErr.response.data?.detail;
       if (detail) {
-        const msg = typeof detail === "string" ? detail : JSON.stringify(detail);
-        return `[${status}] ${msg}`;
+        return `[${status}] ${formatErrorDetail(detail)}`;
       }
       return `HTTP ${status}: ${error.message}`;
     }

@@ -14,7 +14,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from passlib.context import CryptContext
+from app.services.auth.passwords import hash_password
 
 from app.models import (
     Account,
@@ -36,7 +36,6 @@ from app.models import (
 logger = logging.getLogger(__name__)
 
 DEMO_EMAIL = "demo@claritybudget.app"
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ── Category definitions (mirrors DEFAULT_CATEGORIES in auth.py) ────────────
 DEFAULT_CATEGORIES = {
@@ -96,9 +95,12 @@ async def seed_demo_data(session_factory) -> None:
             id=user_id,
             email=DEMO_EMAIL,
             name="Alex Demo",
-            password_hash=_pwd_context.hash("demo"),
+            password_hash=hash_password("demo"),
             household_id=household_id,
             role="owner",
+            # Explicit: the ORM default is "pending", which would 403 the demo
+            # user on every route in a fresh demo deployment.
+            status="approved",
         ))
         await db.flush()  # ensure user + household exist
 

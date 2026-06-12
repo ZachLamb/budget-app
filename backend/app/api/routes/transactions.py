@@ -34,14 +34,7 @@ async def _get_or_create_payee(db: AsyncSession, household_id: str, name: str) -
 
 
 async def _enrich_transaction(db: AsyncSession, txn: Transaction) -> TransactionResponse:
-    resp = TransactionResponse.model_validate(txn)
-    if txn.payee_id:
-        result = await db.execute(select(Payee.name).where(Payee.id == txn.payee_id))
-        resp.payee_name = result.scalar_one_or_none()
-    if txn.category_id:
-        result = await db.execute(select(Category.name).where(Category.id == txn.category_id))
-        resp.category_name = result.scalar_one_or_none()
-    return resp
+    return (await _enrich_transactions(db, [txn]))[0]
 
 
 async def _enrich_transactions(db: AsyncSession, txns: list) -> list[TransactionResponse]:
@@ -240,48 +233,50 @@ async def export_transactions_csv(
     if date_to:
         query = query.where(Transaction.date <= date_to)
 
-    query = query.order_by(desc(Transaction.date))
-    result = await db.execute(query)
-    transactions = result.scalars().all()
+    # Join names inline (one query instead of four) and stream rows in
+    # batches — memory stays flat no matter how many transactions a
+    # household exports.
+    export_query = (
+        query.order_by(desc(Transaction.date))
+        .outerjoin(Payee, Transaction.payee_id == Payee.id)
+        .outerjoin(Category, Transaction.category_id == Category.id)
+        .with_only_columns(
+            Transaction.date,
+            Account.name.label("account_name"),
+            Payee.name.label("payee_name"),
+            Category.name.label("category_name"),
+            Transaction.amount,
+            Transaction.notes,
+            Transaction.cleared,
+        )
+    )
 
-    payee_ids = {t.payee_id for t in transactions if t.payee_id}
-    payee_names: dict[str, str] = {}
-    if payee_ids:
-        p_result = await db.execute(select(Payee).where(Payee.id.in_(payee_ids)))
-        for p in p_result.scalars().all():
-            payee_names[p.id] = p.name
+    async def generate_csv():
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["Date", "Account", "Payee", "Category", "Amount", "Notes", "Cleared"])
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
 
-    cat_ids = {t.category_id for t in transactions if t.category_id}
-    cat_names: dict[str, str] = {}
-    if cat_ids:
-        c_result = await db.execute(select(Category).where(Category.id.in_(cat_ids)))
-        for c in c_result.scalars().all():
-            cat_names[c.id] = c.name
+        stream = await db.stream(export_query.execution_options(yield_per=500))
+        async for partition in stream.partitions(500):
+            for row in partition:
+                writer.writerow([
+                    row.date.isoformat(),
+                    row.account_name or "",
+                    row.payee_name or "",
+                    row.category_name or "",
+                    str(row.amount),
+                    row.notes or "",
+                    "Yes" if row.cleared else "No",
+                ])
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate(0)
 
-    acct_ids = {t.account_id for t in transactions}
-    acct_names: dict[str, str] = {}
-    if acct_ids:
-        a_result = await db.execute(select(Account).where(Account.id.in_(acct_ids)))
-        for a in a_result.scalars().all():
-            acct_names[a.id] = a.name
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Date", "Account", "Payee", "Category", "Amount", "Notes", "Cleared"])
-    for t in transactions:
-        writer.writerow([
-            t.date.isoformat(),
-            acct_names.get(t.account_id, ""),
-            payee_names.get(t.payee_id, "") if t.payee_id else "",
-            cat_names.get(t.category_id, "") if t.category_id else "",
-            str(t.amount),
-            t.notes or "",
-            "Yes" if t.cleared else "No",
-        ])
-
-    output.seek(0)
     return StreamingResponse(
-        output,
+        generate_csv(),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=transactions.csv"},
     )

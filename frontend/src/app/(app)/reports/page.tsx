@@ -166,7 +166,7 @@ function SpendingTab() {
                       ))}
                     </Pie>
                     <Tooltip
-                      formatter={(v: number | undefined) => {
+                      formatter={(v) => {
                         const n = typeof v === "number" ? v : Number(v);
                         return [formatCurrency(Number.isFinite(n) ? n : 0), ""];
                       }}
@@ -286,7 +286,7 @@ function TrendsTab() {
                 <XAxis dataKey="month" className="text-xs" />
                 <YAxis className="text-xs" tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
                 <Tooltip
-                  formatter={(v: number | undefined) => {
+                  formatter={(v) => {
                     const n = typeof v === "number" ? v : Number(v);
                     return [formatCurrency(Number.isFinite(n) ? n : 0), ""];
                   }}
@@ -308,7 +308,7 @@ function TrendsTab() {
                 <XAxis dataKey="month" className="text-xs" />
                 <YAxis className="text-xs" tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
                 <Tooltip
-                  formatter={(v: number | undefined) => {
+                  formatter={(v) => {
                     const n = typeof v === "number" ? v : Number(v);
                     return [formatCurrency(Number.isFinite(n) ? n : 0), ""];
                   }}
@@ -370,7 +370,7 @@ function BalanceHistoryTab() {
                 <XAxis dataKey="date" className="text-xs" />
                 <YAxis className="text-xs" tickFormatter={(v) => formatCurrency(v)} />
                 <Tooltip
-                  formatter={(v: number | undefined) => {
+                  formatter={(v) => {
                     const n = typeof v === "number" ? v : Number(v);
                     return [formatCurrency(Number.isFinite(n) ? n : 0), ""];
                   }}

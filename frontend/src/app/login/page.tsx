@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/providers";
 import { authApi, credentialToJSON } from "@/lib/api/auth";
@@ -34,7 +34,11 @@ function LoginPageContent() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
-  const [canUsePasskey, setCanUsePasskey] = useState(false);
+  const canUsePasskey = useSyncExternalStore(
+    () => () => {},
+    supportsPasskey,
+    () => false,
+  );
   const [demoLoading, setDemoLoading] = useState(false);
   const [magicLinkSending, setMagicLinkSending] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
@@ -43,13 +47,22 @@ function LoginPageContent() {
   // the "Create one" toggle even though both dead-end at 403. useDemoGuard
   // falls back to the build-time flag until the config query resolves.
   const { isDemo } = useDemoGuard();
-  const { login } = useAuth();
+  const { user, loading: authLoading, login } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // Where to land after sign-in. The middleware sets ?next=… when it bounces
+  // an unauthenticated deep link here. Only same-origin paths are honored —
+  // anything else ("//evil.com", "https://…") falls back to "/".
+  const rawNext = searchParams.get("next") || "/";
+  const nextPath = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+
+  // Already signed in (and approved) → no reason to show the login form.
   useEffect(() => {
-    setCanUsePasskey(supportsPasskey());
-  }, []);
+    if (!authLoading && user?.status === "approved") {
+      router.replace(nextPath);
+    }
+  }, [authLoading, user, router, nextPath]);
 
   useEffect(() => {
     const error = searchParams.get("error");
@@ -64,7 +77,7 @@ function LoginPageContent() {
     try {
       const result = await authApi.demoLogin();
       login(result.user);
-      router.push("/");
+      router.push(nextPath);
     } catch (e) {
       toastApiError("Demo login failed. Is the backend running in demo mode?", e);
     } finally {
@@ -104,7 +117,7 @@ function LoginPageContent() {
     try {
       const result = await authApi.login({ email, password });
       login(result.user);
-      router.push("/");
+      router.push(nextPath);
     } catch (e) {
       toastApiError("Invalid credentials", e);
     } finally {
@@ -158,7 +171,7 @@ function LoginPageContent() {
       }
       const result = await authApi.passkeyAuthenticateVerify(credentialToJSON(credential));
       login(result.user);
-      router.push("/");
+      router.push(nextPath);
     } catch (err: unknown) {
       toastApiError("Passkey sign-in failed", err);
     } finally {

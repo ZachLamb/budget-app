@@ -18,13 +18,12 @@ Rate limiting:
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ALGORITHM  # noqa: F401  (used indirectly by _create_token)
 from app.config import get_settings
 from app.database import get_db
 from app.models import User
@@ -32,6 +31,7 @@ from app.services.auth import magic_link as ml_service
 from app.services.auth import magic_link_rate
 from app.services.auth.admin_gate import apply_admin_bootstrap, check_approved
 from app.services.auth.session_cookie import set_session_cookie
+from app.services.auth.tokens import create_session_token
 from app.services.email import resend as email_service
 from app.services.email.templates import magic_link as magic_link_email
 
@@ -117,9 +117,13 @@ async def request_magic_link(
     # Build the URL. The verify endpoint lives on the BACKEND, but for
     # browser-friendly UX (single click from email) we route the click
     # through the FRONTEND so it lands on a real page with branding. The
-    # frontend page does a fetch to /api/auth/magic-link/verify on mount.
+    # frontend page POSTs the token to /api/auth/magic-link/verify on mount.
+    #
+    # The token rides in the URL FRAGMENT (#token=…), not the query string:
+    # fragments are never sent to servers, never appear in access logs or
+    # Referer headers, and aren't forwarded by analytics that capture URLs.
     frontend_url = settings.frontend_url.rstrip("/")
-    sign_in_url = f"{frontend_url}/auth/magic-link?token={token}"
+    sign_in_url = f"{frontend_url}/auth/magic-link#token={token}"
 
     subject, text, html = magic_link_email(
         sign_in_url=sign_in_url,
@@ -139,22 +143,29 @@ async def request_magic_link(
     return MagicLinkRequestResponse()
 
 
-# ── GET /api/auth/magic-link/verify ───────────────────────────────────────────
+# ── POST /api/auth/magic-link/verify ──────────────────────────────────────────
 
 
-@router.get("/verify")
+class MagicLinkVerifyRequest(BaseModel):
+    token: str = Field(..., min_length=8, max_length=200)
+
+
+@router.post("/verify")
 async def verify_magic_link(
+    body: MagicLinkVerifyRequest,
     response: Response,
-    token: str = Query(..., min_length=8, max_length=200),
     db: AsyncSession = Depends(get_db),
 ):
     """Redeem the token, set the session cookie, return JSON.
 
-    The frontend page calls this via fetch and renders success/failure UI.
+    POST with the token in the body (not the query string) so the token never
+    lands in server access logs. The frontend page calls this via fetch and
+    renders success/failure UI.
     Returns:
         200 {"ok": true} + Set-Cookie session=...  on success
         400 {"detail": "..."} on invalid/expired/used token
     """
+    token = body.token
     user_id = await ml_service.redeem(db, token)
     if not user_id:
         # Generic message — we don't tell the caller whether the token was
@@ -177,10 +188,8 @@ async def verify_magic_link(
     # Mint a session token and set the same httpOnly cookie every other
     # login flow sets. This makes magic-link sign-in indistinguishable
     # from password / passkey / Google once you're in.
-    from app.api.routes.auth import _create_token  # local import avoids cycle
-
-    jwt = _create_token(user)
-    set_session_cookie(response, jwt)
+    session_jwt = create_session_token(user)
+    set_session_cookie(response, session_jwt)
     logger.info("magic_link_redeemed user_id=%s", user.id)
     return {"ok": True}
 

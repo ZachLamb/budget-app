@@ -1,0 +1,8 @@
+# Test/dev-only dependencies — NOT installed in the production image.
+# Install with: pip install -r requirements.txt -r requirements-dev.txt
+-r requirements.txt
+pytest>=8.4.0
+pytest-asyncio>=0.24.0
+# Backs the in-memory SQLite engine the test suites use when Postgres
+# isn't available (CI, isolated unit tests).
+aiosqlite>=0.20.0

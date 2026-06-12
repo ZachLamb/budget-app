@@ -75,23 +75,13 @@ async def trigger_sync(
     if not household or not household.simplefin_access_url:
         raise HTTPException(400, "SimpleFIN is not configured. Go to Settings to connect your bank.")
 
-    existing = await db.execute(
-        select(SyncLog).where(
-            SyncLog.household_id == household_id,
-            SyncLog.status == "in_progress",
-        )
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(409, "A sync is already in progress for this household")
+    # Atomic claim via the partial unique index — no check-then-insert race
+    # with the scheduler or a double-clicked trigger button.
+    from app.services.sync.claim import try_claim_sync
 
-    sync_log = SyncLog(
-        household_id=household_id,
-        provider="simplefin",
-        status="in_progress",
-    )
-    db.add(sync_log)
-    await db.flush()
-    await db.commit()
+    sync_log = await try_claim_sync(db, household_id)
+    if sync_log is None:
+        raise HTTPException(409, "A sync is already in progress for this household")
 
     background_tasks.add_task(run_sync, household_id, sync_log.id)
     return SyncLogResponse.model_validate(sync_log)

@@ -19,12 +19,18 @@ primary_region = "iad"
 [http_service]
   internal_port = 8000
   force_https = true
-  # Scale-to-zero behavior — saves money on idle. Pair with auto_start_machines
-  # so the first request after sleep wakes the machine (cold start ~5–10s,
-  # acceptable for a household app).
+  # Keep one machine warm: passkey/OAuth challenges and rate-limit state fall
+  # back to per-machine memory while the shared Upstash store is being
+  # reprovisioned (docs/deployment-security-checklist.md). Scale-to-zero can
+  # return once Upstash is healthy, at the cost of ~5–10s cold starts.
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
 
   [[http_service.checks]]
     grace_period = "30s"

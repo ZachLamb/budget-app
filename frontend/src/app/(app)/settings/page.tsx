@@ -386,14 +386,14 @@ function SettingsContent() {
 
   useEffect(() => {
     if (!paySchedule) return;
-    setPayFreqDraft(paySchedule.pay_frequency ?? "");
-    setPayLastDraft(paySchedule.pay_last_confirmed_date ?? "");
-    setFramingDraft(paySchedule.budget_framing ?? "strict");
+    const { pay_frequency, pay_last_confirmed_date, budget_framing } = paySchedule;
+    queueMicrotask(() => {
+      setPayFreqDraft(pay_frequency ?? "");
+      setPayLastDraft(pay_last_confirmed_date ?? "");
+      setFramingDraft(budget_framing ?? "strict");
+      setPayLastFieldError(null);
+    });
   }, [paySchedule]);
-
-  useEffect(() => {
-    setPayLastFieldError(null);
-  }, [payFreqDraft, payLastDraft]);
 
   const payScheduleMutation = useMutation({
     mutationFn: settingsApi.updatePaySchedule,
@@ -613,7 +613,10 @@ function SettingsContent() {
                 <Label htmlFor="pay-frequency">Pay frequency</Label>
                 <Select
                   value={payFreqDraft || "unset"}
-                  onValueChange={(v) => setPayFreqDraft(v === "unset" ? "" : v)}
+                  onValueChange={(v) => {
+                    setPayLastFieldError(null);
+                    setPayFreqDraft(v === "unset" ? "" : v);
+                  }}
                   disabled={isDemo}
                 >
                   <SelectTrigger id="pay-frequency">
@@ -637,7 +640,10 @@ function SettingsContent() {
                   name="pay_last_confirmed_date"
                   autoComplete="off"
                   value={payLastDraft}
-                  onChange={(e) => setPayLastDraft(e.target.value)}
+                  onChange={(e) => {
+                    setPayLastFieldError(null);
+                    setPayLastDraft(e.target.value);
+                  }}
                   disabled={isDemo || !payFreqDraft || payFreqDraft === "irregular"}
                   aria-invalid={payLastFieldError ? true : undefined}
                   aria-describedby={
@@ -775,9 +781,12 @@ function SettingsContent() {
         <PrivacyDataCard />
       </section>
 
-      <section id="hosting" className="scroll-mt-24">
-        <HostingHealthCard />
-      </section>
+      {/* Backend gates /api/hosting/health to admins; hide the card for members. */}
+      {isAdmin && (
+        <section id="hosting" className="scroll-mt-24">
+          <HostingHealthCard />
+        </section>
+      )}
 
       {isAdmin && (
         <section id="admin" className="scroll-mt-24">
