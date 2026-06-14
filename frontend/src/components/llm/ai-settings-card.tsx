@@ -70,7 +70,16 @@ export function AiSettingsCard() {
   const isCloudEnabled = activeGrants.length > 0;
   const isModelDownloaded = downloadStatus?.kind === "downloaded";
   const downloadedSizeLabel = isModelDownloaded ? downloadStatus.sizeLabel : null;
-  const webGpuReady = cap?.webgpu.available === true;
+
+  // Nano (Tier 1) is the primary on-device path. When it isn't usable we fall
+  // back to the web-llm (Tier 2) download flow for the lighter features.
+  const nanoStatus = cap?.nano.status ?? null;
+  const nanoReady = nanoStatus === "available";
+  const nanoSetupPending = nanoStatus === "downloadable" || nanoStatus === "downloading";
+  const webLlmFallbackUsable =
+    cap !== null && !cap.nano.available && cap.webgpu.modelSize !== "none";
+  const noOnDeviceOption =
+    cap !== null && !cap.nano.available && cap.webgpu.modelSize === "none";
 
   // Keep-alive: silently re-grant all cloud features to reset the 90-day expiry window.
   const keepAliveRan = useRef(false);
@@ -158,35 +167,32 @@ export function AiSettingsCard() {
             </p>
           </header>
 
-          {/* Status line */}
-          {!webGpuReady && cap !== null && (
+          {/* Nano ready — nothing to download, runs in-browser. */}
+          {nanoReady && (
             <div
               role="status"
-              className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/40 p-3 text-sm text-muted-foreground"
+              className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/40 p-3 text-sm"
             >
-              <p className="font-medium text-foreground">WebGPU not available in this browser</p>
-              <p className="mt-1">
-                On-device models need WebGPU. Try Chrome 113+ or Edge on a desktop/laptop.
-                Visit <code className="rounded bg-muted px-1 py-0.5 text-xs">chrome://gpu</code>{" "}
-                and check that <span className="font-mono text-xs">WebGPU</span> shows
-                &quot;Hardware accelerated.&quot; Mobile Safari and Firefox have limited support.
+              <p className="font-medium text-foreground">On-device AI ready</p>
+              <p className="mt-1 text-muted-foreground">
+                Gemini Nano runs locally in your browser — private, free, and works offline.
               </p>
             </div>
           )}
 
-          {webGpuReady && !isModelDownloaded && (
-            <p className="text-sm text-muted-foreground">Not downloaded yet</p>
-          )}
-
-          {isModelDownloaded && (
-            <p className="text-sm text-muted-foreground">
-              Model ready{downloadedSizeLabel ? ` (${downloadedSizeLabel})` : ""}
-            </p>
-          )}
-
-          {/* Action button */}
-          <div className="flex flex-wrap gap-2">
-            {webGpuReady && !isModelDownloaded && (
+          {/* Nano available but not yet downloaded — needs a user gesture. */}
+          {nanoSetupPending && (
+            <div className="space-y-3">
+              <div
+                role="status"
+                className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/40 p-3 text-sm"
+              >
+                <p className="font-medium text-foreground">Setting up on-device AI…</p>
+                <p className="mt-1 text-muted-foreground">
+                  Your browser can run Gemini Nano on-device. A quick one-time setup downloads
+                  the model — then it works offline.
+                </p>
+              </div>
               <Button
                 size="sm"
                 onClick={() => void startOnDeviceSetup()}
@@ -194,18 +200,63 @@ export function AiSettingsCard() {
               >
                 {setupLoading ? "Setting up…" : "Set up on-device AI"}
               </Button>
-            )}
-            {isModelDownloaded && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setConfirmClearOpen(true)}
-                disabled={clearing}
-              >
-                <Trash2 className="size-4" /> Clear cached model
-              </Button>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* Web-llm fallback for the lighter features when Nano isn't usable. */}
+          {webLlmFallbackUsable && (
+            <>
+              {!isModelDownloaded && (
+                <p className="text-sm text-muted-foreground">
+                  A downloadable fallback model ({downloadStatus?.kind === "not-downloaded"
+                    ? downloadStatus.sizeLabel
+                    : "~1.8 GB"}
+                  ) can power the lighter AI features on this device.
+                </p>
+              )}
+              {isModelDownloaded && (
+                <p className="text-sm text-muted-foreground">
+                  Fallback model ready{downloadedSizeLabel ? ` (${downloadedSizeLabel})` : ""}
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {!isModelDownloaded && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void startOnDeviceSetup()}
+                    disabled={setupLoading}
+                  >
+                    {setupLoading ? "Setting up…" : "Download fallback model"}
+                  </Button>
+                )}
+                {isModelDownloaded && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setConfirmClearOpen(true)}
+                    disabled={clearing}
+                  >
+                    <Trash2 className="size-4" /> Clear cached model
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* No on-device option at all — point to a supported browser. */}
+          {noOnDeviceOption && (
+            <div
+              role="status"
+              className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/40 p-3 text-sm text-muted-foreground"
+            >
+              <p className="font-medium text-foreground">On-device AI isn&apos;t available here</p>
+              <p className="mt-1">
+                Use Chrome or Edge on desktop to run AI privately on your device. Other browsers
+                fall back to cloud AI for advanced features.
+              </p>
+            </div>
+          )}
         </section>
 
         <Separator />

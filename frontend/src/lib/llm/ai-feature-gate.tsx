@@ -107,6 +107,21 @@ export function AiFeatureGateProvider({ children }: { children: ReactNode }) {
           return { ok: false, reason: "unavailable", message: decision.message };
         }
 
+        // Nano is selectable but the browser hasn't fetched the model yet.
+        // The router never auto-downloads (Chrome requires a user gesture), so
+        // route the user through the same setup wizard the settings card uses
+        // — the wizard's grant button is the gesture that starts the download.
+        if (decision.kind === "needs_nano_setup") {
+          try {
+            await localAi.ensureReady(feature);
+            await llm.refresh();
+          } catch {
+            return { ok: false, reason: "cancelled" };
+          }
+          decision = await llm.decide(feature);
+          continue;
+        }
+
         if (decision.reason === "needs_download_consent") {
           try {
             await localAi.ensureReady(feature);

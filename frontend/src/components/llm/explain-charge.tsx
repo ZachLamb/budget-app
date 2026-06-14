@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles, Loader2, AlertCircle, Clock, Cpu } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { useLlm } from "@/lib/llm/useLlm";
 import { isLLMError, scanPrompt, type LLMError, type PIIScan } from "@/lib/llm";
 import { getFeaturePolicy } from "@/lib/llm/features";
@@ -65,7 +64,6 @@ export function ExplainCharge({ txn }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rateLimitError, setRateLimitError] = useState<LLMError | null>(null);
-  const [tier, setTier] = useState<1 | 2 | 4 | null>(null);
   const [piiScan, setPiiScan] = useState<PIIScan | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
 
@@ -134,7 +132,6 @@ export function ExplainCharge({ txn }: Props) {
         setLoading(false);
         return;
       }
-      setTier(decision.tier);
       const prompt = buildPrompt(txn);
 
       // Cloud tier: scan for PII patterns and let the user abort if any of
@@ -219,11 +216,6 @@ export function ExplainCharge({ txn }: Props) {
         </Button>
         {loadingHint && (
           <span className="text-xs text-muted-foreground">{loadingHint}</span>
-        )}
-        {tier !== null && !loading && (
-          <Badge variant="secondary" className="text-xs">
-            {tier === 1 ? "On-device (Nano)" : tier === 2 ? "On-device" : "Cloud"}
-          </Badge>
         )}
       </div>
       {output && (
