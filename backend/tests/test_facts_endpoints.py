@@ -204,6 +204,25 @@ async def test_budget_facts_endpoint_403_when_ai_disabled(fixture):
     assert r.status_code == 403, r.text
 
 
+@pytest.mark.asyncio
+async def test_budget_facts_endpoint_is_household_scoped(fixture):
+    session, _engine = fixture
+    user, _household, caller_cat = await _seed_budget_fixture(session)
+    # A category budgeted/spent in a different household must never appear.
+    _other_user, _other_hh, other_cat = await _seed_budget_fixture(session)
+
+    headers = {"Authorization": f"Bearer {_token_for(user.id)}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/budget", headers=headers)
+
+    assert r.status_code == 200, r.text
+    data = r.json()
+    category_ids = {c["category_id"] for c in data["categories"]}
+    assert caller_cat.id in category_ids
+    assert other_cat.id not in category_ids
+    assert len(data["categories"]) == 1
+
+
 async def _seed_goal_fixture(
     session: AsyncSession,
     *,
@@ -319,6 +338,25 @@ async def test_goal_facts_endpoint_is_household_scoped(fixture):
     assert caller_goal.id in goal_ids
     assert other_goal.id not in goal_ids
     assert len(data["goals"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_goal_facts_endpoint_requires_auth(fixture):
+    _session, _engine = fixture
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/goal")
+    assert r.status_code in (401, 403), r.text
+
+
+@pytest.mark.asyncio
+async def test_goal_facts_endpoint_403_when_ai_disabled(fixture):
+    session, _engine = fixture
+    user, _household, _goal = await _seed_goal_fixture(session, ai_enabled=False)
+
+    headers = {"Authorization": f"Bearer {_token_for(user.id)}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/goal", headers=headers)
+    assert r.status_code == 403, r.text
 
 
 async def _seed_context_fixture(
