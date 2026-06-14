@@ -38,6 +38,12 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {process.env.NEXT_PUBLIC_CHROME_AI_OT_TOKEN ? (
+          <meta
+            httpEquiv="origin-trial"
+            content={process.env.NEXT_PUBLIC_CHROME_AI_OT_TOKEN}
+          />
+        ) : null}
         {/* Apply saved theme before first paint to avoid light→dark flash. */}
         <script
           dangerouslySetInnerHTML={{
