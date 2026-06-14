@@ -48,6 +48,16 @@ export interface CapabilitySnapshot {
   };
   /** Tier 4 — server is reachable when user opts in. Always true at the network layer; consent is the gate. */
   server: { available: boolean };
+  /**
+   * Specialized on-device Chrome AI APIs. All optional — a false flag just
+   * means a pipeline step uses the Prompt API instead. Never blocks a feature.
+   */
+  specialized: {
+    summarizer: boolean;
+    writer: boolean;
+    rewriter: boolean;
+    proofreader: boolean;
+  };
 }
 
 export type ConsentDecision = "granted" | "denied" | "unset";
