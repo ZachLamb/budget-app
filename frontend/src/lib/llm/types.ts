@@ -16,10 +16,16 @@ export type ProviderName = "nano" | "web-llm" | "server";
 
 export interface GenerateOptions {
   signal?: AbortSignal;
-  /** Soft cap; provider may produce fewer tokens. */
+  /** Soft cap; provider may produce fewer tokens. (No-op on Nano.) */
   maxTokens?: number;
   /** Override the system prompt for this call. */
   system?: string;
+  /** JSON schema for structured output (Nano `responseConstraint`). */
+  schema?: Record<string, unknown>;
+  /** Sampling temperature for this call (raise only for sampling steps). */
+  temperature?: number;
+  /** Top-K for this call; set together with temperature. */
+  topK?: number;
 }
 
 export interface LLMProvider {
@@ -69,3 +75,8 @@ export interface LocalConsent {
   /** User chose 1B "Lite" instead of 3B (low storage / iOS). */
   useLiteModel?: boolean;
 }
+
+export type NanoSetupState =
+  | { kind: "ready" }
+  | { kind: "downloading"; progress: number }
+  | { kind: "error"; message: string };
