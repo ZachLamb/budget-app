@@ -51,6 +51,16 @@ class SpendByCategoryFact(BaseModel):
     amount: float
 
 
+class SpendingTrendFact(BaseModel):
+    category: str
+    trend: str
+    pct_change: float
+
+
+class SpendingPatternsFacts(BaseModel):
+    patterns: list[SpendingTrendFact]
+
+
 class ContextFacts(BaseModel):
     """Deterministic structured financial snapshot for the on-device verifier.
 

@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-"""Natural-language action parsing and execution.
+"""Natural-language action execution (parse route removed; execute stays for tokens)."""
 
-Backs /parse-action and /execute-action. The route layer keeps the pydantic
-request/response models; this service returns plain dicts.
-"""
-
-import json
 import logging
 from datetime import date
 from decimal import Decimal
@@ -17,11 +12,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Account, Payee, Transaction
-from app.services.ai import llm_client
 
 logger = logging.getLogger(__name__)
 
-_MAX_AMOUNT = 1_000_000  # sanity cap — reject obviously bad LLM hallucinations
+_MAX_AMOUNT = 1_000_000  # sanity cap — reject obviously bad values
 
 
 async def _find_account_for_execute_transaction(
@@ -55,74 +49,6 @@ async def _find_account_for_execute_transaction(
         q_base.where(Account.name.ilike(f"%{esc}%")).order_by(func.length(Account.name)).limit(1)
     )
     return r.scalar_one_or_none()
-
-
-async def parse_action_message(message: str) -> dict[str, object]:
-    """Parse a natural language message for a data-entry action.
-
-    Returns a dict shaped for `ParseActionResponse`.
-    """
-    message = message.strip()[:500]
-    today_str = date.today().isoformat()
-
-    prompt = f"""Today's date is {today_str}.
-A user typed the following message (contained between the --- markers):
----
-{message}
----
-If the message is a request to add financial data, extract it as structured JSON.
-Supported actions:
-- add_transaction: {{"action": "add_transaction", "account_name": "...", "payee_name": "...", "amount": 0.0, "date": "YYYY-MM-DD", "memo": "..."}}
-- add_debt: {{"action": "add_debt", "account_name": "...", "amount": 0.0, "due_date": "YYYY-MM-DD", "payee_name": "..."}}
-If no supported action is detected, return {{"action": null}}.
-Return ONLY the JSON object, no other text."""
-
-    response, _ = await llm_client.complete_with_source(prompt, json_format=True)
-    empty = {"action_type": None, "data": None, "confirmation_text": ""}
-    if not response:
-        return empty
-
-    try:
-        text = response.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
-        parsed = json.loads(text)
-        action = parsed.get("action")
-
-        if not action:
-            return empty
-
-        if action == "add_transaction":
-            amount = parsed.get("amount", 0)
-            payee = parsed.get("payee_name", "unknown payee")
-            acct = parsed.get("account_name", "your account")
-            dt = parsed.get("date", today_str)
-            memo = parsed.get("memo", "")
-            memo_str = f' with memo "{memo}"' if memo else ""
-            confirmation = (
-                f"I'd add a ${abs(float(amount)):.2f} transaction to '{payee}' "
-                f"on {dt} in '{acct}'{memo_str}."
-            )
-        elif action == "add_debt":
-            amount = parsed.get("amount", 0)
-            payee = parsed.get("payee_name", "unknown creditor")
-            acct = parsed.get("account_name", "debt account")
-            due = parsed.get("due_date", "")
-            due_str = f" due {due}" if due else ""
-            confirmation = (
-                f"I'd create a debt account '{acct}' for '{payee}' "
-                f"with balance ${abs(float(amount)):.2f}{due_str}."
-            )
-        else:
-            return empty
-
-        return {
-            "action_type": action,
-            "data": {k: v for k, v in parsed.items() if k != "action"},
-            "confirmation_text": confirmation,
-        }
-    except Exception:
-        return empty
 
 
 async def execute_parsed_action(

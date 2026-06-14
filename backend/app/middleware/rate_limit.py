@@ -33,12 +33,9 @@ _RULES: List[Tuple[str, int, int]] = [
     ("/api/auth/register", 10, 60),
     ("/api/auth/google/exchange", 30, 60),
     ("/api/auth/passkey/", 80, 60),
+    # On-device era: facts + FSA candidate routes only (no server LLM).
     ("/api/ai/", 20, 60),
-    # /api/llm/cloud holds an Ollama/vLLM worker for up to the full read
-    # timeout. The per-user daily cap (50/day, see services/ai/llm_rate_limit.py)
-    # is the primary control; this IP-keyed cap is a coarse defense against
-    # broken clients hammering the endpoint.
-    ("/api/llm/cloud", 30, 60),
+    ("/api/ai/facts/", 30, 60),
     # Magic-link request — cap per IP to limit abusive email spam against
     # known account holders. The anti-enumeration design means we treat
     # known and unknown emails identically, so this cap protects both.

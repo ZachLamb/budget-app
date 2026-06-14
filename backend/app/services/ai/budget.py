@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-"""Budget suggestion service — /budget-suggestions."""
+"""Deterministic budget facts and spending-pattern aggregates."""
 
-import json
-import logging
 from datetime import date
 from decimal import Decimal
 
@@ -11,12 +9,6 @@ from sqlalchemy import extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Account, BudgetAssignment, Category, CategoryGroup, Transaction
-from app.services.ai import llm_client
-
-logger = logging.getLogger(__name__)
-
-# Returned when there is no categorized spending to analyze (not the same as LLM unavailable).
-MODEL_SOURCE_NO_BUDGET_CATEGORY_DATA = "no_data"
 
 
 async def compute_budget_facts(
@@ -116,19 +108,18 @@ async def compute_budget_facts(
     }
 
 
-async def generate_budget_suggestions(
+async def compute_spending_patterns(
     db: AsyncSession, household_id: str
 ) -> dict[str, object]:
-    """Suggest monthly budget amounts per category.
+    """Category spending trends vs a 3-month average (model-free).
 
-    Returns a dict shaped for `BudgetSuggestionsResponse`. Each suggestion dict
-    has keys: category_id, category_name, suggested_amount, reasoning.
+    Returns ``{"patterns": [{"category", "trend", "pct_change"}, ...]}`` shaped
+    for ``SpendingPatternsFacts``.
     """
     today = date.today()
 
-    # Build 3-month average spending per category
     month_keys: list[str] = []
-    for i in range(3, 0, -1):
+    for i in range(3, -1, -1):
         total = today.month - 1 - i
         year = today.year + total // 12
         month = total % 12 + 1
@@ -143,12 +134,10 @@ async def generate_budget_suggestions(
     )
 
     monthly_spend: dict[str, dict[str, Decimal]] = {m: {} for m in month_keys}
-    cat_ids: dict[str, str] = {}  # name -> id
-
     for mk in month_keys:
         year_num, month_num = int(mk[:4]), int(mk[5:])
         result = await db.execute(
-            select(Category.id, Category.name, func.sum(Transaction.amount))
+            select(Category.name, func.sum(Transaction.amount))
             .join(Transaction, Transaction.category_id == Category.id)
             .where(
                 Transaction.account_id.in_(budget_account_subq),
@@ -157,58 +146,28 @@ async def generate_budget_suggestions(
                 Transaction.amount < 0,
                 Transaction.category_id.isnot(None),
             )
-            .group_by(Category.id, Category.name)
+            .group_by(Category.name)
         )
-        for cat_id, cat_name, amt in result.all():
-            monthly_spend[mk][cat_name] = abs(amt)
-            cat_ids[cat_name] = cat_id
+        monthly_spend[mk] = {name: abs(amt) for name, amt in result.all()}
 
-    if not cat_ids:
-        return {
-            "suggestions": [],
-            "model_source": MODEL_SOURCE_NO_BUDGET_CATEGORY_DATA,
-        }
+    current_key = month_keys[-1]
+    past_keys = month_keys[:-1]
+    all_categories = set(monthly_spend[current_key].keys())
 
-    lines = []
-    for cat_name in sorted(cat_ids.keys()):
-        vals = [float(monthly_spend[m].get(cat_name, Decimal("0"))) for m in month_keys]
-        avg = sum(vals) / len(vals) if vals else 0
-        lines.append(
-            f"  {cat_name}: 3-month avg ${avg:,.2f} (months: {', '.join(f'${v:,.2f}' for v in vals)})"
+    patterns: list[dict[str, object]] = []
+    for cat in all_categories:
+        cur_val = float(monthly_spend[current_key].get(cat, Decimal("0")))
+        past_vals = [float(monthly_spend[m].get(cat, Decimal("0"))) for m in past_keys]
+        past_avg = sum(past_vals) / len(past_vals) if past_vals else 0
+        if past_avg == 0:
+            pct_change = 0.0
+            trend = "stable"
+        else:
+            pct_change = (cur_val - past_avg) / past_avg * 100
+            trend = "up" if pct_change > 5 else ("down" if pct_change < -5 else "stable")
+        patterns.append(
+            {"category": cat, "trend": trend, "pct_change": round(pct_change, 1)}
         )
 
-    context = "3-month average spending per category:\n" + "\n".join(lines)
-
-    prompt = f"""{context}
-
-Based on the following 3-month average spending per category, suggest monthly budget amounts.
-For categories with consistent spending, suggest ~10% above average.
-For categories with high variance, suggest closer to the highest of the three months (do not claim a statistical percentile unless you derive it from the three numbers shown).
-Return JSON: {{"suggestions": [{{"category_name": "...", "suggested_amount": 150.00, "reasoning": "one line reason"}}]}}
-No other text."""
-
-    response, source = await llm_client.complete_with_source(prompt, json_format=True)
-    suggestions: list[dict[str, object]] = []
-
-    if response:
-        try:
-            text = response.strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[1].rsplit("```", 1)[0]
-            raw = json.loads(text).get("suggestions", [])
-            for item in raw:
-                cat_name = item.get("category_name", "")
-                cat_id = cat_ids.get(cat_name)
-                if cat_id and isinstance(item.get("suggested_amount"), (int, float)):
-                    suggestions.append(
-                        {
-                            "category_id": cat_id,
-                            "category_name": cat_name,
-                            "suggested_amount": float(item["suggested_amount"]),
-                            "reasoning": str(item.get("reasoning", "")),
-                        }
-                    )
-        except Exception as e:
-            logger.warning("Budget suggestions: failed to parse LLM JSON: %s", e, exc_info=True)
-
-    return {"suggestions": suggestions, "model_source": source}
+    patterns.sort(key=lambda p: abs(p["pct_change"]), reverse=True)
+    return {"patterns": patterns[:12]}

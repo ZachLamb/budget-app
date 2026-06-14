@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.api.routes.ai import _require_ai_enabled
 from app.api.routes.goals import compute_goal_facts
-from app.schemas.facts import BudgetFacts, ContextFacts, GoalFacts
-from app.services.ai.budget import compute_budget_facts
+from app.schemas.facts import BudgetFacts, ContextFacts, GoalFacts, SpendingPatternsFacts
+from app.services.ai.budget import compute_budget_facts, compute_spending_patterns
 from app.services.ai.context import build_context_facts
 
 router = APIRouter()
@@ -46,3 +46,13 @@ async def context_facts(
 ) -> ContextFacts:
     """Structured financial snapshot (typed numbers/ids) for the verifier."""
     return ContextFacts(**await build_context_facts(db, household_id))
+
+
+@router.get("/spending-patterns", response_model=SpendingPatternsFacts)
+async def spending_patterns_facts(
+    household_id: str = Depends(_require_ai_enabled),
+    db: AsyncSession = Depends(get_db),
+) -> SpendingPatternsFacts:
+    """Category spending trends vs 3-month average (deterministic)."""
+    return SpendingPatternsFacts(**await compute_spending_patterns(db, household_id))
+
