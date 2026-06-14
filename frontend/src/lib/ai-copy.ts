@@ -1,7 +1,7 @@
 /** Shared UI strings for AI surfaces (align with backend `_NO_AI_MSG` meaning). */
 export const AI_COPY = {
   noBackendShort:
-    "No AI backend available. Start Ollama and ensure your backend points to it (see OLLAMA_MODEL).",
+    "On-device AI is not available. Use Chrome or Edge with Gemini Nano, or complete the WebGPU model download in Settings.",
   disabledShort: "AI is turned off in Settings.",
   /** Short legal/educational disclaimer for AI-generated guidance (not professional advice). */
   educationalDisclaimer:

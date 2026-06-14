@@ -1,29 +1,30 @@
 "use client";
 
-import { useState, useRef, useEffect, useId } from "react";
+import { useState, useEffect, useId } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { accountsApi, type Account } from "@/lib/api/accounts";
 import { transactionsApi } from "@/lib/api/transactions";
 import { budgetApi } from "@/lib/api/budget";
 import { reportsApi } from "@/lib/api/reports";
 import { goalsApi, type FinancialGoal } from "@/lib/api/goals";
-import { aiApi } from "@/lib/api/ai";
+import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
+import { useLlm } from "@/lib/llm/useLlm";
+import { userMessageFor } from "@/lib/llm/errors";
 import { syncApi } from "@/lib/api/sync";
 import { recurringApi } from "@/lib/api/recurring";
 import { settingsApi } from "@/lib/api/settings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import {
   Wallet, TrendingUp, TrendingDown, PiggyBank, Target,
-  Sparkles, Lightbulb, RefreshCw, Cpu, ChevronDown,
+  Sparkles, Lightbulb, RefreshCw, ChevronDown,
   Plug, Plus, Upload, X, Settings, WifiOff,
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatCurrencyNegative, getMonthString, navigateMonth, formatShortMonth } from "@/lib/format";
-import { useIsClient, getApiErrorMessage, useChartColors, useInView } from "@/lib/hooks";
+import { useIsClient, useChartColors, useInView } from "@/lib/hooks";
 import { QueryState, inlineErrorQueryMeta } from "@/components/page";
 import { toastApiError } from "@/lib/toast-error";
 import { PageHeader } from "@/components/page";
@@ -35,7 +36,6 @@ import Link from "next/link";
 import { appToast } from "@/lib/app-toast";
 import { shouldShowMobileSyncBanner } from "@/lib/ux-plan-logic";
 import { AI_COPY } from "@/lib/ai-copy";
-import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 
 const DEBT_TYPES = ["credit", "loan"];
 
@@ -54,19 +54,32 @@ function InsightsPanel({
   hasFinancialData: boolean;
   onSyncCompletedAt: string | null;
 }) {
-  const isClient = useIsClient();
-  const queryClient = useQueryClient();
   const gate = useAiFeatureGate();
+  const llm = useLlm();
   const [open, setOpen] = useState(false);
   const [aiReady, setAiReady] = useState(false);
-  const lastInvalidatedSyncRef = useRef<string | null>(null);
   const panelId = useId();
 
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
-    queryKey: ["aiInsights"],
-    queryFn: aiApi.getInsights,
-    staleTime: 5 * 60 * 1000,
-    enabled: isClient && open && aiReady && hasFinancialData,
+  const {
+    data: insights = [],
+    isLoading,
+    isFetching,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["dashboardInsights"],
+    queryFn: async () => {
+      const result = (await llm.runFeature("financial_advice", {
+        question:
+          "Give 3-5 specific, actionable insights about my finances based on my data. Keep each insight to 1-2 sentences.",
+      })) as { advice: string };
+      const bullets = result.advice
+        .split(/\n+/)
+        .map((s) => s.replace(/^[-*•]\s*/, "").trim())
+        .filter(Boolean);
+      return bullets.length > 0 ? bullets : [result.advice];
+    },
+    enabled: open && aiReady && hasFinancialData,
     retry: false,
   });
 
@@ -79,13 +92,10 @@ function InsightsPanel({
     setOpen((o) => !o);
   };
 
-  // Invalidate AI insights when a sync has just completed so suggestions reflect latest data
   useEffect(() => {
-    if (!onSyncCompletedAt || !hasFinancialData) return;
-    if (lastInvalidatedSyncRef.current === onSyncCompletedAt) return;
-    lastInvalidatedSyncRef.current = onSyncCompletedAt;
-    queryClient.invalidateQueries({ queryKey: ["aiInsights"] });
-  }, [onSyncCompletedAt, hasFinancialData, queryClient]);
+    if (!onSyncCompletedAt || !hasFinancialData || !open || !aiReady) return;
+    void refetch();
+  }, [onSyncCompletedAt, hasFinancialData, open, aiReady, refetch]);
 
   return (
     <Card>
@@ -100,16 +110,7 @@ function InsightsPanel({
           <CardTitle id={`${panelId}-label`} className="flex items-center gap-2 text-base">
             <Sparkles className="h-5 w-5 text-purple-500" aria-hidden /> AI Suggestions
           </CardTitle>
-          <div className="flex items-center gap-2">
-            {(data?.model_source === "ollama" || data?.model_source === "demo") && (
-              <Badge variant="outline" className="text-xs gap-1">
-                {data.model_source === "ollama"
-                  ? <><Cpu className="h-2.5 w-2.5" /> Local AI</>
-                  : <><Sparkles className="h-2.5 w-2.5" /> Demo</>}
-              </Badge>
-            )}
-            <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")} />
-          </div>
+          <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")} />
         </CardHeader>
       </button>
       {open && (
@@ -130,7 +131,7 @@ function InsightsPanel({
                   size="sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    refetch();
+                    void refetch();
                   }}
                   disabled={isFetching}
                   className="h-7 text-xs"
@@ -143,24 +144,22 @@ function InsightsPanel({
                 <div className="space-y-2">
                   {[1, 2, 3].map((i) => <div key={i} className="h-4 bg-muted animate-pulse rounded" />)}
                 </div>
-              ) : isError ? (
+              ) : error ? (
                 <div className="space-y-2 text-sm">
                   <p className="text-destructive flex items-center gap-2">
                     <WifiOff className="h-4 w-4 shrink-0" />
-                    {getApiErrorMessage(error, "Failed to load AI suggestions.")}
+                    {userMessageFor(error)}
                   </p>
-                  {(error as { response?: { status?: number } })?.response?.status === 403 && (
-                    <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
-                      <Link href="/settings">
-                        <Settings className="h-3 w-3 mr-1" /> Enable AI in Settings
-                      </Link>
-                    </Button>
-                  )}
+                  <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
+                    <Link href="/settings">
+                      <Settings className="h-3 w-3 mr-1" /> AI Settings
+                    </Link>
+                  </Button>
                 </div>
               ) : (
                 <ul className="space-y-2">
-                  {data?.insights?.length ? (
-                    data.insights.map((insight, i) => (
+                  {insights.length ? (
+                    insights.map((insight, i) => (
                       <li key={i} className="flex gap-2 text-sm">
                         <Lightbulb className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
                         <span>{insight}</span>

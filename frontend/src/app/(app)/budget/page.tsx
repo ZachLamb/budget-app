@@ -10,10 +10,11 @@ import {
 } from "@/lib/api/budget";
 import { aiApi, type SpendingTrend, type BudgetSuggestion } from "@/lib/api/ai";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
+import { useLlm } from "@/lib/llm/useLlm";
+import { userMessageFor } from "@/lib/llm/errors";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft,
   ChevronRight,
@@ -27,12 +28,10 @@ import {
   Minus,
   RefreshCw,
   Lightbulb,
-  Cpu,
   Check,
   X,
   Edit2,
   WifiOff,
-  Settings,
 } from "lucide-react";
 import { appToast } from "@/lib/app-toast";
 import Link from "next/link";
@@ -384,15 +383,38 @@ function AiSuggestionsPanel({
 
 function SpendingPatternsPanel({ month }: { month: string }) {
   const isClient = useIsClient();
-  const queryClient = useQueryClient();
   const gate = useAiFeatureGate();
+  const llm = useLlm();
   const [open, setOpen] = useState(false);
   const [aiReady, setAiReady] = useState(false);
 
-  const { data, isLoading, isFetching, isError, error } = useQuery({
-    queryKey: ["budgetInsights", month],
-    queryFn: aiApi.getBudgetInsights,
+  const { data: patternsData, isLoading: patternsLoading, isFetching, isError, error, refetch } = useQuery({
+    queryKey: ["spendingPatterns", month],
+    queryFn: aiApi.getSpendingPatterns,
     staleTime: 5 * 60 * 1000,
+    enabled: isClient && open && aiReady,
+    retry: false,
+  });
+
+  const {
+    data: insights = [],
+    isLoading: insightsLoading,
+    isFetching: fetchingInsights,
+    error: insightsError,
+    refetch: refetchInsights,
+  } = useQuery({
+    queryKey: ["spendingInsights", month],
+    queryFn: async () => {
+      const result = (await llm.runFeature("financial_advice", {
+        question:
+          "Based on my recent spending patterns, give 3-4 concise insights about where I could save or adjust.",
+      })) as { advice: string };
+      const bullets = result.advice
+        .split(/\n+/)
+        .map((s) => s.replace(/^[-*•]\s*/, "").trim())
+        .filter(Boolean);
+      return bullets.length > 0 ? bullets : [result.advice];
+    },
     enabled: isClient && open && aiReady,
     retry: false,
   });
@@ -406,6 +428,8 @@ function SpendingPatternsPanel({ month }: { month: string }) {
     setOpen((o) => !o);
   };
 
+  const loading = patternsLoading || insightsLoading;
+
   return (
     <Card>
       <button
@@ -416,13 +440,6 @@ function SpendingPatternsPanel({ month }: { month: string }) {
         <div className="flex flex-wrap items-center gap-2">
           <Sparkles className="h-5 w-5 text-purple-500" />
           <span className="font-semibold">Spending patterns (optional AI)</span>
-          {(data?.model_source === "ollama" || data?.model_source === "demo") && (
-            <Badge variant="outline" className="text-xs gap-1 ml-1">
-              {data.model_source === "ollama"
-                ? <><Cpu className="h-2.5 w-2.5" /> Local AI</>
-                : <><Sparkles className="h-2.5 w-2.5" /> Demo</>}
-            </Badge>
-          )}
         </div>
         <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
@@ -437,16 +454,19 @@ function SpendingPatternsPanel({ month }: { month: string }) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => queryClient.invalidateQueries({ queryKey: ["budgetInsights", month] })}
-              disabled={isFetching}
+              onClick={() => {
+                void refetch();
+                void refetchInsights();
+              }}
+              disabled={isFetching || fetchingInsights}
               className="h-7 text-xs"
             >
-              <RefreshCw className={cn("h-3 w-3 mr-1", isFetching && "animate-spin")} />
+              <RefreshCw className={cn("h-3 w-3 mr-1", (isFetching || fetchingInsights) && "animate-spin")} />
               Refresh
             </Button>
           </div>
 
-          {isLoading ? (
+          {loading ? (
             <div className="space-y-2">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="h-4 bg-muted animate-pulse rounded" />
@@ -456,25 +476,18 @@ function SpendingPatternsPanel({ month }: { month: string }) {
             <div className="space-y-2 text-sm">
               <p className="text-destructive flex items-center gap-2">
                 <WifiOff className="h-4 w-4 shrink-0" />
-                {getApiErrorMessage(error, "Failed to load AI spending insights.")}
+                {getApiErrorMessage(error, "Failed to load spending patterns.")}
               </p>
-              {(error as { response?: { status?: number } })?.response?.status === 403 && (
-                <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
-                  <Link href="/settings">
-                    <Settings className="h-3 w-3 mr-1" /> Enable AI in Settings
-                  </Link>
-                </Button>
-              )}
             </div>
           ) : (
             <>
-              {data && data.patterns.length > 0 && (
+              {patternsData && patternsData.patterns.length > 0 && (
                 <div>
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
                     Category Trends vs. 3-Month Average
                   </p>
                   <div className="divide-y rounded-md border">
-                    {data.patterns.map((p) => (
+                    {patternsData.patterns.map((p) => (
                       <div key={p.category} className="flex items-center justify-between px-3 py-2 text-sm">
                         <span className="truncate">{p.category}</span>
                         <div className="flex items-center gap-2 shrink-0 ml-4">
@@ -492,13 +505,15 @@ function SpendingPatternsPanel({ month }: { month: string }) {
                 </div>
               )}
 
-              {data && data.insights.length > 0 && (
+              {insightsError ? (
+                <p className="text-sm text-destructive">{userMessageFor(insightsError)}</p>
+              ) : insights.length > 0 ? (
                 <div>
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
                     AI Insights
                   </p>
                   <ul className="space-y-2">
-                    {data.insights.map((insight, i) => (
+                    {insights.map((insight, i) => (
                       <li key={i} className="flex gap-2 text-sm">
                         <Lightbulb className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
                         <span>{insight}</span>
@@ -506,11 +521,11 @@ function SpendingPatternsPanel({ month }: { month: string }) {
                     ))}
                   </ul>
                 </div>
-              )}
+              ) : null}
 
-              {data && data.patterns.length === 0 && data.insights.length === 0 && (
+              {patternsData && patternsData.patterns.length === 0 && insights.length === 0 && !insightsError && (
                 <p className="text-sm text-muted-foreground text-center py-4">
-                  No spending data yet, or AI backend unavailable.
+                  No spending data yet.
                 </p>
               )}
             </>
@@ -523,6 +538,7 @@ function SpendingPatternsPanel({ month }: { month: string }) {
 
 function BudgetContent() {
   const gate = useAiFeatureGate();
+  const llm = useLlm();
   const [month, setMonth] = useState(() => getMonthString(new Date()));
   const queryClient = useQueryClient();
   const isClient = useIsClient();
@@ -552,17 +568,29 @@ function BudgetContent() {
 
     setSuggestionsLoading(true);
     try {
-      const result = await aiApi.getBudgetSuggestions();
-      if (result.suggestions.length === 0) {
-        appToast.info("No suggestions available — make sure you have 3 months of spending data.");
+      const result = (await llm.runFeature("budget_recommendations")) as {
+        recommendations: { category_id: string; suggested_amount: number; rationale: string }[];
+      };
+      const nameById = new Map<string, string>();
+      for (const group of data?.groups ?? []) {
+        for (const cat of group.categories) {
+          nameById.set(cat.category_id, cat.category_name);
+        }
+      }
+      const mapped: BudgetSuggestion[] = result.recommendations.map((r) => ({
+        category_id: r.category_id,
+        category_name: nameById.get(r.category_id) ?? r.category_id,
+        suggested_amount: r.suggested_amount,
+        reasoning: r.rationale,
+      }));
+      if (mapped.length === 0) {
+        appToast.info("No suggestions available — make sure you have budget categories with activity.");
       } else {
-        setSuggestions(result.suggestions);
+        setSuggestions(mapped);
         setShowSuggestions(true);
       }
     } catch (e) {
-      toastPlainError(
-        getApiErrorMessage(e, "Failed to load AI suggestions. Make sure an AI backend is available."),
-      );
+      toastPlainError(userMessageFor(e));
     } finally {
       setSuggestionsLoading(false);
     }
