@@ -75,11 +75,7 @@ export async function runStructuredJson<T extends FsaStructuredResult | Categori
 
   const policy = getFeaturePolicy(feature);
   const decision = await decide(feature, ctx);
-  if (
-    decision.kind === "needs_consent" ||
-    decision.kind === "needs_nano_setup" ||
-    decision.kind === "unavailable"
-  ) {
+  if (decision.kind !== "ready") {
     throw new Error(decision.message);
   }
 

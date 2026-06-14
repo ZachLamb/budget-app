@@ -126,12 +126,15 @@ function nanoCtx(): RouterContext {
 }
 
 describe("decide — needs_nano_setup", () => {
-  it("returns needs_nano_setup when Nano is the pick but status is downloadable", async () => {
-    const c = nanoCtx();
-    const d = await decide("explain_charge", c, nanoCap({ nano: { available: true, status: "downloadable" } }));
-    expect(d.kind).toBe("needs_nano_setup");
-    expect(c.providers.nano).not.toHaveBeenCalled();
-  });
+  it.each(["downloadable", "downloading"] as const)(
+    "returns needs_nano_setup (and never auto-downloads) when Nano is the pick but status is %s",
+    async (status) => {
+      const c = nanoCtx();
+      const d = await decide("explain_charge", c, nanoCap({ nano: { available: true, status } }));
+      expect(d.kind).toBe("needs_nano_setup");
+      expect(c.providers.nano).not.toHaveBeenCalled();
+    },
+  );
 
   it("returns ready (and instantiates Nano) when status is available", async () => {
     const c = nanoCtx();
