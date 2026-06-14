@@ -65,6 +65,24 @@ const SCHEMAS: Partial<Record<FeatureId, Record<string, unknown>>> = {
       },
     },
   },
+  goal_planning: {
+    type: "object",
+    required: ["plan"],
+    additionalProperties: false,
+    properties: {
+      plan: {
+        type: "object",
+        required: ["goal_id", "monthly_contribution", "months_to_target", "note"],
+        additionalProperties: false,
+        properties: {
+          goal_id: { type: "string" },
+          monthly_contribution: { type: "number" },
+          months_to_target: { type: "integer" },
+          note: { type: "string" },
+        },
+      },
+    },
+  },
 };
 
 export function schemaForFeature(feature: FeatureId): Record<string, unknown> | undefined {
