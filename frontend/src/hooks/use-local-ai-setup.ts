@@ -19,6 +19,7 @@ import {
   ensureEngine,
   webLlmProvider,
 } from "@/lib/llm/providers/web-llm-engine";
+import { nanoProvider } from "@/lib/llm/providers/nano";
 import {
   formatWebLlmDownloadError,
   normalizeInitProgress,
@@ -44,7 +45,46 @@ export function useLocalAiSetup(): UseLocalAiSetup {
 
   const pendingRef = useRef<PendingPromise | null>(null);
 
+  // Tier 1 — Chrome's built-in Gemini Nano. The model is downloaded by the
+  // browser (not fetched to storage like web-llm), so there is no separate
+  // verification round-trip: a successful download means the model is ready.
+  const startDownloadNano = useCallback(async () => {
+    setDownloadError(undefined);
+    setProgress(0);
+    setProgressText(undefined);
+
+    try {
+      const state = await nanoProvider.ensureReady((p) => {
+        setProgress(normalizeInitProgress(p));
+      });
+
+      if (state.kind === "error") {
+        setDownloadError(formatWebLlmDownloadError(state.message));
+        return;
+      }
+
+      setProgress(100);
+      // Re-probe so capability flips downloadable → available for consumers
+      // (e.g. the settings status block) reading the cached snapshot.
+      setCapability(await getCapability(true));
+      setVerifyResult(undefined);
+      setVerifyStatus("success");
+      setStep("verify");
+    } catch (err: unknown) {
+      setDownloadError(formatWebLlmDownloadError(err));
+    }
+  }, []);
+
   const startDownload = useCallback(() => {
+    const nano = capability?.nano;
+    if (
+      nano?.available &&
+      (nano.status === "downloadable" || nano.status === "downloading")
+    ) {
+      void startDownloadNano();
+      return;
+    }
+
     setDownloadError(undefined);
     setProgress(0);
     setProgressText(undefined);
@@ -62,7 +102,7 @@ export function useLocalAiSetup(): UseLocalAiSetup {
       .catch((err: unknown) => {
         setDownloadError(formatWebLlmDownloadError(err));
       });
-  }, []);
+  }, [capability, startDownloadNano]);
 
   const runVerification = useCallback(async () => {
     setVerifyStatus("running");
