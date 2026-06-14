@@ -83,6 +83,15 @@ const SCHEMAS: Partial<Record<FeatureId, Record<string, unknown>>> = {
       },
     },
   },
+  free_form_qa: {
+    type: "object",
+    required: ["answer", "cited_facts"],
+    additionalProperties: false,
+    properties: {
+      answer: { type: "string" },
+      cited_facts: { type: "array", items: { type: "string" } },
+    },
+  },
 };
 
 export function schemaForFeature(feature: FeatureId): Record<string, unknown> | undefined {
