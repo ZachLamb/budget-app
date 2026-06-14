@@ -125,4 +125,59 @@ describe("contracts parsers", () => {
     const raw = demoStructuredResult("fsa_review");
     expect(parseFsaStructured(raw).eligible).toEqual([]);
   });
+
+  it("demo budget_recommendations matches the pipeline result shape", () => {
+    const raw = demoStructuredResult("budget_recommendations") as {
+      recommendations: {
+        category_id: string;
+        suggested_amount: number;
+        rationale: string;
+      }[];
+    };
+    expect(Array.isArray(raw.recommendations)).toBe(true);
+    expect(raw.recommendations[0]).toMatchObject({
+      category_id: expect.any(String),
+      suggested_amount: expect.any(Number),
+      rationale: expect.any(String),
+    });
+  });
+
+  it("demo goal_planning matches the pipeline result shape", () => {
+    const raw = demoStructuredResult("goal_planning") as {
+      plan: {
+        goal_id: string;
+        monthly_contribution: number;
+        months_to_target: number;
+        note: string;
+      };
+    };
+    expect(raw.plan).toMatchObject({
+      goal_id: expect.any(String),
+      monthly_contribution: expect.any(Number),
+      months_to_target: expect.any(Number),
+      note: expect.any(String),
+    });
+  });
+
+  it("demo free_form_qa matches the pipeline result shape", () => {
+    const raw = demoStructuredResult("free_form_qa") as {
+      answer: string;
+      cited_facts: string[];
+    };
+    expect(raw.answer.length).toBeGreaterThan(0);
+    expect(Array.isArray(raw.cited_facts)).toBe(true);
+  });
+
+  it("demo financial_advice carries advice, basis, disclaimer, and draft", () => {
+    const raw = demoStructuredResult("financial_advice") as {
+      advice: string;
+      basis: string[];
+      disclaimer: string;
+      draft: boolean;
+    };
+    expect(raw.advice.length).toBeGreaterThan(0);
+    expect(Array.isArray(raw.basis)).toBe(true);
+    expect(raw.disclaimer).toMatch(/not professional financial advice/i);
+    expect(raw.draft).toBe(true);
+  });
 });
