@@ -1,11 +1,9 @@
 /**
  * Structured JSON completions for batch features (FSA, categorize).
- * Cloud fallback must use legacy REST — not Tier 4 via this module.
  */
 
 import { isDemoMode } from "@/lib/demo-mode";
 import type { FeatureId } from "./features";
-import { getFeaturePolicy } from "./features";
 import type { LLMProvider } from "./types";
 import type { RouterContext } from "./router";
 import { decide } from "./router";
@@ -82,7 +80,6 @@ export async function runStructuredJson<T extends FsaStructuredResult | Categori
     return { data: parseForFeature(feature, raw) as T, tier: 2 };
   }
 
-  const policy = getFeaturePolicy(feature);
   const decision = await decide(feature, ctx);
   if (decision.kind !== "ready") {
     throw new Error(decision.message);
@@ -128,17 +125,6 @@ export async function runStructuredJson<T extends FsaStructuredResult | Categori
 
   if (decision.tier === 1 || decision.tier === 2) {
     return { data: await tryParse(decision.provider), tier: decision.tier };
-  }
-
-  // Tier 4 should not reach here for structured features — escalate to Tier 2 if allowed.
-  if (policy.allowedTiers.includes(2)) {
-    const capDecision = await decide(feature, {
-      ...ctx,
-      preferredTierByFeature: { ...ctx.preferredTierByFeature, [feature]: 2 },
-    });
-    if (capDecision.kind === "ready" && capDecision.tier === 2) {
-      return { data: await tryParse(capDecision.provider), tier: 2 };
-    }
   }
 
   throw new Error("Local structured AI is not available on this device.");

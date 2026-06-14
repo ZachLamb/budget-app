@@ -2,7 +2,6 @@
 
 import { useCallback, useRef, useState } from "react";
 import { aiApi, type FsaReviewResponse } from "@/lib/api/ai";
-import { isDemoMode } from "@/lib/demo-mode";
 import type { FsaCandidateRow } from "@/lib/llm/contracts";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { useLlm } from "@/lib/llm/useLlm";
@@ -52,7 +51,7 @@ export function useFsaReviewScan(params: {
   const [data, setData] = useState<FsaReviewResponse | undefined>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [tier, setTier] = useState<1 | 2 | 4 | null>(null);
+  const [tier, setTier] = useState<1 | 2 | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -63,34 +62,7 @@ export function useFsaReviewScan(params: {
     setBatchProgress(null);
   }, []);
 
-  const scanCloud = useCallback(async () => {
-    const prepared = await gate.prepareFeature("fsa_review");
-    if (!prepared.ok) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await aiApi.getFsaReview({
-        date_from: params.dateFrom,
-        date_to: params.dateTo,
-        include_all_outflows: params.includeAllOutflows,
-      });
-      setData(result);
-      setTier(4);
-    } catch (e) {
-      setError(e);
-    } finally {
-      setLoading(false);
-      setBatchProgress(null);
-    }
-  }, [gate, params.dateFrom, params.dateTo, params.includeAllOutflows]);
-
   const scanLocal = useCallback(async () => {
-    if (isDemoMode) {
-      await scanCloud();
-      return;
-    }
-
     const prepared = await gate.prepareFeature("fsa_review");
     if (!prepared.ok) {
       throw new Error(
@@ -135,7 +107,7 @@ export function useFsaReviewScan(params: {
           candidate_count: 0,
           prefilter_skipped_count: fetched.prefilter_skipped_count,
         });
-        setTier(decision.tier === 4 ? 4 : (decision.tier as 1 | 2));
+        setTier(decision.tier as 1 | 2);
         return;
       }
 
@@ -177,7 +149,7 @@ export function useFsaReviewScan(params: {
       setBatchProgress(null);
       abortRef.current = null;
     }
-  }, [gate, llm, params, scanCloud]);
+  }, [gate, llm, params]);
 
   return {
     data,
@@ -186,7 +158,6 @@ export function useFsaReviewScan(params: {
     tier,
     batchProgress,
     scanLocal,
-    scanCloud,
     cancel,
     setData,
   };

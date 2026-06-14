@@ -18,7 +18,6 @@ function emptySnapshot(): CapabilitySnapshot {
   return {
     nano: { available: false, status: "unsupported" },
     webgpu: { available: false, modelSize: "none" },
-    server: { available: true },
     specialized: { summarizer: false, writer: false, rewriter: false, proofreader: false },
   };
 }
@@ -116,7 +115,6 @@ export async function getCapability(force = false): Promise<CapabilitySnapshot> 
     const snapshot: CapabilitySnapshot = {
       nano,
       webgpu,
-      server: { available: true },
       specialized,
     };
     cached = snapshot;

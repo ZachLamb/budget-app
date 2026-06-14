@@ -13,7 +13,6 @@ import {
   invalidateModelDownloadStatus,
 } from "@/lib/llm/storage";
 import { getCapability } from "@/lib/llm/capability";
-import { getFeaturePolicy } from "@/lib/llm/features";
 import { setDownloadModel, setUseLiteModel } from "@/lib/llm/consent";
 import {
   ensureEngine,
@@ -137,7 +136,7 @@ export function useLocalAiSetup(): UseLocalAiSetup {
   }, [open, step, verifyStatus, downloadError, runVerification]);
 
   const ensureReady = useCallback(
-    async (feature: FeatureId): Promise<void> => {
+    async (_feature: FeatureId): Promise<void> => {
       if (isDemoMode) return;
 
       const status = await getModelDownloadStatus(true);
@@ -156,8 +155,7 @@ export function useLocalAiSetup(): UseLocalAiSetup {
       const cap = await getCapability(true);
       setCapability(cap);
 
-      const policy = getFeaturePolicy(feature);
-      setCloudAvailable(policy.cloudPossible);
+      setCloudAvailable(false);
 
       setStep("welcome");
       setProgress(0);

@@ -29,14 +29,6 @@ vi.mock("@/lib/llm/consent", () => ({
   setDownloadModel: vi.fn(),
 }));
 
-vi.mock("@/lib/api/llm", () => ({
-  llmApi: {
-    listCloudConsent: vi.fn(async () => []),
-    grantCloudConsent: vi.fn(async () => ({})),
-    revokeAllCloudConsent: vi.fn(async () => ({})),
-  },
-}));
-
 function renderCard() {
   const qc = new QueryClient();
   return render(
@@ -48,7 +40,6 @@ function renderCard() {
 
 const base = {
   webgpu: { available: false, modelSize: "none" as const },
-  server: { available: true },
   specialized: { summarizer: false, writer: false, rewriter: false, proofreader: false },
 };
 

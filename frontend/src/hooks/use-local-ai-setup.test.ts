@@ -61,16 +61,15 @@ const { useLocalAiSetup } = await import("./use-local-ai-setup");
 const defaultCapability = {
   webgpu: { available: true, modelSize: "3b" as const, storageQuotaBytes: 5_000_000_000 },
   nano: { available: false, status: "unsupported" as const },
-  server: { available: true },
 };
 
 const defaultPolicy = {
   id: "fsa_review",
   label: "FSA Review",
-  allowedTiers: [2, 4],
-  minimumTier: 2,
-  defaultTier: 2,
-  cloudPossible: true,
+  allowedTiers: [1, 2],
+  minimumTier: 1,
+  defaultTier: 1,
+  enabled: true,
 };
 
 beforeEach(() => {
@@ -201,7 +200,6 @@ describe("useLocalAiSetup", () => {
     getCapabilityMock.mockResolvedValue({
       webgpu: { available: false, modelSize: "none" },
       nano: { available: false, status: "unsupported" },
-      server: { available: true },
     });
 
     const { result } = renderHook(() => useLocalAiSetup());
@@ -286,7 +284,6 @@ describe("useLocalAiSetup", () => {
     const nanoDownloadable = {
       nano: { available: true, status: "downloadable" as const },
       webgpu: { available: false, modelSize: "none" as const },
-      server: { available: true },
       specialized: {
         summarizer: false,
         writer: false,
@@ -340,7 +337,6 @@ describe("useLocalAiSetup", () => {
     getCapabilityMock.mockResolvedValue({
       nano: { available: true, status: "downloadable" as const },
       webgpu: { available: false, modelSize: "none" as const },
-      server: { available: true },
       specialized: {
         summarizer: false,
         writer: false,
@@ -377,7 +373,6 @@ describe("useLocalAiSetup", () => {
     getCapabilityMock.mockResolvedValue({
       nano: { available: true, status: "downloadable" as const },
       webgpu: { available: false, modelSize: "none" as const },
-      server: { available: true },
       specialized: {
         summarizer: false,
         writer: false,

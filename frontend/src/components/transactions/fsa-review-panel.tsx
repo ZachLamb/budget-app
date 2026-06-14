@@ -51,9 +51,8 @@ interface FsaReviewPanelProps {
   fsaError: boolean;
   fsaErrorDetail?: unknown;
   onScan: () => void;
-  onCloudScan: () => void;
   onCancelScan?: () => void;
-  fsaTier?: 1 | 2 | 4 | null;
+  fsaTier?: 1 | 2 | null;
   batchProgress?: { done: number; total: number } | null;
   filteredFsa: FsaEligibleTransaction[];
   handleFsaExportCsv: () => void;
@@ -88,7 +87,6 @@ export function FsaReviewPanel({
   fsaError,
   fsaErrorDetail,
   onScan,
-  onCloudScan,
   onCancelScan,
   fsaTier,
   batchProgress,
@@ -145,9 +143,6 @@ export function FsaReviewPanel({
               {fsaFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Stethoscope className="mr-2 h-4 w-4" />}
               Scan now
             </Button>
-            <Button size="sm" variant="outline" onClick={onCloudScan} disabled={fsaFetching}>
-              Run with cloud AI
-            </Button>
             {fsaFetching && onCancelScan ? (
               <Button size="sm" variant="ghost" onClick={onCancelScan}>
                 Cancel
@@ -155,7 +150,7 @@ export function FsaReviewPanel({
             ) : null}
             {fsaTier ? (
               <Badge variant="secondary" className="text-xs">
-                {fsaTier === 1 ? "On-device (Nano)" : fsaTier === 2 ? "On-device (WebGPU)" : "Cloud"}
+                {fsaTier === 1 ? "On-device (Nano)" : "On-device (WebGPU)"}
               </Badge>
             ) : null}
           </div>
@@ -174,14 +169,13 @@ export function FsaReviewPanel({
               <p>
                 {getApiErrorMessage(
                   fsaErrorDetail,
-                  "Failed to scan transactions. Check that AI is enabled in Settings and your LLM backend is reachable.",
+                  "Failed to scan transactions. Enable AI in Settings and complete on-device setup.",
                 )}
               </p>
               {(fsaErrorDetail as { response?: { status?: number } })?.response?.status === 403 && (
                 <p className="text-xs text-muted-foreground">
-                  Enable AI in Settings, then allow{" "}
-                  <span className="font-medium text-foreground">FSA reimbursement review</span> under cloud AI
-                  features (or use a local model when available).{" "}
+                  Enable AI in Settings, then complete the on-device model setup for{" "}
+                  <span className="font-medium text-foreground">FSA reimbursement review</span>.{" "}
                   <Link href="/settings" className="text-primary underline-offset-4 hover:underline">
                     Open Settings
                   </Link>
@@ -210,7 +204,7 @@ export function FsaReviewPanel({
                   )}
                   {(fsaData.llm_batch_failures ?? 0) > 0 && (
                     <span className="text-destructive ml-2">
-                      ({fsaData.llm_batch_failures} AI batch{fsaData.llm_batch_failures > 1 ? "es" : ""} returned no response — is Ollama running?)
+                      ({fsaData.llm_batch_failures} batch{fsaData.llm_batch_failures > 1 ? "es" : ""} failed — try again or check on-device AI setup.)
                     </span>
                   )}
                 </p>

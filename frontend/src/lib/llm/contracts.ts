@@ -5,7 +5,6 @@
  * - Tier policy: `defaultTier: 2` for `fsa_review` and `categorize_transaction` (see features.ts).
  * - Demo mode: client canned JSON via `isDemoMode` in run-structured (no provider calls).
  * - PWA: Next.js `app/manifest.ts` + minimal hand-rolled service worker (no Serwist).
- * - Cloud fallback: legacy REST only (`/api/ai/fsa-review`, `/api/categorization/suggest`).
  */
 
 import type { FeatureId } from "./features";

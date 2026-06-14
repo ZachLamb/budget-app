@@ -5,7 +5,7 @@ import {
   parseJsonResponse,
   demoStructuredResult,
 } from "./contracts";
-import type { GenerateOptions, LLMProvider, Tier } from "./types";
+import type { GenerateOptions, LLMProvider } from "./types";
 import type { RouterContext } from "./router";
 import { decide } from "./router";
 import { runStructuredJson } from "./run-structured";
@@ -18,11 +18,11 @@ vi.mock("./router", async (importOriginal) => {
 const decideMock = vi.mocked(decide);
 
 /** Fake provider that records the GenerateOptions passed to `generate`. */
-function recordingProvider(tier: Tier, recorded: Array<GenerateOptions | undefined>): LLMProvider {
+function recordingProvider(tier: 1 | 2, recorded: Array<GenerateOptions | undefined>): LLMProvider {
   return {
-    name: tier === 1 ? "nano" : tier === 2 ? "web-llm" : "server",
+    name: tier === 1 ? "nano" : "web-llm",
     tier,
-    privacy: tier === 4 ? "server" : "local",
+    privacy: "local",
     async *generate(_prompt: string, opts?: GenerateOptions) {
       recorded.push(opts);
       yield '{"eligible":[]}';
@@ -32,11 +32,9 @@ function recordingProvider(tier: Tier, recorded: Array<GenerateOptions | undefin
 
 const fakeCtx: RouterContext = {
   aiEnabledGlobally: true,
-  cloudConsentGrants: new Set(),
   providers: {
     nano: async () => recordingProvider(1, []),
     webLlm: async () => recordingProvider(2, []),
-    server: async () => recordingProvider(4, []),
   },
 };
 

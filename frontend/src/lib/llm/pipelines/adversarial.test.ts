@@ -58,7 +58,6 @@ import { runAdvicePipeline } from "./advice";
 const capability: CapabilitySnapshot = {
   nano: { available: true, status: "available" },
   webgpu: { available: false, modelSize: "none" },
-  server: { available: true },
   specialized: {
     summarizer: false,
     writer: false,

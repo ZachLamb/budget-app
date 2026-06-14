@@ -1,18 +1,18 @@
 /**
  * Shared types for the tiered LLM system.
  *
- * Tier 1 (Nano)        — Chrome built-in Gemini Nano. On-device, free, no download.
- * Tier 2 (web-llm)     — WebGPU + downloaded weights. On-device, ~700 MB / 2 GB.
- * Tier 4 (server)      — Self-hosted Ollama (dev) / Modal vLLM (prod). Opt-in only.
+ * Tier 1 (Nano)    — Chrome built-in Gemini Nano. On-device, free.
+ * Tier 2 (web-llm) — WebGPU + downloaded weights. On-device, ~700 MB / 2 GB.
  *
  * Tier 3 (WASM CPU) is intentionally not implemented — too slow to ship.
+ * There is no cloud/server tier.
  */
 
-export type Tier = 1 | 2 | 4;
+export type Tier = 1 | 2;
 
-export type Privacy = "local" | "server";
+export type Privacy = "local";
 
-export type ProviderName = "nano" | "web-llm" | "server";
+export type ProviderName = "nano" | "web-llm";
 
 export interface GenerateOptions {
   signal?: AbortSignal;
@@ -52,8 +52,6 @@ export interface CapabilitySnapshot {
     /** Free storage estimate in bytes (best-effort). */
     storageQuotaBytes?: number;
   };
-  /** Tier 4 — server is reachable when user opts in. Always true at the network layer; consent is the gate. */
-  server: { available: boolean };
   /**
    * Specialized on-device Chrome AI APIs. All optional — a false flag just
    * means a pipeline step uses the Prompt API instead. Never blocks a feature.

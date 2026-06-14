@@ -1,21 +1,19 @@
 "use client";
 
 /**
- * React hook that wires the LLM router to auth, settings, and cloud consent.
+ * React hook that wires the LLM router to auth and settings.
  *
  * Usage:
  *   const llm = useLlm();
  *   const decision = await llm.decide("explain_charge");
  *   if (decision.kind === "ready") for await (const chunk of llm.run("explain_charge", prompt)) ...
- *   else if (decision.kind === "needs_consent") ...show dialog...
+ *   else if (decision.kind === "needs_consent") ...show download dialog...
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@/lib/providers";
 import { isDemoMode } from "@/lib/demo-mode";
 import { settingsApi } from "@/lib/api/settings";
-import { llmApi } from "@/lib/api/llm";
 import type { FeatureId } from "./features";
 import type { CapabilitySnapshot, LLMProvider } from "./types";
 import type { Decision, RouterContext } from "./router";
@@ -23,7 +21,6 @@ import { decide as routerDecide } from "./router";
 import { getCapability } from "./capability";
 import { nanoProvider } from "./providers/nano";
 import { getWebLlmProvider } from "./providers/web-llm";
-import { makeServerProvider } from "./providers/server";
 import { demoStructuredResult } from "./contracts";
 import type { PipelineContext, PipelineProgress } from "./pipelines/types";
 import { runBudgetPipeline } from "./pipelines/budget";
@@ -81,8 +78,6 @@ export interface UseLlm {
 }
 
 export function useLlm(): UseLlm {
-  const { user } = useAuth();
-
   const [capability, setCapability] = useState<CapabilitySnapshot | null>(null);
 
   useEffect(() => {
@@ -101,30 +96,22 @@ export function useLlm(): UseLlm {
     staleTime: 60_000,
   });
 
-  const grants = useQuery({
-    queryKey: ["llmCloudConsent"],
-    queryFn: () => llmApi.listCloudConsent(),
-    enabled: !!user,
-    staleTime: 30_000,
-  });
-
   const buildContext = useCallback(
-    (feature: FeatureId): RouterContext => ({
-      aiEnabledGlobally: Boolean((aiSettings.data as AiSettings | undefined)?.ai_enabled),
-      cloudConsentGrants: new Set<FeatureId>(
-        (grants.data ?? []).filter((g) => !g.revokedAt).map((g) => g.feature as FeatureId),
+    (): RouterContext => ({
+      aiEnabledGlobally: Boolean(
+        (aiSettings.data as AiSettings | undefined)?.ai_enabled,
       ),
       providers: {
         nano: async (): Promise<LLMProvider> => nanoProvider,
         webLlm: async (): Promise<LLMProvider> => getWebLlmProvider(),
-        server: async (): Promise<LLMProvider> => makeServerProvider(feature, () => null),
       },
     }),
-    [aiSettings.data, grants.data],
+    [aiSettings.data],
   );
 
   const decide = useCallback(
-    async (feature: FeatureId): Promise<Decision> => routerDecide(feature, buildContext(feature)),
+    async (feature: FeatureId): Promise<Decision> =>
+      routerDecide(feature, buildContext()),
     [buildContext],
   );
 
@@ -134,7 +121,7 @@ export function useLlm(): UseLlm {
       prompt: string,
       opts?: { system?: string; maxTokens?: number; signal?: AbortSignal },
     ): AsyncIterable<string> => {
-      const ctx = buildContext(feature);
+      const ctx = buildContext();
       async function* gen(): AsyncIterable<string> {
         const decision = await routerDecide(feature, ctx);
         if (decision.kind !== "ready") throw new Error(decision.message);
@@ -158,9 +145,12 @@ export function useLlm(): UseLlm {
       }
       if (isDemoMode) return demoStructuredResult(feature);
 
+      const decision = await routerDecide(feature, buildContext());
+      if (decision.kind !== "ready") throw new Error(decision.message);
+
       const cap = capability ?? (await getCapability());
       const pctx: PipelineContext = {
-        provider: nanoProvider,
+        provider: decision.provider,
         capability: cap,
         signal: opts?.signal,
         onProgress: opts?.onProgress,
@@ -178,7 +168,7 @@ export function useLlm(): UseLlm {
           throw new Error(`Unhandled heavy feature "${feature}"`);
       }
     },
-    [capability],
+    [buildContext, capability],
   );
 
   const refresh = useCallback(async () => {
@@ -187,7 +177,7 @@ export function useLlm(): UseLlm {
   }, []);
 
   const getContext = useCallback(
-    (feature: FeatureId) => buildContext(feature),
+    () => buildContext(),
     [buildContext],
   );
 

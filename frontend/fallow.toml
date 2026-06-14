@@ -2,7 +2,7 @@
 # Full `fallow` (dupes/health) is for periodic audits via code-quality-audit skill.
 # https://docs.fallow.tools
 
-entry = ["public/sw.js"]
+entry = ["public/sw.js", "src/lib/llm/index.ts"]
 
 ignoreExportsUsedInFile = true
 
