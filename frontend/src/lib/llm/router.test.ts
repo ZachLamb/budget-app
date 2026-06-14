@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { decide } from "./router";
+import { describe, it, expect, vi } from "vitest";
+import { decide, type RouterContext } from "./router";
 import type { CapabilitySnapshot, LLMProvider } from "./types";
 import type { FeatureId } from "./features";
 
@@ -99,5 +99,44 @@ describe("router.decide", () => {
     const d = await decide("budget_recommendations", ctx, cap);
     expect(d.kind).toBe("ready");
     if (d.kind === "ready") expect(d.tier).toBe(4);
+  });
+});
+
+function nanoCap(overrides: Partial<CapabilitySnapshot> = {}): CapabilitySnapshot {
+  return {
+    nano: { available: true, status: "available" },
+    webgpu: { available: false, modelSize: "none" },
+    server: { available: true },
+    specialized: { summarizer: false, writer: false, rewriter: false, proofreader: false },
+    ...overrides,
+  };
+}
+
+function nanoCtx(): RouterContext {
+  const provider = { name: "nano", tier: 1, privacy: "local", async *generate() {} } as never;
+  return {
+    aiEnabledGlobally: true,
+    cloudConsentGrants: new Set(),
+    providers: {
+      nano: vi.fn().mockResolvedValue(provider),
+      webLlm: vi.fn().mockResolvedValue(provider),
+      server: vi.fn().mockResolvedValue(provider),
+    },
+  };
+}
+
+describe("decide — needs_nano_setup", () => {
+  it("returns needs_nano_setup when Nano is the pick but status is downloadable", async () => {
+    const c = nanoCtx();
+    const d = await decide("explain_charge", c, nanoCap({ nano: { available: true, status: "downloadable" } }));
+    expect(d.kind).toBe("needs_nano_setup");
+    expect(c.providers.nano).not.toHaveBeenCalled();
+  });
+
+  it("returns ready (and instantiates Nano) when status is available", async () => {
+    const c = nanoCtx();
+    const d = await decide("explain_charge", c, nanoCap());
+    expect(d.kind).toBe("ready");
+    expect(c.providers.nano).toHaveBeenCalled();
   });
 });

@@ -27,6 +27,12 @@ export type Decision =
       message: string;
     }
   | {
+      kind: "needs_nano_setup";
+      tier: 1;
+      reason: "needs_nano_setup";
+      message: string;
+    }
+  | {
       kind: "unavailable";
       reason: "unavailable_no_capable_tier" | "ai_disabled_globally";
       message: string;
@@ -106,6 +112,17 @@ export async function decide(
         policy.minimumTier === 4
           ? "This feature requires cloud AI. Enable it in Settings."
           : "AI isn't available on this device or browser.",
+    };
+  }
+
+  // Nano selected but the model isn't downloaded yet — require an explicit
+  // user gesture to start the fetch (never auto-trigger Chrome's download).
+  if (tier === 1 && (cap.nano.status === "downloadable" || cap.nano.status === "downloading")) {
+    return {
+      kind: "needs_nano_setup",
+      tier: 1,
+      reason: "needs_nano_setup",
+      message: "On-device AI needs a quick one-time setup.",
     };
   }
 
