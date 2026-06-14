@@ -21,6 +21,7 @@ import {
 } from "@/lib/llm/providers/web-llm-engine";
 import { nanoProvider } from "@/lib/llm/providers/nano";
 import {
+  formatNanoSetupError,
   formatWebLlmDownloadError,
   normalizeInitProgress,
 } from "@/lib/llm/web-llm-download";
@@ -55,11 +56,13 @@ export function useLocalAiSetup(): UseLocalAiSetup {
 
     try {
       const state = await nanoProvider.ensureReady((p) => {
+        // Chrome's `downloadprogress.loaded` is a 0–1 fraction, so
+        // normalizeInitProgress scales it to 0–100 (and clamps any >1 to 100).
         setProgress(normalizeInitProgress(p));
       });
 
       if (state.kind === "error") {
-        setDownloadError(formatWebLlmDownloadError(state.message));
+        setDownloadError(formatNanoSetupError(state.message));
         return;
       }
 
@@ -71,7 +74,9 @@ export function useLocalAiSetup(): UseLocalAiSetup {
       setVerifyStatus("success");
       setStep("verify");
     } catch (err: unknown) {
-      setDownloadError(formatWebLlmDownloadError(err));
+      setDownloadError(
+        formatNanoSetupError(err instanceof Error ? err.message : String(err)),
+      );
     }
   }, []);
 

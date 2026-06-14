@@ -68,6 +68,7 @@ async function ensureSession(opts: GenerateOptions, monitor?: (p: number) => voi
       monitor: monitor
         ? (m: EventTarget) => {
             m.addEventListener("downloadprogress", (e: Event) => {
+              // Chrome reports `loaded` as a 0–1 fraction of the download.
               const loaded = (e as Event & { loaded?: number }).loaded;
               if (typeof loaded === "number") monitor(loaded);
             });

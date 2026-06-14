@@ -364,8 +364,46 @@ describe("useLocalAiSetup", () => {
     await flush();
     act(() => {});
 
-    expect(result.current.wizardProps.downloadError).toMatch(/network|huggingface/i);
+    const err = result.current.wizardProps.downloadError;
+    // Nano downloads from Chrome's component updater, not Hugging Face, and
+    // does not use WebGPU — the copy must stay provider-neutral.
+    expect(err).not.toMatch(/huggingface/i);
+    expect(err).not.toMatch(/webgpu/i);
+    expect(err).toMatch(/connection|internet|try again|retry/i);
     expect(result.current.wizardProps.step).toBe("download");
+  });
+
+  it("surfaces Nano quota errors as disk-space guidance (no lite model)", async () => {
+    getCapabilityMock.mockResolvedValue({
+      nano: { available: true, status: "downloadable" as const },
+      webgpu: { available: false, modelSize: "none" as const },
+      server: { available: true },
+      specialized: {
+        summarizer: false,
+        writer: false,
+        rewriter: false,
+        proofreader: false,
+      },
+    });
+    getModelDownloadStatusMock.mockResolvedValue({ kind: "unsupported" });
+    nanoEnsureReadyMock.mockResolvedValue({
+      kind: "error",
+      message: "QuotaExceededError: storage full",
+    });
+
+    const { result } = renderHook(() => useLocalAiSetup());
+    await openWizard(result);
+
+    act(() => {
+      result.current.wizardProps.onNext();
+      result.current.wizardProps.onGrantConsent();
+    });
+    await flush();
+    act(() => {});
+
+    const err = result.current.wizardProps.downloadError;
+    expect(err).not.toMatch(/lite model/i);
+    expect(err).toMatch(/disk space|storage/i);
   });
 
   it("auto-runs verification after download and consumes streamed output", async () => {
