@@ -15,13 +15,14 @@ function api(name: string): AvailabilityApi | null {
   return a && typeof a.availability === "function" ? a : null;
 }
 
-async function isReady(name: string): Promise<boolean> {
+/** Returns the validated api object when ready, else null. */
+async function ready(name: string): Promise<AvailabilityApi | null> {
   const a = api(name);
-  if (!a) return false;
+  if (!a) return null;
   try {
-    return (await a.availability()) === "available";
+    return (await a.availability()) === "available" ? a : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -37,8 +38,8 @@ export async function summarize(
   text: string,
   opts: GenerateOptions = {},
 ): Promise<string> {
-  if (await isReady("Summarizer")) {
-    const a = api("Summarizer")!;
+  const a = await ready("Summarizer");
+  if (a) {
     const s = (await a.create({ type: "tldr", format: "plain-text", length: "short" })) as {
       summarize: (input: string) => Promise<string>;
     };
@@ -54,8 +55,8 @@ export async function rewriteProse(
   instruction: string,
   opts: GenerateOptions = {},
 ): Promise<string> {
-  if (await isReady("Rewriter")) {
-    const a = api("Rewriter")!;
+  const a = await ready("Rewriter");
+  if (a) {
     const r = (await a.create({ sharedContext: instruction })) as {
       rewrite: (input: string, opts?: { context?: string }) => Promise<string>;
     };
@@ -70,8 +71,8 @@ export async function rewriteProse(
  * unconstrained rewrite could change meaning/numbers. Returns input unchanged.
  */
 export async function proofread(_fallback: LLMProvider, text: string): Promise<string> {
-  if (await isReady("Proofreader")) {
-    const a = api("Proofreader")!;
+  const a = await ready("Proofreader");
+  if (a) {
     const p = (await a.create()) as {
       proofread: (input: string) => Promise<{ correctedInput?: string }>;
     };

@@ -38,6 +38,16 @@ describe("summarize", () => {
 });
 
 describe("rewriteProse", () => {
+  it("uses the Rewriter API when available", async () => {
+    const rewriter = { rewrite: vi.fn().mockResolvedValue("api-rewritten") };
+    (globalThis as Record<string, unknown>).Rewriter = {
+      availability: vi.fn().mockResolvedValue("available"),
+      create: vi.fn().mockResolvedValue(rewriter),
+    };
+    const out = await rewriteProse(fakeNano("FALLBACK"), "draft", "make it concise", {});
+    expect(out).toBe("api-rewritten");
+  });
+
   it("falls back to the Prompt API when Rewriter is absent", async () => {
     const out = await rewriteProse(fakeNano("rewritten"), "draft", "make it concise", {});
     expect(out).toBe("rewritten");
