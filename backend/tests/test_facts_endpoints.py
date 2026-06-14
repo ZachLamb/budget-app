@@ -29,10 +29,12 @@ from app.models import (
     BudgetAssignment,
     Category,
     CategoryGroup,
+    FinancialGoal,
     Household,
     Transaction,
     User,
 )
+from decimal import Decimal
 
 
 def _current_month() -> str:
@@ -200,3 +202,120 @@ async def test_budget_facts_endpoint_403_when_ai_disabled(fixture):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/ai/facts/budget", headers=headers)
     assert r.status_code == 403, r.text
+
+
+async def _seed_goal_fixture(
+    session: AsyncSession,
+    *,
+    ai_enabled: bool = True,
+    name: str = "Vacation",
+    target_amount: Decimal = Decimal("1000.00"),
+    current_amount: Decimal = Decimal("250.00"),
+    monthly_contribution: Decimal | None = Decimal("150.00"),
+) -> tuple[User, Household, FinancialGoal]:
+    """Seed a household with one (non-account-linked) savings goal with known
+    arithmetic: months_remaining = ceil((1000 - 250) / 150) = 5."""
+    household = Household(id=uuid.uuid4().hex, name="HH", ai_enabled=ai_enabled)
+    session.add(household)
+    await session.flush()
+
+    user = User(
+        id=uuid.uuid4().hex,
+        email=f"{uuid.uuid4().hex}@example.com",
+        name="Test",
+        password_hash="bcrypt-hash-not-real",
+        household_id=household.id,
+        role="owner",
+        status="approved",
+    )
+    session.add(user)
+
+    goal = FinancialGoal(
+        household_id=household.id,
+        name=name,
+        goal_type="savings",
+        target_amount=target_amount,
+        current_amount=current_amount,
+        monthly_contribution=monthly_contribution,
+    )
+    session.add(goal)
+    await session.commit()
+    return user, household, goal
+
+
+@pytest.mark.asyncio
+async def test_compute_goal_facts_shape_and_arithmetic(fixture):
+    session, _engine = fixture
+    _user, household, goal = await _seed_goal_fixture(session)
+
+    from app.api.routes.goals import compute_goal_facts
+
+    facts = await compute_goal_facts(session, household.id)
+
+    goals = facts["goals"]
+    assert len(goals) == 1
+    row = goals[0]
+    assert set(row.keys()) == {
+        "goal_id",
+        "name",
+        "target_amount",
+        "current_amount",
+        "monthly_contribution",
+        "months_remaining",
+    }
+    assert row["goal_id"] == goal.id
+    assert row["name"] == "Vacation"
+    assert row["target_amount"] == 1000.0
+    assert row["current_amount"] == 250.0
+    assert row["monthly_contribution"] == 150.0
+    assert row["months_remaining"] == 5
+
+
+@pytest.mark.asyncio
+async def test_goal_facts_endpoint_returns_200_and_schema(fixture):
+    session, _engine = fixture
+    user, _household, goal = await _seed_goal_fixture(session)
+
+    headers = {"Authorization": f"Bearer {_token_for(user.id)}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/goal", headers=headers)
+
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert isinstance(data["goals"], list) and len(data["goals"]) == 1
+    row = data["goals"][0]
+    assert set(row.keys()) == {
+        "goal_id",
+        "name",
+        "target_amount",
+        "current_amount",
+        "monthly_contribution",
+        "months_remaining",
+    }
+    assert row["goal_id"] == goal.id
+    assert row["name"] == "Vacation"
+    assert row["target_amount"] == 1000.0
+    assert row["current_amount"] == 250.0
+    assert row["monthly_contribution"] == 150.0
+    assert row["months_remaining"] == 5
+
+
+@pytest.mark.asyncio
+async def test_goal_facts_endpoint_is_household_scoped(fixture):
+    session, _engine = fixture
+    user, _household, caller_goal = await _seed_goal_fixture(session)
+    # A goal in a different household must never appear in the caller's facts.
+    _other_user, _other_hh, other_goal = await _seed_goal_fixture(
+        session, name="Someone Else Goal"
+    )
+
+    headers = {"Authorization": f"Bearer {_token_for(user.id)}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/goal", headers=headers)
+
+    assert r.status_code == 200, r.text
+    data = r.json()
+    goal_ids = {g["goal_id"] for g in data["goals"]}
+    assert caller_goal.id in goal_ids
+    assert other_goal.id not in goal_ids
+    assert len(data["goals"]) == 1

@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.routes.ai import _require_ai_enabled
-from app.schemas.facts import BudgetFacts
+from app.api.routes.goals import compute_goal_facts
+from app.schemas.facts import BudgetFacts, GoalFacts
 from app.services.ai.budget import compute_budget_facts
 
 router = APIRouter()
@@ -26,3 +27,12 @@ async def budget_facts(
 ) -> BudgetFacts:
     """Budgeted vs actual per category for the current month (deterministic)."""
     return BudgetFacts(**await compute_budget_facts(db, household_id))
+
+
+@router.get("/goal", response_model=GoalFacts)
+async def goal_facts(
+    household_id: str = Depends(_require_ai_enabled),
+    db: AsyncSession = Depends(get_db),
+) -> GoalFacts:
+    """Savings-goal progress facts for the household (deterministic)."""
+    return GoalFacts(**await compute_goal_facts(db, household_id))

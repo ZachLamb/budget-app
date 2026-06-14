@@ -22,3 +22,18 @@ class BudgetFacts(BaseModel):
     categories: list[BudgetCategoryFact]
     total_budgeted: float
     total_actual: float
+
+
+class GoalFact(BaseModel):
+    goal_id: str
+    name: str
+    target_amount: float
+    current_amount: float
+    monthly_contribution: float
+    # None when contribution is 0/None and no future target date makes it
+    # derivable (mirrors the goals route's ``Optional[int]`` months_remaining).
+    months_remaining: int | None
+
+
+class GoalFacts(BaseModel):
+    goals: list[GoalFact]
