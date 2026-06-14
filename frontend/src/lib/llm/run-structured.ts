@@ -18,13 +18,14 @@ import {
   type CategorizeSuggestion,
   type FsaStructuredResult,
 } from "./contracts";
+import { schemaForFeature } from "./schema";
 
 const JSON_NUDGE = "\n\nReturn only valid JSON with no markdown fences or extra text.";
 
 async function collectStream(
   provider: LLMProvider,
   prompt: string,
-  opts: { system?: string; maxTokens?: number; signal?: AbortSignal },
+  opts: { system?: string; maxTokens?: number; signal?: AbortSignal; schema?: Record<string, unknown> },
 ): Promise<string> {
   let out = "";
   for await (const chunk of provider.generate(prompt, opts)) {
@@ -48,12 +49,17 @@ export interface RunStructuredResult<T> {
 
 async function generateStructuredOnce(
   provider: LLMProvider,
+  feature: FeatureId,
   opts: RunStructuredOptions,
 ): Promise<string> {
+  // Schema-constrained output is Nano-only (tier 1 → `responseConstraint`).
+  // Tier 2 (web-llm) stays on the free-text + parseJsonResponse retry path.
+  const schema = provider.tier === 1 ? schemaForFeature(feature) : undefined;
   return collectStream(provider, opts.prompt, {
     system: opts.system,
     maxTokens: opts.maxTokens ?? 2048,
     signal: opts.signal,
+    schema,
   });
 }
 
@@ -80,12 +86,12 @@ export async function runStructuredJson<T extends FsaStructuredResult | Categori
   }
 
   const tryParse = async (provider: LLMProvider): Promise<T> => {
-    let text = await generateStructuredOnce(provider, opts);
+    let text = await generateStructuredOnce(provider, feature, opts);
     try {
       return parseForFeature(feature, parseJsonResponse(text)) as T;
     } catch (first) {
       if (opts.signal?.aborted) throw first;
-      text = await generateStructuredOnce(provider, {
+      text = await generateStructuredOnce(provider, feature, {
         ...opts,
         prompt: opts.prompt + JSON_NUDGE,
       });
