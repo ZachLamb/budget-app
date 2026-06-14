@@ -45,6 +45,26 @@ const SCHEMAS: Partial<Record<FeatureId, Record<string, unknown>>> = {
       },
     },
   },
+  budget_recommendations: {
+    type: "object",
+    required: ["recommendations"],
+    additionalProperties: false,
+    properties: {
+      recommendations: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["category_id", "suggested_amount", "rationale"],
+          additionalProperties: false,
+          properties: {
+            category_id: { type: "string" },
+            suggested_amount: { type: "number" },
+            rationale: { type: "string" },
+          },
+        },
+      },
+    },
+  },
 };
 
 export function schemaForFeature(feature: FeatureId): Record<string, unknown> | undefined {
