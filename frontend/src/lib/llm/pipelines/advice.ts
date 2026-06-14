@@ -1,7 +1,6 @@
-import { OnDeviceError } from "../errors";
 import { schemaForFeature } from "../schema";
 import { withNanoSlot } from "../session-pool";
-import { generateStructured, ground, verify, type Check } from "./steps";
+import { generateVerified, ground, type Check } from "./steps";
 import type { ContextFacts } from "./qa";
 import type { PipelineContext } from "./types";
 
@@ -19,8 +18,6 @@ export interface AdviceResult {
  */
 export const ADVICE_DISCLAIMER =
   "This is general information based on your data, not professional financial advice. Verify before acting.";
-
-const MAX_RETRIES = 2;
 
 /** Numeric tokens (with optional $, commas, decimals, leading minus). */
 function numericTokens(text: string): string[] {
@@ -76,39 +73,28 @@ export async function runAdvicePipeline(
       `Facts: ${factsText}`;
 
     ctx.onProgress?.({ step: "generate", label: "Drafting advice…" });
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      ctx.signal?.throwIfAborted?.();
-      const draft = await generateStructured<Omit<AdviceResult, "draft">>(
-        ctx.provider,
-        {
-          system,
-          prompt,
-          schema: schemaForFeature("financial_advice")!,
-          signal: ctx.signal,
-        },
-      );
-      // The pipeline owns the disclaimer — overwrite whatever the model emitted.
-      const candidate: AdviceResult = {
-        ...draft,
-        disclaimer: ADVICE_DISCLAIMER,
-        draft: true,
-      };
-      try {
-        const result = verify(candidate, checks);
-        ctx.onProgress?.({ step: "done", label: "Done" });
-        return result;
-      } catch {
-        if (attempt === MAX_RETRIES) {
-          throw new OnDeviceError(
-            "verify_failed",
-            "Could not produce grounded advice.",
-          );
-        }
-      }
-    }
-    throw new OnDeviceError(
-      "verify_failed",
-      "Could not produce grounded advice.",
+    const result = await generateVerified<AdviceResult>(
+      ctx.provider,
+      {
+        system,
+        prompt,
+        schema: schemaForFeature("financial_advice")!,
+        signal: ctx.signal,
+      },
+      checks,
+      {
+        signal: ctx.signal,
+        // The pipeline owns the disclaimer — overwrite whatever the model
+        // emitted and mark the result as a non-authoritative draft, before
+        // the verifier runs.
+        transform: (draft) => ({
+          ...draft,
+          disclaimer: ADVICE_DISCLAIMER,
+          draft: true,
+        }),
+      },
     );
+    ctx.onProgress?.({ step: "done", label: "Done" });
+    return result;
   });
 }

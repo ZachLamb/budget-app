@@ -1,7 +1,6 @@
-import { OnDeviceError } from "../errors";
 import { schemaForFeature } from "../schema";
 import { withNanoSlot } from "../session-pool";
-import { generateStructured, ground, verify, type Check } from "./steps";
+import { generateVerified, ground, type Check } from "./steps";
 import type { PipelineContext } from "./types";
 
 export interface GoalFacts {
@@ -26,11 +25,9 @@ export interface GoalResult {
   plan: GoalPlan;
 }
 
-const MAX_RETRIES = 2;
-
 /**
  * `goal_planning` on-device pipeline:
- * ground → generate(schema) → verify (retry up to MAX_RETRIES).
+ * ground → generate(schema) → verify (bounded retries).
  * The verifier rejects fabricated goal ids and arithmetic that doesn't
  * reconcile with `(target - current) / monthly_contribution` (±1 month).
  */
@@ -68,30 +65,18 @@ export async function runGoalPipeline(
       `Facts: ${JSON.stringify(facts.goals)}`;
 
     ctx.onProgress?.({ step: "generate", label: "Building a plan…" });
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      ctx.signal?.throwIfAborted?.();
-      const draft = await generateStructured<GoalResult>(ctx.provider, {
+    const result = await generateVerified<GoalResult>(
+      ctx.provider,
+      {
         system,
         prompt,
         schema: schemaForFeature("goal_planning")!,
         signal: ctx.signal,
-      });
-      try {
-        const result = verify(draft, checks);
-        ctx.onProgress?.({ step: "done", label: "Done" });
-        return result;
-      } catch {
-        if (attempt === MAX_RETRIES) {
-          throw new OnDeviceError(
-            "verify_failed",
-            "Could not produce a valid goal plan.",
-          );
-        }
-      }
-    }
-    throw new OnDeviceError(
-      "verify_failed",
-      "Could not produce a valid goal plan.",
+      },
+      checks,
+      { signal: ctx.signal },
     );
+    ctx.onProgress?.({ step: "done", label: "Done" });
+    return result;
   });
 }

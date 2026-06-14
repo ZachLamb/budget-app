@@ -72,6 +72,48 @@ export function verify<T>(result: T, checks: Check<T>[]): T {
   return result;
 }
 
+export interface GenerateVerifiedOptions<T> {
+  /** Total attempts = retries + 1. Default 2 (i.e. 3 attempts). */
+  retries?: number;
+  signal?: AbortSignal;
+  /** Post-process the parsed draft before verification (e.g. force fields). */
+  transform?: (draft: T) => T;
+}
+
+/**
+ * generate → (transform) → verify with bounded retries. Retries on BOTH
+ * malformed output (`schema_parse_failed`) and failed verification
+ * (`verify_failed`) so a transient bad generation is given another chance.
+ * Aborts propagate immediately. After the last attempt the most recent
+ * `OnDeviceError` is rethrown so the caller sees the real cause.
+ */
+export async function generateVerified<T>(
+  provider: LLMProvider,
+  spec: GenerateStructuredSpec,
+  checks: Check<T>[],
+  opts: GenerateVerifiedOptions<T> = {},
+): Promise<T> {
+  const retries = opts.retries ?? 2;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (opts.signal?.aborted) {
+      throw new OnDeviceError("aborted", "Cancelled.");
+    }
+    try {
+      const generated = (await generateStructured<T>(provider, spec)) as T;
+      const draft = opts.transform ? opts.transform(generated) : generated;
+      return verify(draft, checks);
+    } catch (e) {
+      if (opts.signal?.aborted) {
+        throw new OnDeviceError("aborted", "Cancelled.");
+      }
+      lastErr = e;
+    }
+  }
+  if (lastErr instanceof OnDeviceError) throw lastErr;
+  throw new OnDeviceError("verify_failed", "Result failed verification.");
+}
+
 /**
  * Reflexion pass. Returns the critiqued draft as a CANDIDATE only — the caller
  * accepts it solely if it passes `verify`; otherwise it keeps the original.

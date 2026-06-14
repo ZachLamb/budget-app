@@ -1,8 +1,7 @@
-import { OnDeviceError } from "../errors";
 import { schemaForFeature } from "../schema";
 import { withNanoSlot } from "../session-pool";
 import { summarize } from "../specialized";
-import { generateStructured, ground, verify, type Check } from "./steps";
+import { generateVerified, ground, type Check } from "./steps";
 import type { PipelineContext } from "./types";
 
 export interface ContextFacts {
@@ -37,7 +36,6 @@ export interface QaParams {
   question: string;
 }
 
-const MAX_RETRIES = 2;
 const ANSWER_CAP = 1500;
 /** Condense the grounded context first when its serialization is large. */
 const CONDENSE_THRESHOLD = 4000;
@@ -90,30 +88,18 @@ export async function runQaPipeline(
       `Facts: ${factsText}`;
 
     ctx.onProgress?.({ step: "generate", label: "Answering…" });
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      ctx.signal?.throwIfAborted?.();
-      const draft = await generateStructured<QaResult>(ctx.provider, {
+    const result = await generateVerified<QaResult>(
+      ctx.provider,
+      {
         system,
         prompt,
         schema: schemaForFeature("free_form_qa")!,
         signal: ctx.signal,
-      });
-      try {
-        const result = verify(draft, checks);
-        ctx.onProgress?.({ step: "done", label: "Done" });
-        return result;
-      } catch {
-        if (attempt === MAX_RETRIES) {
-          throw new OnDeviceError(
-            "verify_failed",
-            "Could not produce a grounded answer.",
-          );
-        }
-      }
-    }
-    throw new OnDeviceError(
-      "verify_failed",
-      "Could not produce a grounded answer.",
+      },
+      checks,
+      { signal: ctx.signal },
     );
+    ctx.onProgress?.({ step: "done", label: "Done" });
+    return result;
   });
 }
