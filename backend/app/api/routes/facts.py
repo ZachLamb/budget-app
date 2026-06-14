@@ -14,8 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.api.routes.ai import _require_ai_enabled
 from app.api.routes.goals import compute_goal_facts
-from app.schemas.facts import BudgetFacts, GoalFacts
+from app.schemas.facts import BudgetFacts, ContextFacts, GoalFacts
 from app.services.ai.budget import compute_budget_facts
+from app.services.ai.context import build_context_facts
 
 router = APIRouter()
 
@@ -36,3 +37,12 @@ async def goal_facts(
 ) -> GoalFacts:
     """Savings-goal progress facts for the household (deterministic)."""
     return GoalFacts(**await compute_goal_facts(db, household_id))
+
+
+@router.get("/context", response_model=ContextFacts)
+async def context_facts(
+    household_id: str = Depends(_require_ai_enabled),
+    db: AsyncSession = Depends(get_db),
+) -> ContextFacts:
+    """Structured financial snapshot (typed numbers/ids) for the verifier."""
+    return ContextFacts(**await build_context_facts(db, household_id))

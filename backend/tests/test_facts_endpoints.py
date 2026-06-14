@@ -319,3 +319,206 @@ async def test_goal_facts_endpoint_is_household_scoped(fixture):
     assert caller_goal.id in goal_ids
     assert other_goal.id not in goal_ids
     assert len(data["goals"]) == 1
+
+
+async def _seed_context_fixture(
+    session: AsyncSession,
+    *,
+    ai_enabled: bool = True,
+    budgeted: float = 200.0,
+    spent: float = 350.0,
+    deposit: float = 1000.0,
+) -> tuple[User, Household, Account, Category, FinancialGoal]:
+    """Seed one household with: one budget account holding a deposit minus an
+    over-budget grocery outflow (net balance), one over-budget category, and one
+    savings goal. Numbers are chosen to be exactly verifiable:
+      - account balance = deposit - spent = 1000 - 350 = 650
+      - net_worth = 650 (single asset account)
+      - recent spend Groceries = 350
+      - budget: budgeted 200 / actual 350 / remaining -150
+    """
+    household = Household(id=uuid.uuid4().hex, name="HH", ai_enabled=ai_enabled)
+    session.add(household)
+    await session.flush()
+
+    user = User(
+        id=uuid.uuid4().hex,
+        email=f"{uuid.uuid4().hex}@example.com",
+        name="Test",
+        password_hash="bcrypt-hash-not-real",
+        household_id=household.id,
+        role="owner",
+        status="approved",
+    )
+    session.add(user)
+
+    group = CategoryGroup(household_id=household.id, name="Food", sort_order=0)
+    session.add(group)
+    await session.flush()
+    cat = Category(group_id=group.id, name="Groceries", sort_order=0)
+    session.add(cat)
+    account = Account(
+        household_id=household.id,
+        name="Checking",
+        account_type="checking",
+        is_budget_account=True,
+    )
+    session.add(account)
+    await session.flush()
+
+    session.add(
+        BudgetAssignment(
+            household_id=household.id,
+            category_id=cat.id,
+            month=_current_month(),
+            assigned_amount=budgeted,
+        )
+    )
+    # Uncategorized inflow (does not affect budget actual or recent-spend).
+    session.add(
+        Transaction(
+            account_id=account.id,
+            category_id=None,
+            date=date.today(),
+            amount=deposit,
+        )
+    )
+    # Categorized outflow in the current month.
+    session.add(
+        Transaction(
+            account_id=account.id,
+            category_id=cat.id,
+            date=date.today(),
+            amount=-spent,
+        )
+    )
+    goal = FinancialGoal(
+        household_id=household.id,
+        name="Vacation",
+        goal_type="savings",
+        target_amount=Decimal("1000.00"),
+        current_amount=Decimal("250.00"),
+        monthly_contribution=Decimal("150.00"),
+    )
+    session.add(goal)
+    await session.commit()
+    return user, household, account, cat, goal
+
+
+@pytest.mark.asyncio
+async def test_build_context_facts_shape_and_real_numbers(fixture):
+    session, _engine = fixture
+    _user, household, account, cat, goal = await _seed_context_fixture(session)
+
+    from app.services.ai.context import build_context_facts
+
+    facts = await build_context_facts(session, household.id)
+
+    # Net worth is a real number (650 = 1000 deposit - 350 spent), not a string.
+    assert isinstance(facts["net_worth"], float)
+    assert facts["net_worth"] == 650.0
+
+    accounts = facts["accounts"]
+    assert len(accounts) == 1
+    acct_row = accounts[0]
+    assert acct_row["account_id"] == account.id
+    assert acct_row["name"] == "Checking"
+    assert isinstance(acct_row["balance"], float)
+    assert acct_row["balance"] == 650.0
+
+    spend = facts["recent_spend_by_category"]
+    assert len(spend) == 1
+    spend_row = spend[0]
+    assert spend_row["category_id"] == cat.id
+    assert spend_row["name"] == "Groceries"
+    assert isinstance(spend_row["amount"], float)
+    assert spend_row["amount"] == 350.0
+
+    # Budget section reuses compute_budget_facts.
+    budget = facts["budget"]
+    assert budget["month"] == _current_month()
+    assert budget["total_budgeted"] == 200.0
+    assert budget["total_actual"] == 350.0
+    assert len(budget["categories"]) == 1
+    assert budget["categories"][0]["remaining"] == -150.0
+
+    # Goals section reuses compute_goal_facts.
+    goals = facts["goals"]
+    assert len(goals) == 1
+    assert goals[0]["goal_id"] == goal.id
+    assert goals[0]["months_remaining"] == 5
+
+
+@pytest.mark.asyncio
+async def test_context_facts_endpoint_returns_structured_snapshot(fixture):
+    session, _engine = fixture
+    user, _household, account, cat, goal = await _seed_context_fixture(session)
+
+    headers = {"Authorization": f"Bearer {_token_for(user.id)}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/context", headers=headers)
+
+    assert r.status_code == 200, r.text
+    data = r.json()
+    # Structured figures, NOT a free-text blob.
+    assert isinstance(data, dict)
+    assert set(data.keys()) == {
+        "net_worth",
+        "accounts",
+        "recent_spend_by_category",
+        "budget",
+        "goals",
+    }
+    assert isinstance(data["net_worth"], (int, float)) and data["net_worth"] == 650.0
+    assert isinstance(data["accounts"], list) and len(data["accounts"]) == 1
+    assert data["accounts"][0]["account_id"] == account.id
+    assert data["accounts"][0]["balance"] == 650.0
+    assert data["recent_spend_by_category"][0]["category_id"] == cat.id
+    assert data["recent_spend_by_category"][0]["amount"] == 350.0
+    assert data["budget"]["total_actual"] == 350.0
+    assert data["goals"][0]["goal_id"] == goal.id
+
+
+@pytest.mark.asyncio
+async def test_context_facts_endpoint_is_household_scoped(fixture):
+    session, _engine = fixture
+    user, _household, account, cat, _goal = await _seed_context_fixture(session)
+    # A second household's account/category must never leak into the snapshot.
+    _other_user, _other_hh, other_account, other_cat, _other_goal = (
+        await _seed_context_fixture(session)
+    )
+
+    headers = {"Authorization": f"Bearer {_token_for(user.id)}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/context", headers=headers)
+
+    assert r.status_code == 200, r.text
+    data = r.json()
+    account_ids = {a["account_id"] for a in data["accounts"]}
+    assert account.id in account_ids
+    assert other_account.id not in account_ids
+    assert len(data["accounts"]) == 1
+    spend_cat_ids = {s["category_id"] for s in data["recent_spend_by_category"]}
+    assert cat.id in spend_cat_ids
+    assert other_cat.id not in spend_cat_ids
+
+
+@pytest.mark.asyncio
+async def test_context_facts_endpoint_requires_auth(fixture):
+    _session, _engine = fixture
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/context")
+    assert r.status_code in (401, 403), r.text
+
+
+@pytest.mark.asyncio
+async def test_context_facts_endpoint_403_when_ai_disabled(fixture):
+    session, _engine = fixture
+    user, _household, _account, _cat, _goal = await _seed_context_fixture(
+        session, ai_enabled=False
+    )
+
+    headers = {"Authorization": f"Bearer {_token_for(user.id)}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/context", headers=headers)
+    assert r.status_code == 403, r.text

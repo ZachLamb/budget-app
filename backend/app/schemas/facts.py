@@ -37,3 +37,29 @@ class GoalFact(BaseModel):
 
 class GoalFacts(BaseModel):
     goals: list[GoalFact]
+
+
+class AccountSummaryFact(BaseModel):
+    account_id: str
+    name: str
+    balance: float
+
+
+class SpendByCategoryFact(BaseModel):
+    category_id: str
+    name: str
+    amount: float
+
+
+class ContextFacts(BaseModel):
+    """Deterministic structured financial snapshot for the on-device verifier.
+
+    Typed numbers/ids only (no free-text blob). ``budget``/``goals`` reuse the
+    A1/A2 fact helpers so all fact endpoints share one source of truth.
+    """
+
+    net_worth: float
+    accounts: list[AccountSummaryFact]
+    recent_spend_by_category: list[SpendByCategoryFact]
+    budget: BudgetFacts
+    goals: list[GoalFact]
