@@ -77,3 +77,62 @@ describe("nanoProvider.generate with schema", () => {
     expect(captured?.omitResponseConstraintInput).toBe(true);
   });
 });
+
+function makeSession() {
+  return {
+    promptStreaming: () =>
+      (async function* () {
+        yield "ok";
+      })(),
+    destroy: vi.fn(),
+  };
+}
+
+async function drain(it: AsyncIterable<string>): Promise<void> {
+  const reader = it[Symbol.asyncIterator]();
+  while (!(await reader.next()).done) {
+    // consume all chunks
+  }
+}
+
+describe("nanoProvider session caching", () => {
+  it("reuses ONE session across two sequential generates with identical opts", async () => {
+    const create = vi.fn(async () => makeSession());
+    (globalThis as Record<string, unknown>).LanguageModel = {
+      availability: vi.fn().mockResolvedValue("available"),
+      create,
+    };
+    await drain(nanoProvider.generate("a", { temperature: 0.3, topK: 3 }));
+    await drain(nanoProvider.generate("b", { temperature: 0.3, topK: 3 }));
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates a NEW session and destroys the old one when temperature changes", async () => {
+    const sessions: ReturnType<typeof makeSession>[] = [];
+    const create = vi.fn(async () => {
+      const s = makeSession();
+      sessions.push(s);
+      return s;
+    });
+    (globalThis as Record<string, unknown>).LanguageModel = {
+      availability: vi.fn().mockResolvedValue("available"),
+      create,
+    };
+    await drain(nanoProvider.generate("a", { temperature: 0.3 }));
+    await drain(nanoProvider.generate("b", { temperature: 0.9 }));
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(sessions[0].destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("dedupes concurrent ensureReady() + generate() with the same key into one create", async () => {
+    const create = vi.fn(async () => makeSession());
+    (globalThis as Record<string, unknown>).LanguageModel = {
+      availability: vi.fn().mockResolvedValue("available"),
+      create,
+    };
+    const p1 = nanoProvider.ensureReady();
+    const p2 = drain(nanoProvider.generate("x"));
+    await Promise.all([p1, p2]);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+});

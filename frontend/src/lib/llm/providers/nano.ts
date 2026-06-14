@@ -34,6 +34,9 @@ function nano(): NanoNamespace | null {
 
 let cached: NanoSession | null = null;
 let cachedKey: string | null = null;
+// In-flight de-dup: concurrent calls for the same key await one `create`.
+let inflight: Promise<NanoSession> | null = null;
+let inflightKey: string | null = null;
 
 function sessionKey(system: string | undefined, temperature: number, topK: number): string {
   return `${system ?? ""}::${temperature}::${topK}`;
@@ -44,6 +47,9 @@ async function ensureSession(opts: GenerateOptions, monitor?: (p: number) => voi
   const topK = opts.topK ?? 3;
   const key = sessionKey(opts.system, temperature, topK);
   if (cached && cachedKey === key) return cached;
+  // A creation for this exact key is already running — await it instead of
+  // starting a second `create` that would orphan one of the sessions.
+  if (inflight && inflightKey === key) return inflight;
   if (cached?.destroy) {
     try {
       cached.destroy();
@@ -53,22 +59,31 @@ async function ensureSession(opts: GenerateOptions, monitor?: (p: number) => voi
   }
   const ns = nano();
   if (!ns) throw new Error("Gemini Nano (LanguageModel) is not available in this browser.");
-  const session = await ns.create({
-    initialPrompts: opts.system ? [{ role: "system", content: opts.system }] : undefined,
-    temperature,
-    topK,
-    monitor: monitor
-      ? (m: EventTarget) => {
-          m.addEventListener("downloadprogress", (e: Event) => {
-            const loaded = (e as Event & { loaded?: number }).loaded;
-            if (typeof loaded === "number") monitor(loaded);
-          });
-        }
-      : undefined,
-  });
-  cached = session;
-  cachedKey = key;
-  return session;
+  inflightKey = key;
+  inflight = (async () => {
+    const session = await ns.create({
+      initialPrompts: opts.system ? [{ role: "system", content: opts.system }] : undefined,
+      temperature,
+      topK,
+      monitor: monitor
+        ? (m: EventTarget) => {
+            m.addEventListener("downloadprogress", (e: Event) => {
+              const loaded = (e as Event & { loaded?: number }).loaded;
+              if (typeof loaded === "number") monitor(loaded);
+            });
+          }
+        : undefined,
+    });
+    cached = session;
+    cachedKey = key;
+    return session;
+  })();
+  try {
+    return await inflight;
+  } finally {
+    inflight = null;
+    inflightKey = null;
+  }
 }
 
 class NanoProvider implements LLMProvider {
@@ -106,4 +121,6 @@ export const nanoProvider: LLMProvider & {
 export function _resetNanoForTest(): void {
   cached = null;
   cachedKey = null;
+  inflight = null;
+  inflightKey = null;
 }
