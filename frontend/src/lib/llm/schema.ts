@@ -29,6 +29,10 @@ const SCHEMAS: Partial<Record<FeatureId, Record<string, unknown>>> = {
       },
     },
   },
+  // NOTE: root is a JSON array (matching `parseCategorizeSuggestions`). Some
+  // Chrome `responseConstraint` engines may not accept an array root and can
+  // reject it at generation time; `run-structured.ts` falls back to
+  // schema-less (free-text) generation in that case.
   categorize_transaction: {
     type: "array",
     items: {

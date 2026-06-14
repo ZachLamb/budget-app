@@ -75,6 +75,36 @@ describe("runStructuredJson schema wiring", () => {
     expect(recorded).toHaveLength(1);
     expect(recorded[0]?.schema).toBeUndefined();
   });
+
+  it("passes a schema for categorize_transaction then falls back schema-less when generation throws", async () => {
+    const recorded: Array<GenerateOptions | undefined> = [];
+    // Engine rejects the array-root responseConstraint by throwing on the
+    // schema'd call; yields valid JSON once the schema is omitted.
+    const provider: LLMProvider = {
+      name: "nano",
+      tier: 1,
+      privacy: "local",
+      async *generate(_prompt: string, opts?: GenerateOptions) {
+        recorded.push(opts);
+        if (opts?.schema) {
+          throw new Error("responseConstraint rejected: array root unsupported");
+        }
+        yield '[{"transaction_id":"t1","category_id":"c1"}]';
+      },
+    };
+    decideMock.mockResolvedValue({ kind: "ready", provider, tier: 1, reason: "ok" });
+
+    const res = await runStructuredJson("categorize_transaction", fakeCtx, {
+      system: "sys",
+      prompt: "prompt",
+    });
+
+    expect(res.tier).toBe(1);
+    expect(recorded).toHaveLength(2);
+    expect(recorded[0]?.schema).toBeDefined();
+    expect(recorded[1]?.schema).toBeUndefined();
+    expect(res.data).toEqual([{ transaction_id: "t1", category_id: "c1" }]);
+  });
 });
 
 describe("contracts parsers", () => {

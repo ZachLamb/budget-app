@@ -51,10 +51,13 @@ async function generateStructuredOnce(
   provider: LLMProvider,
   feature: FeatureId,
   opts: RunStructuredOptions,
+  forceNoSchema = false,
 ): Promise<string> {
   // Schema-constrained output is Nano-only (tier 1 → `responseConstraint`).
   // Tier 2 (web-llm) stays on the free-text + parseJsonResponse retry path.
-  const schema = provider.tier === 1 ? schemaForFeature(feature) : undefined;
+  // `forceNoSchema` lets callers fall back to free-text when the engine
+  // rejects the schema at generation time.
+  const schema = !forceNoSchema && provider.tier === 1 ? schemaForFeature(feature) : undefined;
   return collectStream(provider, opts.prompt, {
     system: opts.system,
     maxTokens: opts.maxTokens ?? 2048,
@@ -86,12 +89,28 @@ export async function runStructuredJson<T extends FsaStructuredResult | Categori
   }
 
   const tryParse = async (provider: LLMProvider): Promise<T> => {
-    let text = await generateStructuredOnce(provider, feature, opts);
+    // Schema-constrained generation can be REJECTED by the engine at
+    // generation time (e.g. Chrome's responseConstraint refusing an
+    // array-root schema for `categorize_transaction`). When a schema was in
+    // play and generation throws, retry once schema-less (free-text) so the
+    // feature degrades gracefully instead of hard-failing.
+    const usedSchema = provider.tier === 1 && schemaForFeature(feature) !== undefined;
+    const generate = async (genOpts: RunStructuredOptions): Promise<string> => {
+      try {
+        return await generateStructuredOnce(provider, feature, genOpts);
+      } catch (genErr) {
+        if (opts.signal?.aborted) throw genErr;
+        if (!usedSchema) throw genErr;
+        return generateStructuredOnce(provider, feature, genOpts, true);
+      }
+    };
+
+    let text = await generate(opts);
     try {
       return parseForFeature(feature, parseJsonResponse(text)) as T;
     } catch (first) {
       if (opts.signal?.aborted) throw first;
-      text = await generateStructuredOnce(provider, feature, {
+      text = await generate({
         ...opts,
         prompt: opts.prompt + JSON_NUDGE,
       });
