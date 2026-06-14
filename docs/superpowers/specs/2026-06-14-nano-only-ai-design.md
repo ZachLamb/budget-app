@@ -31,7 +31,6 @@ The Prompt API graduated from origin trial to **stable for general web pages in 
 - **Offline-first / fully client-side grounding.** Facts are still computed server-side (rejected Approach 2). Not an offline app.
 - **A generic declarative pipeline engine.** Pipelines are concrete per-feature functions sharing helpers (rejected Approach 3; revisit only if features proliferate — rule of three).
 - **Third-party hosted model APIs** (Gemini cloud, OpenAI, Anthropic, etc.). Fail closed; no content to third parties.
-- **Specialized Chrome AI APIs** (Writer / Rewriter / Proofreader) in v1 — still origin-trial; deferred to a later enhancement. Summarizer may be used opportunistically but is not required.
 - **Tier 3 (WASM CPU).** Remains unimplemented.
 
 ## Decisions (locked)
@@ -42,6 +41,7 @@ The Prompt API graduated from origin trial to **stable for general web pages in 
 - **D4** — Heavy features get full pipelines: grounding + decomposition + self-critique + deterministic verification. (Self-consistency voting is a Phase 3 refinement — see Risks.)
 - **D5** — Architecture: extend the existing "backend computes facts → client runs the model" pattern (already used by categorize/FSA). Pragmatic per-feature pipelines + shared step helpers, not a generic engine.
 - **D6** — *Phase the cloud deletion after the replacement exists* (avoids a broken window), and *the heavy pipelines are Nano-only in v1* (web-llm stays for the light features only). See Phasing.
+- **D7** — *Specialized Chrome AI APIs are in v1*, used opportunistically inside the Nano pipelines: **Summarizer** (stable, Chrome 138 — no token), and **Writer / Rewriter / Proofreader** (joint/Proofreader origin trials through Chrome 148 — require a per-origin trial token). All four are **capability-detected and optional**: every step that can use a specialized API must fall back to the **Prompt API** when the API or its token is absent. They are **Nano-side only** (the Writing Assistance + Proofreader APIs are not available in Web Workers, so web-llm cannot use them) — a third reason the heavy pipelines are Nano-only in v1.
 
 ## End-state architecture
 
@@ -79,6 +79,7 @@ pipelines/
   types.ts      # PipelineContext, StepResult, progress + cancellation
 session-pool.ts # Nano clone() pool w/ concurrency cap; web-llm via existing engine lock
 schema.ts       # per-feature JSON schemas + provider-aware structured generate
+specialized.ts  # capability-detected Summarizer/Writer/Rewriter/Proofreader wrappers (+ Prompt-API fallback)
 errors.ts       # on-device error taxonomy
 ```
 
@@ -89,7 +90,8 @@ errors.ts       # on-device error taxonomy
 - `decompose(facts)` — split a heavy task into narrow sub-prompts (e.g., one per over-budget category) each within Nano's context window.
 - `critique(provider, draft, rules, facts)` — reflexion pass. **The verifier, not the critique, decides:** a revision is accepted only if it passes `verify`; otherwise the original is kept (small-model critique can regress correct answers).
 - `verify(result, checks)` — deterministic validation in code: numbers reconcile against the grounded facts, cited transactions/categories exist, suggested amounts fall within the actual budget, output matches the schema and length caps. On failure: regenerate up to a small bound, then surface a clean error.
-- `compose(parts)` — assemble the final user-facing output from verified parts.
+- `compose(parts)` — assemble the final user-facing output from verified parts. **May use the Writer/Rewriter API** (via `specialized.ts`) to phrase/tighten the prose when available; falls back to a Prompt-API generate when the API or its origin-trial token is absent. Composed prose is still run through `verify` (numbers/refs unchanged).
+- **Specialized-API helpers (`specialized.ts`)** — thin, capability-detected wrappers: `summarize()` (Summarizer, stable), `write()`/`rewrite()` (Writer/Rewriter, origin-trial token), `proofread()` (Proofreader, origin-trial token). Each exposes `isAvailable()` and **always has a Prompt-API fallback** so a missing token never breaks a feature. `summarize` is used opportunistically in `qa`/`advice` to condense grounded facts that approach the context budget; `proofread` is an optional final polish on composed prose (never alters numbers — re-`verify` after). Origin-trial tokens are injected via a `<meta http-equiv="origin-trial">` tag (see Frontend changes); none of these run in the web-llm worker.
 - `selfConsistency(provider, spec, n, temperature)` — **Phase 3.** Runs N samples via the clone pool at *raised* temperature, reconciling only **discrete** sub-decisions (extraction/classification), never prose.
 
 **Concurrency model (provider-aware):**
@@ -122,7 +124,8 @@ errors.ts       # on-device error taxonomy
 - **[features.ts](../../../frontend/src/lib/llm/features.ts):** every feature → `allowedTiers: [1, 2]` for the light five, `[1]` for the heavy four (Nano-only in v1); `defaultTier: 1`, `minimumTier: 1`; drop `cloudPossible`.
 - **[router.ts](../../../frontend/src/lib/llm/router.ts):** drop the Tier-4 branch, `cloudConsentGrants`, `needs_cloud_consent`, and `preferredTierByFeature` (meaningless with two tiers). Add a **`needs_nano_setup`** decision when Nano reports `"downloadable"`, so we never silently kick off Chrome's model fetch (the hang fix). Decisions become: `ready` | `needs_nano_setup` | `needs_download_consent` (web-llm) | `unavailable`.
 - **[nano.ts](../../../frontend/src/lib/llm/providers/nano.ts):** add an awaited `ensureReady()` that wires the `create()` `monitor` hook for download progress and surfaces errors; add a `schema` option → `responseConstraint`; set `temperature`+`topK` together per call (raised temp only for sampling steps). Triggering download requires user activation — only call from an explicit user action.
-- **[capability.ts](../../../frontend/src/lib/llm/capability.ts):** keep nano + webgpu probes; remove the `server` field. Re-probe (force) on Nano download progress/complete so the UI updates from downloadable → downloading → available.
+- **[capability.ts](../../../frontend/src/lib/llm/capability.ts):** keep nano + webgpu probes; remove the `server` field; **add a `specialized` field** probing `Summarizer`/`Writer`/`Rewriter`/`Proofreader` availability (each `boolean`, all default `false` and never block a feature). Re-probe (force) on Nano download progress/complete so the UI updates from downloadable → downloading → available.
+- **Origin-trial token:** Writer/Rewriter/Proofreader require a per-origin trial token. Inject it via a `<meta http-equiv="origin-trial" content="…">` tag in the app `<head>` ([layout.tsx](../../../frontend/src/app/layout.tsx)), sourced from a **public build-time env var** (`NEXT_PUBLIC_CHROME_AI_OT_TOKEN`) so it is documented by *name* only and absent in environments that don't have one. When the env var is unset, the meta tag is omitted, `specialized.*.isAvailable()` returns `false`, and pipelines use the Prompt-API fallback. (Summarizer is stable and needs no token.)
 - **[useLlm.ts](../../../frontend/src/lib/llm/useLlm.ts):** drop the server provider and the cloud-consent grants query.
 - **[run-structured.ts](../../../frontend/src/lib/llm/run-structured.ts):** use schema-constrained generation on Nano; drop the Tier-4 escape hatch; keep batching (tuned for Nano).
 - **Demo mode:** extend `demoStructuredResult` ([contracts.ts](../../../frontend/src/lib/llm/contracts.ts)) to cover the four heavy pipelines so demo mode keeps returning canned results without a model.
@@ -145,7 +148,7 @@ errors.ts       # on-device error taxonomy
 - **Don't regress authz.** The new fact endpoints return the user's financial aggregates — they need the **same ownership/household checks at the route layer** as any data endpoint, plus request validation and length caps. "It's just facts" is not a reason to weaken authorization.
 - **Rate-limit the fact endpoints** (DB cost). The per-model-call rate limiters are removed; the data-endpoint limiters stay/extend.
 - **Treat model output as untrusted:** schema-validate, length-cap (the contracts already slice strings — keep that), never render as HTML, never use for authorization.
-- **Secrets/config hygiene:** remove `OLLAMA_*`/Modal secrets from env and `.env.example`; trim cloud-model origins from CSP `connect-src` (keep `*.hf.co` for web-llm weights).
+- **Secrets/config hygiene:** remove `OLLAMA_*`/Modal secrets from env and `.env.example`; trim cloud-model origins from CSP `connect-src` (keep `*.hf.co` for web-llm weights). The Chrome AI origin-trial token (`NEXT_PUBLIC_CHROME_AI_OT_TOKEN`) is **not a secret** — it is an origin-bound public token embedded in the HTML; document it by name in `.env.example` with an empty default. Specialized APIs run fully on-device, so they add **no** `connect-src` origins.
 
 ## Error taxonomy (replaces the cloud-flavored `LLMError`)
 
@@ -174,20 +177,20 @@ errors.ts       # on-device error taxonomy
 ## Phasing
 
 **Phase 1 — Fix the foundation (cloud untouched).**
-Real Nano setup/progress/error UX + `needs_nano_setup`; schema-constrained output for the light features; simplify the light-feature UX and the settings card; hide tier labels. *Outcome:* the light features actually work on Nano and the UX is clean. The cloud tier still backs the heavy four during this phase — **no broken window.**
+Real Nano setup/progress/error UX + `needs_nano_setup`; schema-constrained output for the light features; the `specialized` capability probes + the origin-trial-token meta tag wiring (so the helpers exist and report availability, even before any pipeline uses them); simplify the light-feature UX and the settings card; hide tier labels. *Outcome:* the light features actually work on Nano and the UX is clean. The cloud tier still backs the heavy four during this phase — **no broken window.**
 
-**Phase 2 — Pipelines + remove the cloud.**
-Build `session-pool`, `schema`, `errors`, the shared steps, and the four heavy Nano pipelines (ground → decompose → generate(schema) → critique → verify → compose), sequential. Validate against the eval fixtures. **Then** delete the cloud tier end-to-end (frontend `server.ts`, backend model plumbing, Modal/Ollama, consent UI/flow, PII). Add per-feature kill switches.
+**Phase 2 — Pipelines (with specialized APIs) + remove the cloud.**
+Build `session-pool`, `schema`, `specialized`, `errors`, the shared steps, and the four heavy Nano pipelines (ground → decompose → generate(schema) → critique → verify → compose), sequential. Wire the specialized APIs into the steps that benefit (Summarizer for fact condensation, Writer/Rewriter for `compose`, optional Proofreader polish), each with a Prompt-API fallback. Validate against the eval fixtures. **Then** delete the cloud tier end-to-end (frontend `server.ts`, backend model plumbing, Modal/Ollama, consent UI/flow, PII). Add per-feature kill switches.
 
 **Phase 3 — Polish.**
-`clone()` parallelism where latency demands; self-consistency on discrete sub-decisions; optional Summarizer (and, behind an origin-trial token, Writer/Rewriter/Proofreader); caching by input-hash; quality measurement + keep/cut calls on weak features; the deferred consent-table drop migration.
+`clone()` parallelism where latency demands; self-consistency on discrete sub-decisions; caching by input-hash; quality measurement + keep/cut calls on weak features; the deferred consent-table drop migration.
 
 ## Risks & open questions
 
 - **Nano quality ceiling on the heavy four**, even with pipelines. Mitigations: facts-in-code grounding, the deterministic verifier, "draft" framing, per-feature kill switch, and the eval harness to decide keep/cut. `financial_advice` is the riskiest — candidate for the most conservative verifier and the strongest disclaimer, or being cut if it can't be made reliable.
 - **Multi-pass latency** on-device (seconds). Mitigations: sequential-first then targeted parallelism, capped self-consistency, step-progress UX, input-hash caching.
 - **Audience shrink:** AI now needs Chrome/Edge desktop (heavy four) or a WebGPU download (light five). iOS/Safari/Firefox get the light features via download or nothing for the heavy four. Accepted consequence of going on-device only.
-- **Chrome API churn:** Prompt API is stable (148); specialized APIs are origin-trial — capability-detect, and they're out of v1 scope.
+- **Chrome API churn:** Prompt API and Summarizer are stable (148/138); Writer/Rewriter/Proofreader are origin-trial (joint trial through Chrome 148) and **subject to change**. Mitigation: they are strictly **opportunistic** — capability-detected with a Prompt-API fallback on every path, gated behind a token env var, and **not available in Web Workers** (web-llm can't use them). If a trial ends or the API shape changes, the token meta tag is dropped and pipelines silently fall back to the Prompt API with no feature loss.
 
 ## Eval / quality measurement
 
