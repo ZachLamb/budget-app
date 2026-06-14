@@ -96,9 +96,15 @@ export function AiSettingsCard() {
     setSetupLoading(true);
     try {
       await gate.ensureLocalSetup("categorize_transaction");
+      // Re-probe capability so a completed Nano download flips the status
+      // block "downloadable/downloading" → "available" without a remount.
+      const nextCap = await getCapability(true);
+      setCap(nextCap);
       await refreshDownloadStatus(true);
       const status = await getModelDownloadStatus(true);
-      if (status.kind === "downloaded") {
+      if (nextCap.nano.status === "available") {
+        appToast.success("On-device AI is ready");
+      } else if (status.kind === "downloaded") {
         appToast.success("On-device AI model is ready");
       }
     } catch {

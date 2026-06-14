@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AiSettingsCard } from "./ai-settings-card";
 
@@ -87,5 +87,29 @@ describe("AiSettingsCard — Nano status", () => {
     expect(
       await screen.findByText(/chrome or edge on desktop/i),
     ).toBeInTheDocument();
+  });
+
+  it("flips to 'On-device AI ready' after setup re-probes capability", async () => {
+    // Initial mount probe: Nano is downloadable (needs setup). The forced
+    // re-probe after setup completes reports it available.
+    vi.mocked(getCapability)
+      .mockResolvedValueOnce({
+        ...base,
+        nano: { available: true, status: "downloadable" },
+      } as never)
+      .mockResolvedValue({
+        ...base,
+        nano: { available: true, status: "available" },
+      } as never);
+
+    renderCard();
+
+    const setupBtn = await screen.findByRole("button", {
+      name: /set up on-device ai/i,
+    });
+    fireEvent.click(setupBtn);
+
+    expect(ensureLocalSetup).toHaveBeenCalled();
+    expect(await screen.findByText(/on-device ai ready/i)).toBeInTheDocument();
   });
 });
