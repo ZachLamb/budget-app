@@ -92,6 +92,16 @@ const SCHEMAS: Partial<Record<FeatureId, Record<string, unknown>>> = {
       cited_facts: { type: "array", items: { type: "string" } },
     },
   },
+  financial_advice: {
+    type: "object",
+    required: ["advice", "basis", "disclaimer"],
+    additionalProperties: false,
+    properties: {
+      advice: { type: "string" },
+      basis: { type: "array", items: { type: "string" } },
+      disclaimer: { type: "string" },
+    },
+  },
 };
 
 export function schemaForFeature(feature: FeatureId): Record<string, unknown> | undefined {
