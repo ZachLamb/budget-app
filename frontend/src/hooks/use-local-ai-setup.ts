@@ -136,7 +136,7 @@ export function useLocalAiSetup(): UseLocalAiSetup {
   }, [open, step, verifyStatus, downloadError, runVerification]);
 
   const ensureReady = useCallback(
-    async (_feature: FeatureId): Promise<void> => {
+    async (): Promise<void> => {
       if (isDemoMode) return;
 
       const status = await getModelDownloadStatus(true);

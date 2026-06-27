@@ -113,14 +113,3 @@ export async function generateVerified<T>(
   if (lastErr instanceof OnDeviceError) throw lastErr;
   throw new OnDeviceError("verify_failed", "Result failed verification.");
 }
-
-/**
- * Reflexion pass. Returns the critiqued draft as a CANDIDATE only — the caller
- * accepts it solely if it passes `verify`; otherwise it keeps the original.
- */
-export async function critique<T>(
-  provider: LLMProvider,
-  spec: GenerateStructuredSpec,
-): Promise<T> {
-  return generateStructured<T>(provider, spec);
-}

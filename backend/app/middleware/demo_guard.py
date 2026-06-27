@@ -12,6 +12,10 @@ from starlette.responses import Response
 _DEMO_AUTH_PREFIXES = (
     "/api/auth/demo-login",
     "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/register",
+    "/api/auth/passkey/",
+    "/api/auth/magic-link/",
     "/api/auth/google/exchange",
 )
 
