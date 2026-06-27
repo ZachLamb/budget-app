@@ -4,11 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
 const prepareFeatureMock = vi.fn();
-const decideMock = vi.fn();
 const getContextMock = vi.fn();
-const suggestCategoriesMock = vi.fn();
 const getCategorizeCandidatesMock = vi.fn();
-const scanPromptMock = vi.fn();
 
 vi.mock("@/lib/llm/ai-feature-gate", () => ({
   useAiFeatureGate: () => ({
@@ -18,23 +15,19 @@ vi.mock("@/lib/llm/ai-feature-gate", () => ({
 
 vi.mock("@/lib/llm/useLlm", () => ({
   useLlm: () => ({
-    decide: decideMock,
     getContext: getContextMock,
     capability: null,
     run: vi.fn(),
     refresh: vi.fn(),
+    decide: vi.fn(),
+    runFeature: vi.fn(),
   }),
 }));
 
 vi.mock("@/lib/api/reports", () => ({
   reportsApi: {
-    suggestCategories: (...args: unknown[]) => suggestCategoriesMock(...args),
     getCategorizeCandidates: (...args: unknown[]) => getCategorizeCandidatesMock(...args),
   },
-}));
-
-vi.mock("@/lib/llm/pii-detect", () => ({
-  scanPrompt: (...args: unknown[]) => scanPromptMock(...args),
 }));
 
 vi.mock("@/lib/demo-mode", () => ({ isDemoMode: false }));
@@ -60,16 +53,12 @@ function wrap({ children }: { children: React.ReactNode }) {
 beforeEach(() => {
   prepareFeatureMock.mockReset();
   prepareFeatureMock.mockResolvedValue({ ok: true });
-  decideMock.mockReset();
   getContextMock.mockReset();
-  suggestCategoriesMock.mockReset();
   getCategorizeCandidatesMock.mockReset();
-  scanPromptMock.mockReset();
-  scanPromptMock.mockReturnValue({ flags: [], matchedText: {} });
 });
 
 describe("useCategorizeSuggestions – suggest() error routing", () => {
-  it("propagates consent errors from suggestLocal instead of falling back to cloud", async () => {
+  it("propagates setup/unavailable errors without a cloud fallback", async () => {
     prepareFeatureMock.mockResolvedValue({
       ok: false,
       reason: "cancelled",
@@ -81,33 +70,15 @@ describe("useCategorizeSuggestions – suggest() error routing", () => {
     await expect(
       act(() => result.current.suggest()),
     ).rejects.toThrow(/consent|download|cancelled/i);
-
-    expect(suggestCategoriesMock).not.toHaveBeenCalled();
   });
 
-  it("falls back to cloud on non-consent runtime errors", async () => {
+  it("surfaces local inference failures", async () => {
     getCategorizeCandidatesMock.mockRejectedValue(new Error("inference failed"));
-
-    scanPromptMock.mockReturnValue({ flags: [], matchedText: {} });
-
-    const cloudData = [
-      {
-        transaction_id: "t1",
-        suggested_category_id: "c1",
-        payee_name: "Store",
-        category_name: "Groceries",
-      },
-    ];
-    suggestCategoriesMock.mockResolvedValue({ suggestions: cloudData });
 
     const { result } = renderHook(() => useCategorizeSuggestions(), { wrapper: wrap });
 
-    let suggestions: unknown;
-    await act(async () => {
-      suggestions = await result.current.suggest();
-    });
-
-    expect(suggestions).toEqual(cloudData);
-    expect(suggestCategoriesMock).toHaveBeenCalled();
+    await expect(
+      act(() => result.current.suggest()),
+    ).rejects.toThrow(/inference failed/i);
   });
 });

@@ -1,0 +1,35 @@
+export type OnDeviceErrorCode =
+  | "no_model"
+  | "download_failed"
+  | "session_create_failed"
+  | "context_overflow"
+  | "schema_parse_failed"
+  | "verify_failed"
+  | "aborted";
+
+export class OnDeviceError extends Error {
+  constructor(
+    readonly code: OnDeviceErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "OnDeviceError";
+  }
+}
+
+const MESSAGES: Record<OnDeviceErrorCode, string> = {
+  no_model: "On-device AI needs Chrome or Edge on desktop.",
+  download_failed: "Couldn't finish setting up on-device AI. Try again.",
+  session_create_failed: "On-device AI couldn't start. Try again.",
+  context_overflow:
+    "There was too much to analyze at once. Try a narrower question.",
+  schema_parse_failed: "The result came back malformed. Try again.",
+  verify_failed:
+    "We couldn't check the result against your numbers. Try again.",
+  aborted: "Cancelled.",
+};
+
+export function userMessageFor(e: unknown): string {
+  if (e instanceof OnDeviceError) return MESSAGES[e.code];
+  return "Something went wrong. Try again.";
+}

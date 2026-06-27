@@ -23,31 +23,7 @@ class Settings(BaseSettings):
     webauthn_rp_name: str = "Budget App"
     webauthn_debug: bool = False  # if True, GET /api/auth/passkey/debug is enabled
 
-    # Tier 4 LLM backend. Speaks the OpenAI-compatible /v1/chat/completions
-    # API. In dev this is local Ollama (which serves /v1 alongside its native
-    # API); in prod it's the Modal-hosted vLLM endpoint.
-    #
-    # ``LLM_BACKEND_URL`` is the canonical name. ``OLLAMA_URL`` is kept as an
-    # alias so existing dev .env files don't have to change. Same for the
-    # model name and (optional) API key.
-    #
-    # ``llm_backend_api_key`` is empty in dev (Ollama doesn't require auth);
-    # in prod it must match the ``VLLM_API_KEY`` Modal Secret value so the
-    # FastAPI proxy can authenticate to vLLM.
-    ollama_url: str = Field(
-        default="http://ollama:11434",
-        validation_alias=AliasChoices("LLM_BACKEND_URL", "OLLAMA_URL"),
-    )
-    ollama_model: str = Field(
-        default="qwen2.5:7b",
-        validation_alias=AliasChoices("LLM_BACKEND_MODEL", "OLLAMA_MODEL"),
-    )
-    llm_backend_api_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("LLM_BACKEND_API_KEY"),
-    )
-
-    # Demo mode: seeds fake data, mocks AI, enables read-only guard
+    # Demo mode: seeds fake data, enables read-only guard
     demo_mode: bool = False
 
     # Comma-separated allowlist of IPs/CIDRs that are trusted to set
@@ -76,9 +52,7 @@ class Settings(BaseSettings):
     )
 
     # Per-household cap on AI route calls per rolling 60s window (0 = disabled).
-    # Complements the IP-keyed HTTP-middleware limit above: this one is
-    # service-layer, keyed on household_id, and protects against a single
-    # household's Ollama bill regardless of the source IP.
+    # Reserved for future server-side AI routes; on-device inference does not use this.
     ai_rate_limit_per_minute: int = 120
 
     # Fly.io API token for the Hosting health card. Read-only-ish PAT or

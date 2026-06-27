@@ -1,8 +1,11 @@
 /**
- * Feature → tier policy. Each AI feature declares which tiers it's *allowed* to run on,
- * which tier is its *default*, and which tier is the *minimum* it'll work usefully on.
+ * Feature → tier policy. Each AI feature declares which tiers it's *allowed* to
+ * run on, which tier is its *default*, and which tier is the *minimum* it'll
+ * work usefully on.
  *
- * Default principle: most-private tier that handles the task. Cloud is upgrade, not default.
+ * On-device only: Tier 1 (Chrome Nano) is the default and minimum for every
+ * feature. Light features may also run on Tier 2 (web-llm); heavy pipelines
+ * are Nano-only in v1.
  */
 
 import type { Tier } from "./types";
@@ -29,86 +32,85 @@ export interface FeaturePolicy {
   minimumTier: Tier;
   /** Tier preferred when more than one in `allowedTiers` is available. */
   defaultTier: Tier;
-  /** True when this feature can require Tier 4 (cloud) opt-in. */
-  cloudPossible: boolean;
+  /** Per-feature kill switch. When false the feature is treated as unavailable. */
+  enabled: boolean;
 }
+
+const LIGHT_TIERS: Tier[] = [1, 2];
+const HEAVY_TIERS: Tier[] = [1];
 
 const FEATURES: Record<FeatureId, FeaturePolicy> = {
   explain_charge: {
     id: "explain_charge",
     label: "Explain a charge",
-    allowedTiers: [1, 2, 4],
+    allowedTiers: LIGHT_TIERS,
     minimumTier: 1,
     defaultTier: 1,
-    cloudPossible: true,
+    enabled: true,
   },
   categorize_transaction: {
     id: "categorize_transaction",
     label: "Categorize transaction",
-    // Sensitive — prefer local. Cloud only on explicit user override.
-    allowedTiers: [1, 2, 4],
+    allowedTiers: LIGHT_TIERS,
     minimumTier: 1,
-    defaultTier: 2,
-    cloudPossible: true,
+    defaultTier: 1,
+    enabled: true,
   },
   spending_summary: {
     id: "spending_summary",
     label: "Spending summary",
-    allowedTiers: [1, 2, 4],
+    allowedTiers: LIGHT_TIERS,
     minimumTier: 1,
     defaultTier: 1,
-    cloudPossible: true,
+    enabled: true,
   },
   anomaly_explanation: {
     id: "anomaly_explanation",
     label: "Anomaly explanation",
-    allowedTiers: [1, 2, 4],
+    allowedTiers: LIGHT_TIERS,
     minimumTier: 1,
     defaultTier: 1,
-    cloudPossible: true,
+    enabled: true,
   },
   budget_recommendations: {
     id: "budget_recommendations",
     label: "Budget recommendations",
-    // Needs reasoning the 3B can't handle reliably — cloud preferred.
-    allowedTiers: [4],
-    minimumTier: 4,
-    defaultTier: 4,
-    cloudPossible: true,
+    allowedTiers: HEAVY_TIERS,
+    minimumTier: 1,
+    defaultTier: 1,
+    enabled: true,
   },
   goal_planning: {
     id: "goal_planning",
     label: "Goal planning",
-    allowedTiers: [4],
-    minimumTier: 4,
-    defaultTier: 4,
-    cloudPossible: true,
+    allowedTiers: HEAVY_TIERS,
+    minimumTier: 1,
+    defaultTier: 1,
+    enabled: true,
   },
   free_form_qa: {
     id: "free_form_qa",
     label: "Free-form Q&A",
-    // Quality bar too high for 3B — cloud only.
-    allowedTiers: [4],
-    minimumTier: 4,
-    defaultTier: 4,
-    cloudPossible: true,
+    allowedTiers: HEAVY_TIERS,
+    minimumTier: 1,
+    defaultTier: 1,
+    enabled: true,
   },
   financial_advice: {
     id: "financial_advice",
     label: "Financial advice",
-    // Liability — explicit per-call consent on top of cloud opt-in.
-    allowedTiers: [4],
-    minimumTier: 4,
-    defaultTier: 4,
-    cloudPossible: true,
+    allowedTiers: HEAVY_TIERS,
+    minimumTier: 1,
+    defaultTier: 1,
+    enabled: true,
   },
   fsa_review: {
     id: "fsa_review",
     label: "FSA reimbursement review",
-    allowedTiers: [1, 2, 4],
+    allowedTiers: LIGHT_TIERS,
     minimumTier: 1,
-    defaultTier: 2,
-    cloudPossible: true,
+    defaultTier: 1,
+    enabled: true,
   },
 };
 

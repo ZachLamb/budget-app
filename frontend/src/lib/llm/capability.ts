@@ -18,8 +18,28 @@ function emptySnapshot(): CapabilitySnapshot {
   return {
     nano: { available: false, status: "unsupported" },
     webgpu: { available: false, modelSize: "none" },
-    server: { available: true },
+    specialized: { summarizer: false, writer: false, rewriter: false, proofreader: false },
   };
+}
+
+async function probeOne(name: "Summarizer" | "Writer" | "Rewriter" | "Proofreader"): Promise<boolean> {
+  const api = (globalThis as unknown as Record<string, { availability?: () => Promise<string> }>)[name];
+  if (!api || typeof api.availability !== "function") return false;
+  try {
+    return (await api.availability()) === "available";
+  } catch {
+    return false;
+  }
+}
+
+async function probeSpecialized(): Promise<CapabilitySnapshot["specialized"]> {
+  const [summarizer, writer, rewriter, proofreader] = await Promise.all([
+    probeOne("Summarizer"),
+    probeOne("Writer"),
+    probeOne("Rewriter"),
+    probeOne("Proofreader"),
+  ]);
+  return { summarizer, writer, rewriter, proofreader };
 }
 
 async function probeNano(): Promise<CapabilitySnapshot["nano"]> {
@@ -91,11 +111,11 @@ export async function getCapability(force = false): Promise<CapabilitySnapshot> 
   if (inflight && !force) return inflight;
 
   inflight = (async () => {
-    const [nano, webgpu] = await Promise.all([probeNano(), probeWebGPU()]);
+    const [nano, webgpu, specialized] = await Promise.all([probeNano(), probeWebGPU(), probeSpecialized()]);
     const snapshot: CapabilitySnapshot = {
       nano,
       webgpu,
-      server: { available: true },
+      specialized,
     };
     cached = snapshot;
     inflight = null;

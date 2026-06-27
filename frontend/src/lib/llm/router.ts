@@ -3,7 +3,7 @@
  *
  * The router never throws for "user hasn't opted in yet" — it returns a
  * structured `Decision` so callers can show the right UX (download prompt,
- * cloud consent dialog, or unavailable message).
+ * Nano setup, or unavailable message).
  */
 
 import type { CapabilitySnapshot, LLMProvider, Tier } from "./types";
@@ -21,27 +21,26 @@ export type Decision =
     }
   | {
       kind: "needs_consent";
-      tier: Tier;
-      reason: "needs_download_consent" | "needs_cloud_consent";
+      tier: 2;
+      reason: "needs_download_consent";
       /** Description for the UI. */
       message: string;
     }
   | {
+      kind: "needs_nano_setup";
+      tier: 1;
+      reason: "needs_nano_setup";
+      message: string;
+    }
+  | {
       kind: "unavailable";
-      reason: "unavailable_no_capable_tier" | "ai_disabled_globally";
+      reason: "unavailable_no_capable_tier" | "ai_disabled_globally" | "feature_disabled";
       message: string;
     };
 
 export interface RouterContext {
   /** Whether the user has globally enabled AI features (settings.ai_enabled). */
   aiEnabledGlobally: boolean;
-  /** Per-feature cloud consent grants from the server. */
-  cloudConsentGrants: ReadonlySet<FeatureId>;
-  /**
-   * Optional override — force a specific tier when allowed by policy.
-   * Set by the user in settings (e.g., "always cloud for explain_charge").
-   */
-  preferredTierByFeature?: Partial<Record<FeatureId, Tier>>;
   /**
    * Pre-built provider factories. Keep this in the router so we can
    * lazy-load Tier 2 (web-llm pulls in a large worker bundle).
@@ -49,7 +48,6 @@ export interface RouterContext {
   providers: {
     nano: () => Promise<LLMProvider>;
     webLlm: () => Promise<LLMProvider>;
-    server: () => Promise<LLMProvider>;
   };
 }
 
@@ -58,7 +56,6 @@ function capableTiers(cap: CapabilitySnapshot): Set<Tier> {
   const out = new Set<Tier>();
   if (cap.nano.available) out.add(1);
   if (cap.webgpu.available && cap.webgpu.modelSize !== "none") out.add(2);
-  if (cap.server.available) out.add(4);
   return out;
 }
 
@@ -66,13 +63,11 @@ function capableTiers(cap: CapabilitySnapshot): Set<Tier> {
  * Pick the tier we'd *prefer* for this feature given capability + policy.
  * Doesn't consider consent — that's the next step.
  */
-function pickTier(policy: FeaturePolicy, capable: Set<Tier>, override?: Tier): Tier | null {
-  // Explicit user override wins as long as it's allowed and capable.
-  if (override && policy.allowedTiers.includes(override) && capable.has(override)) {
-    return override;
-  }
-  // Try default first, then walk allowed tiers from lowest (most private) to highest.
-  const ordered: Tier[] = [policy.defaultTier, ...policy.allowedTiers.filter((t) => t !== policy.defaultTier).sort((a, b) => a - b)];
+function pickTier(policy: FeaturePolicy, capable: Set<Tier>): Tier | null {
+  const ordered: Tier[] = [
+    policy.defaultTier,
+    ...policy.allowedTiers.filter((t) => t !== policy.defaultTier).sort((a, b) => a - b),
+  ];
   for (const t of ordered) {
     if (capable.has(t)) return t;
   }
@@ -92,20 +87,38 @@ export async function decide(
     };
   }
 
-  const cap = capability ?? (await getCapability());
   const policy = getFeaturePolicy(featureId);
+  if (!policy.enabled) {
+    return {
+      kind: "unavailable",
+      reason: "feature_disabled",
+      message: "This AI feature is temporarily unavailable.",
+    };
+  }
+
+  const cap = capability ?? (await getCapability());
   const capable = capableTiers(cap);
-  const override = ctx.preferredTierByFeature?.[featureId];
-  const tier = pickTier(policy, capable, override);
+  const tier = pickTier(policy, capable);
 
   if (tier === null) {
     return {
       kind: "unavailable",
       reason: "unavailable_no_capable_tier",
       message:
-        policy.minimumTier === 4
-          ? "This feature requires cloud AI. Enable it in Settings."
+        policy.allowedTiers.length === 1 && policy.allowedTiers[0] === 1
+          ? "This feature needs Chrome or Edge on desktop."
           : "AI isn't available on this device or browser.",
+    };
+  }
+
+  // Nano selected but the model isn't downloaded yet — require an explicit
+  // user gesture to start the fetch (never auto-trigger Chrome's download).
+  if (tier === 1 && (cap.nano.status === "downloadable" || cap.nano.status === "downloading")) {
+    return {
+      kind: "needs_nano_setup",
+      tier: 1,
+      reason: "needs_nano_setup",
+      message: "On-device AI needs a quick one-time setup.",
     };
   }
 
@@ -122,30 +135,8 @@ export async function decide(
     }
   }
 
-  // Tier 4 needs server-side per-feature consent.
-  if (tier === 4) {
-    if (!ctx.cloudConsentGrants.has(featureId)) {
-      return {
-        kind: "needs_consent",
-        tier: 4,
-        reason: "needs_cloud_consent",
-        message: "This feature uses cloud AI. Allow this question to be sent to our private cloud model?",
-      };
-    }
-  }
-
-  let provider: LLMProvider;
-  switch (tier) {
-    case 1:
-      provider = await ctx.providers.nano();
-      break;
-    case 2:
-      provider = await ctx.providers.webLlm();
-      break;
-    case 4:
-      provider = await ctx.providers.server();
-      break;
-  }
+  const provider =
+    tier === 1 ? await ctx.providers.nano() : await ctx.providers.webLlm();
 
   return { kind: "ready", provider, tier, reason: "ok" };
 }

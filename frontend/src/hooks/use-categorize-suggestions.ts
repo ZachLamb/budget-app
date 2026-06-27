@@ -8,36 +8,16 @@ import { useLlm } from "@/lib/llm/useLlm";
 import { runStructuredJson } from "@/lib/llm/run-structured";
 import type { CategorizeSuggestion } from "@/lib/llm/contracts";
 import { CATEGORIZE_SYSTEM_PROMPT, buildCategorizePrompt } from "@/lib/llm/prompts/categorize";
-import { scanPrompt } from "@/lib/llm/pii-detect";
 
 export function useCategorizeSuggestions() {
   const gate = useAiFeatureGate();
   const llm = useLlm();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tier, setTier] = useState<1 | 2 | 4 | null>(null);
-
-  const suggestCloud = useCallback(async (params?: SuggestCategoriesParams) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await reportsApi.suggestCategories(params);
-      setTier(4);
-      return data.suggestions;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Cloud categorization failed");
-      throw e;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [tier, setTier] = useState<1 | 2 | null>(null);
 
   const suggestLocal = useCallback(
     async (params?: SuggestCategoriesParams): Promise<LlmSuggestion[]> => {
-      if (isDemoMode) {
-        return (await suggestCloud(params)) ?? [];
-      }
-
       setLoading(true);
       setError(null);
       try {
@@ -81,11 +61,13 @@ export function useCategorizeSuggestions() {
         setLoading(false);
       }
     },
-    [llm, suggestCloud],
+    [llm],
   );
 
   const suggest = useCallback(
     async (params?: SuggestCategoriesParams): Promise<LlmSuggestion[]> => {
+      if (isDemoMode) return suggestLocal(params);
+
       const prepared = await gate.prepareFeature("categorize_transaction");
       if (!prepared.ok) {
         throw new Error(
@@ -94,23 +76,10 @@ export function useCategorizeSuggestions() {
             : prepared.message ?? "AI is not available for categorization",
         );
       }
-      try {
-        return await suggestLocal(params);
-      } catch (e) {
-        if (e instanceof Error && /consent|not available|not ready|needs to download/i.test(e.message)) {
-          throw e;
-        }
-        const prompt = JSON.stringify(params ?? {});
-        const pii = scanPrompt(prompt);
-        if (pii.flags.length > 0) {
-          throw new Error("Cloud fallback may send sensitive data. Review PII settings.");
-        }
-        const data = await suggestCloud(params);
-        return data;
-      }
+      return suggestLocal(params);
     },
-    [gate, suggestLocal, suggestCloud],
+    [gate, suggestLocal],
   );
 
-  return { suggest, suggestLocal, suggestCloud, loading, error, tier };
+  return { suggest, suggestLocal, loading, error, tier };
 }

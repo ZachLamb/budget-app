@@ -20,7 +20,6 @@ vi.mock("../capability", () => ({
   getCapability: vi.fn().mockResolvedValue({
     webgpu: { modelSize: "3b" },
     nano: { available: false, status: "unsupported" },
-    server: { available: true },
   }),
 }));
 

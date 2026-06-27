@@ -74,3 +74,48 @@ describe("capability detection", () => {
     expect(fn).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("probeSpecialized", () => {
+  afterEach(() => {
+    _resetCapabilityCache();
+    delete (globalThis as Record<string, unknown>).Summarizer;
+    delete (globalThis as Record<string, unknown>).Writer;
+    delete (globalThis as Record<string, unknown>).Rewriter;
+    delete (globalThis as Record<string, unknown>).Proofreader;
+  });
+
+  it("reports each specialized API as available when its global exposes availability()=available", async () => {
+    const avail = { availability: vi.fn().mockResolvedValue("available") };
+    (globalThis as Record<string, unknown>).Summarizer = avail;
+    (globalThis as Record<string, unknown>).Writer = avail;
+    (globalThis as Record<string, unknown>).Rewriter = avail;
+    (globalThis as Record<string, unknown>).Proofreader = avail;
+
+    const cap = await getCapability(true);
+
+    expect(cap.specialized).toEqual({
+      summarizer: true,
+      writer: true,
+      rewriter: true,
+      proofreader: true,
+    });
+  });
+
+  it("defaults every specialized flag to false when the globals are absent", async () => {
+    const cap = await getCapability(true);
+    expect(cap.specialized).toEqual({
+      summarizer: false,
+      writer: false,
+      rewriter: false,
+      proofreader: false,
+    });
+  });
+
+  it("treats availability()=downloadable as not-yet-available (false)", async () => {
+    (globalThis as Record<string, unknown>).Summarizer = {
+      availability: vi.fn().mockResolvedValue("downloadable"),
+    };
+    const cap = await getCapability(true);
+    expect(cap.specialized.summarizer).toBe(false);
+  });
+});

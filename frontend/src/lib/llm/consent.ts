@@ -1,8 +1,5 @@
 /**
  * Local consent (Tier 2 download, Lite-vs-3B). Stored in localStorage.
- *
- * Cloud consent (Tier 4) is server-authoritative — see `lib/api/llm.ts`.
- * A user revoking cloud consent in settings goes through the API, not this module.
  */
 
 import type { LocalConsent } from "./types";

@@ -33,7 +33,6 @@ function setCapability(webgpu: CapabilitySnapshot["webgpu"]): void {
   currentCapability = {
     nano: { available: false, status: "unsupported" },
     webgpu,
-    server: { available: true },
   };
 }
 

@@ -1,35 +1,49 @@
 import { describe, it, expect } from "vitest";
-import { getFeaturePolicy, listFeatures } from "./features";
+import { getFeaturePolicy, listFeatures, type FeatureId } from "./features";
 
-describe("features", () => {
+const LIGHT: FeatureId[] = [
+  "explain_charge",
+  "categorize_transaction",
+  "spending_summary",
+  "anomaly_explanation",
+  "fsa_review",
+];
+const HEAVY: FeatureId[] = [
+  "budget_recommendations",
+  "goal_planning",
+  "free_form_qa",
+  "financial_advice",
+];
+
+describe("features (on-device only)", () => {
   it("returns a policy for each known feature", () => {
     const ids = listFeatures().map((f) => f.id);
     expect(ids).toContain("explain_charge");
     expect(ids).toContain("financial_advice");
   });
 
-  it("explain_charge defaults to local Tier 1", () => {
-    const p = getFeaturePolicy("explain_charge");
-    expect(p.defaultTier).toBe(1);
-    expect(p.minimumTier).toBe(1);
-    expect(p.allowedTiers).toContain(4);
+  it("light features allow Tier 1 + 2", () => {
+    for (const id of LIGHT) {
+      expect(getFeaturePolicy(id).allowedTiers.slice().sort()).toEqual([1, 2]);
+    }
   });
 
-  it("fsa_review and categorize_transaction default to Tier 2 for structured JSON", () => {
-    expect(getFeaturePolicy("fsa_review").defaultTier).toBe(2);
-    expect(getFeaturePolicy("categorize_transaction").defaultTier).toBe(2);
+  it("heavy features are Nano-only (Tier 1)", () => {
+    for (const id of HEAVY) {
+      expect(getFeaturePolicy(id).allowedTiers).toEqual([1]);
+    }
   });
 
-  it("free_form_qa is cloud-only", () => {
-    const p = getFeaturePolicy("free_form_qa");
-    expect(p.allowedTiers).toEqual([4]);
-    expect(p.defaultTier).toBe(4);
-  });
-
-  it("every policy declares cloudPossible consistent with allowedTiers", () => {
+  it("every feature defaults to and minimally requires Tier 1", () => {
     for (const p of listFeatures()) {
-      const declaresCloud = p.allowedTiers.includes(4);
-      expect(p.cloudPossible).toBe(declaresCloud);
+      expect(p.defaultTier).toBe(1);
+      expect(p.minimumTier).toBe(1);
+    }
+  });
+
+  it("each feature carries an enabled kill switch (default on)", () => {
+    for (const p of listFeatures()) {
+      expect(p.enabled).toBe(true);
     }
   });
 

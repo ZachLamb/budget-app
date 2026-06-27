@@ -35,3 +35,23 @@ export function formatWebLlmDownloadError(err: unknown): string {
 
   return msg.trim() || "Model download failed. Try again or use cloud AI if available.";
 }
+
+/**
+ * Map Gemini Nano setup failures to provider-neutral copy.
+ *
+ * Nano's model is fetched by Chrome's component updater (NOT Hugging Face) and
+ * never touches WebGPU, so the web-llm guidance above is wrong here. Keep this
+ * formatter free of huggingface.co, WebGPU, and "lite model" references.
+ */
+export function formatNanoSetupError(message: string): string {
+  const lower = message.toLowerCase();
+
+  if (lower.includes("failed to fetch") || lower.includes("networkerror") || lower.includes("load failed") || lower.includes("network")) {
+    return "Could not download the on-device model. Check your internet connection and try again.";
+  }
+  if (lower.includes("quota") || lower.includes("storage") || lower.includes("disk")) {
+    return "Not enough disk space for the on-device model. Free up disk space and try again.";
+  }
+
+  return message.trim() || "On-device AI setup failed. Try again.";
+}

@@ -7,6 +7,7 @@ const getFeaturePolicyMock = vi.fn();
 const setDownloadModelMock = vi.fn();
 const setUseLiteModelMock = vi.fn();
 const ensureEngineMock = vi.fn();
+const nanoEnsureReadyMock = vi.fn();
 async function* mockGenerate(chunks: string[]) {
   for (const c of chunks) yield c;
 }
@@ -45,21 +46,30 @@ vi.mock("@/lib/llm/providers/web-llm-engine", () => ({
   webLlmProvider: webLlmProviderMock,
 }));
 
+vi.mock("@/lib/llm/providers/nano", () => ({
+  nanoProvider: {
+    name: "nano",
+    tier: 1,
+    privacy: "local",
+    generate: vi.fn(),
+    ensureReady: (...args: unknown[]) => nanoEnsureReadyMock(...args),
+  },
+}));
+
 const { useLocalAiSetup } = await import("./use-local-ai-setup");
 
 const defaultCapability = {
   webgpu: { available: true, modelSize: "3b" as const, storageQuotaBytes: 5_000_000_000 },
   nano: { available: false, status: "unsupported" as const },
-  server: { available: true },
 };
 
 const defaultPolicy = {
   id: "fsa_review",
   label: "FSA Review",
-  allowedTiers: [2, 4],
-  minimumTier: 2,
-  defaultTier: 2,
-  cloudPossible: true,
+  allowedTiers: [1, 2],
+  minimumTier: 1,
+  defaultTier: 1,
+  enabled: true,
 };
 
 beforeEach(() => {
@@ -69,6 +79,12 @@ beforeEach(() => {
   setDownloadModelMock.mockReset();
   setUseLiteModelMock.mockReset();
   ensureEngineMock.mockReset();
+  nanoEnsureReadyMock.mockReset();
+  nanoEnsureReadyMock.mockImplementation(async (cb?: (p: number) => void) => {
+    cb?.(0.5);
+    cb?.(1);
+    return { kind: "ready" };
+  });
   webLlmProviderMock.generate.mockReset();
 
   mockIsDemoMode = false;
@@ -184,7 +200,6 @@ describe("useLocalAiSetup", () => {
     getCapabilityMock.mockResolvedValue({
       webgpu: { available: false, modelSize: "none" },
       nano: { available: false, status: "unsupported" },
-      server: { available: true },
     });
 
     const { result } = renderHook(() => useLocalAiSetup());
@@ -263,6 +278,127 @@ describe("useLocalAiSetup", () => {
     act(() => {});
 
     expect(result.current.wizardProps.downloadError).toMatch(/network|huggingface/i);
+  });
+
+  it("runs the Nano download path with progress and re-probes capability", async () => {
+    const nanoDownloadable = {
+      nano: { available: true, status: "downloadable" as const },
+      webgpu: { available: false, modelSize: "none" as const },
+      specialized: {
+        summarizer: false,
+        writer: false,
+        rewriter: false,
+        proofreader: false,
+      },
+    };
+    const nanoAvailable = {
+      ...nanoDownloadable,
+      nano: { available: true, status: "available" as const },
+    };
+    // First probe (in ensureReady) reports downloadable so the Nano path is
+    // selected; the post-download re-probe reports available.
+    getCapabilityMock
+      .mockResolvedValueOnce(nanoDownloadable)
+      .mockResolvedValue(nanoAvailable);
+    getModelDownloadStatusMock.mockResolvedValue({ kind: "unsupported" });
+
+    const { result } = renderHook(() => useLocalAiSetup());
+    const { wizardPromise } = await openWizard(result);
+
+    // Same entry the UI uses: user walks to device-check then clicks Download.
+    act(() => {
+      result.current.wizardProps.onNext();
+      result.current.wizardProps.onGrantConsent();
+    });
+
+    await waitFor(() => {
+      expect(result.current.wizardProps.step).toBe("verify");
+    });
+
+    // Progress callback advanced (0.5 -> 1) and the hook reached a ready state.
+    expect(result.current.wizardProps.progress).toBe(100);
+    expect(result.current.wizardProps.verifyStatus).toBe("success");
+    expect(result.current.wizardProps.downloadError).toBeUndefined();
+    expect(nanoEnsureReadyMock).toHaveBeenCalled();
+
+    // Capability was force-re-probed (initial probe + post-download re-probe).
+    expect(getCapabilityMock).toHaveBeenCalledTimes(2);
+    expect(getCapabilityMock).toHaveBeenLastCalledWith(true);
+
+    // Continuing resolves the pending ensureReady promise.
+    act(() => {
+      result.current.wizardProps.onComplete();
+    });
+    await expect(wizardPromise).resolves.toBeUndefined();
+    expect(result.current.wizardProps.open).toBe(false);
+  });
+
+  it("surfaces Nano setup errors via the download error field", async () => {
+    getCapabilityMock.mockResolvedValue({
+      nano: { available: true, status: "downloadable" as const },
+      webgpu: { available: false, modelSize: "none" as const },
+      specialized: {
+        summarizer: false,
+        writer: false,
+        rewriter: false,
+        proofreader: false,
+      },
+    });
+    getModelDownloadStatusMock.mockResolvedValue({ kind: "unsupported" });
+    nanoEnsureReadyMock.mockResolvedValue({
+      kind: "error",
+      message: "Failed to fetch",
+    });
+
+    const { result } = renderHook(() => useLocalAiSetup());
+    await openWizard(result);
+
+    act(() => {
+      result.current.wizardProps.onNext();
+      result.current.wizardProps.onGrantConsent();
+    });
+    await flush();
+    act(() => {});
+
+    const err = result.current.wizardProps.downloadError;
+    // Nano downloads from Chrome's component updater, not Hugging Face, and
+    // does not use WebGPU — the copy must stay provider-neutral.
+    expect(err).not.toMatch(/huggingface/i);
+    expect(err).not.toMatch(/webgpu/i);
+    expect(err).toMatch(/connection|internet|try again|retry/i);
+    expect(result.current.wizardProps.step).toBe("download");
+  });
+
+  it("surfaces Nano quota errors as disk-space guidance (no lite model)", async () => {
+    getCapabilityMock.mockResolvedValue({
+      nano: { available: true, status: "downloadable" as const },
+      webgpu: { available: false, modelSize: "none" as const },
+      specialized: {
+        summarizer: false,
+        writer: false,
+        rewriter: false,
+        proofreader: false,
+      },
+    });
+    getModelDownloadStatusMock.mockResolvedValue({ kind: "unsupported" });
+    nanoEnsureReadyMock.mockResolvedValue({
+      kind: "error",
+      message: "QuotaExceededError: storage full",
+    });
+
+    const { result } = renderHook(() => useLocalAiSetup());
+    await openWizard(result);
+
+    act(() => {
+      result.current.wizardProps.onNext();
+      result.current.wizardProps.onGrantConsent();
+    });
+    await flush();
+    act(() => {});
+
+    const err = result.current.wizardProps.downloadError;
+    expect(err).not.toMatch(/lite model/i);
+    expect(err).toMatch(/disk space|storage/i);
   });
 
   it("auto-runs verification after download and consumes streamed output", async () => {

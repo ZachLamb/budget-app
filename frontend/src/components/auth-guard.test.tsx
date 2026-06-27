@@ -42,15 +42,14 @@ vi.mock("./error-boundary", () => ({
 }));
 
 vi.mock("@/lib/api/ai", () => ({
-  aiApi: { status: vi.fn(async () => ({ active_backend: "demo" })) },
+  aiApi: {
+    getFsaReviewCandidates: vi.fn(async () => ({ candidates: [], scan_count: 0, candidate_count: 0, prefilter_skipped_count: 0 })),
+    updateFsaItemStatus: vi.fn(async () => ({ status: "pending" })),
+  },
 }));
 
 vi.mock("@/lib/api/settings", () => ({
   settingsApi: { getAiSettings: vi.fn(async () => ({ ai_enabled: true })) },
-}));
-
-vi.mock("@/lib/api/llm", () => ({
-  llmApi: { listCloudConsent: vi.fn(async () => []) },
 }));
 
 const { AuthGuard } = await import("./auth-guard");

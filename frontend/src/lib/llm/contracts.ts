@@ -5,7 +5,6 @@
  * - Tier policy: `defaultTier: 2` for `fsa_review` and `categorize_transaction` (see features.ts).
  * - Demo mode: client canned JSON via `isDemoMode` in run-structured (no provider calls).
  * - PWA: Next.js `app/manifest.ts` + minimal hand-rolled service worker (no Serwist).
- * - Cloud fallback: legacy REST only (`/api/ai/fsa-review`, `/api/categorization/suggest`).
  */
 
 import type { FeatureId } from "./features";
@@ -136,13 +135,50 @@ export function parseCategorizeSuggestions(raw: unknown): CategorizeSuggestion[]
   return out;
 }
 
-/** Demo canned responses — mirror server demo stubs. */
+/**
+ * Demo canned responses — mirror server demo stubs and each pipeline's result
+ * shape so demo mode renders without a model. The advice disclaimer text is
+ * inlined (not imported from pipelines) to keep this low-level module
+ * dependency-free.
+ */
 export function demoStructuredResult(feature: FeatureId): unknown {
   switch (feature) {
     case "fsa_review":
       return { eligible: [] };
     case "categorize_transaction":
       return [];
+    case "budget_recommendations":
+      return {
+        recommendations: [
+          {
+            category_id: "demo-dining",
+            suggested_amount: 300,
+            rationale: "Trim dining by about $50 to get back on track.",
+          },
+        ],
+      };
+    case "goal_planning":
+      return {
+        plan: {
+          goal_id: "demo-goal",
+          monthly_contribution: 400,
+          months_to_target: 12,
+          note: "Keep contributing $400/month to stay on pace.",
+        },
+      };
+    case "free_form_qa":
+      return {
+        answer: "In demo mode, your spending looks on track this month.",
+        cited_facts: [],
+      };
+    case "financial_advice":
+      return {
+        advice: "In demo mode, consider keeping a small buffer in checking.",
+        basis: [],
+        disclaimer:
+          "This is general information based on your data, not professional financial advice. Verify before acting.",
+        draft: true,
+      };
     default:
       return {};
   }

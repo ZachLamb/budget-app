@@ -114,3 +114,81 @@ async def build_financial_context(db: AsyncSession, household_id: str) -> str:
             ctx_parts.append(f"  {g.name} ({g.goal_type}): ${g.current_amount:,.2f} / ${g.target_amount:,.2f} ({pct:.0f}%)")
 
     return "\n".join(ctx_parts)
+
+
+async def build_context_facts(db: AsyncSession, household_id: str) -> dict[str, object]:
+    """Deterministic, model-free STRUCTURED financial snapshot.
+
+    Sibling to :func:`build_financial_context` (which returns a free-text blob
+    still used by the model path). This returns typed numbers/ids — shaped for
+    ``app.schemas.facts.ContextFacts`` — so the on-device verifier can reconcile
+    model output against real figures. There is intentionally NO LLM call here.
+
+    The account-balance and net-worth math mirror ``build_financial_context``
+    exactly (open accounts, debt = ``credit``/``loan``). Recent spend mirrors the
+    same current-month outflow aggregation, additionally surfacing ``category_id``
+    (grouping by id+name instead of name only) so the client can verify by id.
+    The budget and goals sections reuse the A1/A2 helpers
+    (``compute_budget_facts`` / ``compute_goal_facts``) verbatim — one
+    deterministic source of truth shared across all fact endpoints.
+    """
+    # Lazy imports: these live under app.api.routes and importing them at module
+    # top would couple this service to route load-time wiring (potential cycle).
+    from app.api.routes.accounts import _compute_balances
+    from app.api.routes.goals import compute_goal_facts
+    from app.services.ai.budget import compute_budget_facts
+
+    today = date.today()
+    month_start = today.replace(day=1)
+
+    # Account balances + net worth (mirrors build_financial_context).
+    acct_result = await db.execute(
+        select(Account)
+        .where(Account.household_id == household_id)
+        .where(Account.closed_at.is_(None))
+    )
+    accounts = acct_result.scalars().all()
+    balances = await _compute_balances(db, accounts)
+
+    account_facts: list[dict[str, object]] = []
+    total_assets = Decimal("0")
+    total_debt = Decimal("0")
+    for a in accounts:
+        bal = balances.get(a.id, Decimal("0"))
+        if a.account_type in ("credit", "loan"):
+            total_debt += abs(bal)
+        else:
+            total_assets += bal
+        account_facts.append(
+            {"account_id": a.id, "name": a.name, "balance": float(bal)}
+        )
+    net_worth = float(total_assets - total_debt)
+
+    # Recent (current-month) spend by category — same outflow aggregation as
+    # build_financial_context, with category_id surfaced for client verification.
+    spend_result = await db.execute(
+        select(Category.id, Category.name, func.sum(Transaction.amount))
+        .join(Transaction, Transaction.category_id == Category.id)
+        .join(Account, Transaction.account_id == Account.id)
+        .where(Account.household_id == household_id)
+        .where(Transaction.date >= month_start)
+        .where(Transaction.amount < 0)
+        .group_by(Category.id, Category.name)
+        .order_by(func.sum(Transaction.amount))
+        .limit(10)
+    )
+    recent_spend_by_category = [
+        {"category_id": cid, "name": cname, "amount": float(abs(amt))}
+        for cid, cname, amt in spend_result.all()
+    ]
+
+    budget = await compute_budget_facts(db, household_id)
+    goals = (await compute_goal_facts(db, household_id))["goals"]
+
+    return {
+        "net_worth": net_worth,
+        "accounts": account_facts,
+        "recent_spend_by_category": recent_spend_by_category,
+        "budget": budget,
+        "goals": goals,
+    }

@@ -13,13 +13,14 @@ import {
   invalidateModelDownloadStatus,
 } from "@/lib/llm/storage";
 import { getCapability } from "@/lib/llm/capability";
-import { getFeaturePolicy } from "@/lib/llm/features";
 import { setDownloadModel, setUseLiteModel } from "@/lib/llm/consent";
 import {
   ensureEngine,
   webLlmProvider,
 } from "@/lib/llm/providers/web-llm-engine";
+import { nanoProvider } from "@/lib/llm/providers/nano";
 import {
+  formatNanoSetupError,
   formatWebLlmDownloadError,
   normalizeInitProgress,
 } from "@/lib/llm/web-llm-download";
@@ -44,7 +45,50 @@ export function useLocalAiSetup(): UseLocalAiSetup {
 
   const pendingRef = useRef<PendingPromise | null>(null);
 
+  // Tier 1 — Chrome's built-in Gemini Nano. The model is downloaded by the
+  // browser (not fetched to storage like web-llm), so there is no separate
+  // verification round-trip: a successful download means the model is ready.
+  const startDownloadNano = useCallback(async () => {
+    setDownloadError(undefined);
+    setProgress(0);
+    setProgressText(undefined);
+
+    try {
+      const state = await nanoProvider.ensureReady((p) => {
+        // Chrome's `downloadprogress.loaded` is a 0–1 fraction, so
+        // normalizeInitProgress scales it to 0–100 (and clamps any >1 to 100).
+        setProgress(normalizeInitProgress(p));
+      });
+
+      if (state.kind === "error") {
+        setDownloadError(formatNanoSetupError(state.message));
+        return;
+      }
+
+      setProgress(100);
+      // Re-probe so capability flips downloadable → available for consumers
+      // (e.g. the settings status block) reading the cached snapshot.
+      setCapability(await getCapability(true));
+      setVerifyResult(undefined);
+      setVerifyStatus("success");
+      setStep("verify");
+    } catch (err: unknown) {
+      setDownloadError(
+        formatNanoSetupError(err instanceof Error ? err.message : String(err)),
+      );
+    }
+  }, []);
+
   const startDownload = useCallback(() => {
+    const nano = capability?.nano;
+    if (
+      nano?.available &&
+      (nano.status === "downloadable" || nano.status === "downloading")
+    ) {
+      void startDownloadNano();
+      return;
+    }
+
     setDownloadError(undefined);
     setProgress(0);
     setProgressText(undefined);
@@ -62,7 +106,7 @@ export function useLocalAiSetup(): UseLocalAiSetup {
       .catch((err: unknown) => {
         setDownloadError(formatWebLlmDownloadError(err));
       });
-  }, []);
+  }, [capability, startDownloadNano]);
 
   const runVerification = useCallback(async () => {
     setVerifyStatus("running");
@@ -92,7 +136,7 @@ export function useLocalAiSetup(): UseLocalAiSetup {
   }, [open, step, verifyStatus, downloadError, runVerification]);
 
   const ensureReady = useCallback(
-    async (feature: FeatureId): Promise<void> => {
+    async (): Promise<void> => {
       if (isDemoMode) return;
 
       const status = await getModelDownloadStatus(true);
@@ -111,8 +155,7 @@ export function useLocalAiSetup(): UseLocalAiSetup {
       const cap = await getCapability(true);
       setCapability(cap);
 
-      const policy = getFeaturePolicy(feature);
-      setCloudAvailable(policy.cloudPossible);
+      setCloudAvailable(false);
 
       setStep("welcome");
       setProgress(0);

@@ -5,7 +5,9 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { debtApi, type DebtAccount } from "@/lib/api/debt";
 import { accountsApi } from "@/lib/api/accounts";
-import { aiApi, type DebtPlanSuggestion, type InterestRateSuggestion } from "@/lib/api/ai";
+import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
+import { useLlm } from "@/lib/llm/useLlm";
+import { userMessageFor } from "@/lib/llm/errors";
 import { goalsApi, type FinancialGoal, type GoalCreate } from "@/lib/api/goals";
 import { settingsApi } from "@/lib/api/settings";
 import {
@@ -21,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatCurrencyNegative } from "@/lib/format";
-import { useIsClient, getApiErrorMessage } from "@/lib/hooks";
+import { useIsClient } from "@/lib/hooks";
 import { toastApiError, toastPlainError } from "@/lib/toast-error";
 import { appToast } from "@/lib/app-toast";
 import { cn } from "@/lib/utils";
@@ -34,7 +36,6 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PageHeader } from "@/components/page";
 import { SkeletonTable } from "@/components/skeleton-table";
 import { AI_COPY } from "@/lib/ai-copy";
-import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -81,27 +82,6 @@ const STRATEGY_LABELS: Record<DebtStrategy, { label: string; description: string
       "Highest APR first; when APRs tie (or are unknown), smaller balances come first—blends avalanche focus with snowball tie-breaks.",
   },
 };
-
-function mapDebtPriorityNamesToIds(order: string[], accounts: DebtAccount[]): string[] {
-  const ids: string[] = [];
-  const used = new Set<string>();
-  const norm = (s: string) => s.trim().toLowerCase();
-  for (const raw of order) {
-    const n = norm(raw);
-    if (!n) continue;
-    const exact = accounts.find((a) => norm(a.name) === n);
-    const match =
-      exact ??
-      accounts.find(
-        (a) => !used.has(a.id) && (norm(a.name).includes(n) || n.includes(norm(a.name))),
-      );
-    if (match && !used.has(match.id)) {
-      ids.push(match.id);
-      used.add(match.id);
-    }
-  }
-  return ids;
-}
 
 // ── Goals sub-components ─────────────────────────────────────────────────────
 
@@ -451,6 +431,7 @@ function GoalsTab() {
 
 function DebtTab() {
   const gate = useAiFeatureGate();
+  const llm = useLlm();
   const isClient = useIsClient();
   const queryClient = useQueryClient();
   const [strategy, setStrategy] = useState<DebtStrategy>("avalanche");
@@ -459,13 +440,15 @@ function DebtTab() {
   const debouncedExtra = useDebounced(extraMonthly, 500);
   const [editAccount, setEditAccount] = useState<DebtAccount | null>(null);
   const [editForm, setEditForm] = useState({ interest_rate: "", minimum_payment: "" });
-  const [aiSuggestion, setAiSuggestion] = useState<DebtPlanSuggestion | null>(null);
+  const [aiAdvice, setAiAdvice] = useState<{ advice: string; disclaimer: string } | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiDismissed, setAiDismissed] = useState(false);
 
   // Interest rate suggestions
-  const [rateSuggestions, setRateSuggestions] = useState<InterestRateSuggestion[]>([]);
+  const [rateSuggestions, setRateSuggestions] = useState<
+    { account_id: string; account_name: string; suggested_apr: number; suggested_min_payment: number; reasoning: string }[]
+  >([]);
   const [rateLoading, setRateLoading] = useState(false);
   const [rateNote, setRateNote] = useState<string | null>(null);
   const [dismissedRates, setDismissedRates] = useState<Set<string>>(new Set());
@@ -598,19 +581,16 @@ function DebtTab() {
 
     setRateLoading(true);
     try {
-      const result = await aiApi.suggestInterestRates();
-      setRateSuggestions(result.suggestions);
-      setRateNote(result.note);
+      const result = (await llm.runFeature("financial_advice", {
+        question:
+          "My debt accounts are missing APR or minimum payment data. Suggest conservative starting-point estimates I should verify on my statements.",
+      })) as { advice: string; disclaimer: string };
+      setRateNote(`${result.advice}\n\n${result.disclaimer}`);
+      setRateSuggestions([]);
       setDismissedRates(new Set());
       setAcceptedRateIds(new Set());
-      if (result.suggestions.length === 0) {
-        appToast.success(result.note || "All accounts already have rate data.");
-      }
     } catch (err) {
-      toastApiError(
-        "Failed to get rate suggestions. Enable AI in Settings or check that Ollama is running.",
-        err,
-      );
+      toastApiError("Failed to get rate guidance.", err);
     } finally {
       setRateLoading(false);
     }
@@ -619,7 +599,7 @@ function DebtTab() {
   const visibleRateSuggestions = rateSuggestions.filter((s) => !dismissedRates.has(s.account_id));
   const pendingSuggestions = visibleRateSuggestions.filter((s) => !acceptedRateIds.has(s.account_id));
 
-  const acceptRateSuggestion = (s: InterestRateSuggestion) => {
+  const acceptRateSuggestion = (s: (typeof rateSuggestions)[number]) => {
     if (isAcceptingAll) return;
     updateMutation.mutate(
       { id: s.account_id, data: { interest_rate: s.suggested_apr, minimum_payment: s.suggested_min_payment } },
@@ -676,52 +656,20 @@ function DebtTab() {
     setAiLoading(true);
     setAiError(null);
     try {
-      const result = await aiApi.getDebtPlanSuggestion();
+      const result = (await llm.runFeature("financial_advice", {
+        question:
+          "Recommend a debt payoff approach (avalanche, snowball, or hybrid) based on my debt accounts. Explain tradeoffs in plain language.",
+      })) as { advice: string; disclaimer: string };
       if (requestId !== aiRequestIdRef.current) return;
-      setAiSuggestion(result);
+      setAiAdvice(result);
       setAiDismissed(false);
     } catch (err: unknown) {
-      const status = (
-        err &&
-        typeof err === "object" &&
-        "response" in err &&
-        (err as { response?: { status?: number } }).response?.status
-      ) ?? undefined;
-      if (status === 403) {
-        setAiError("AI features are disabled. Enable AI Financial Advisor in Settings.");
-      } else if (status === 503) {
-        setAiError("AI backend unavailable. Start Ollama and ensure it is reachable from the API server, then try again.");
-      } else {
-        setAiError(getApiErrorMessage(err, "Failed to get AI recommendation. Please try again."));
-      }
+      setAiError(userMessageFor(err));
     } finally {
       if (requestId === aiRequestIdRef.current) {
         setAiLoading(false);
       }
     }
-  };
-
-  const applyRecommendation = () => {
-    if (!aiSuggestion) return;
-    hasUserInteracted.current = true;
-    let appliedStrategy: DebtStrategy = "avalanche";
-    const s = aiSuggestion.strategy.toLowerCase();
-    if (s === "avalanche" || s === "snowball" || s === "hybrid") {
-      appliedStrategy = s as DebtStrategy;
-    }
-    if (appliedStrategy === "hybrid") {
-      const mapped = mapDebtPriorityNamesToIds(aiSuggestion.priority_order, debtAccounts);
-      setPriorityAccountIds(mapped.length ? mapped : undefined);
-    } else {
-      setPriorityAccountIds(undefined);
-    }
-    setStrategy(appliedStrategy);
-    const extra = aiSuggestion.monthly_extra > 0 ? aiSuggestion.monthly_extra : extraMonthly;
-    setExtraMonthly(extra);
-    persistPreferences(appliedStrategy, extra);
-    appToast.success(
-      `Applied ${STRATEGY_LABELS[appliedStrategy].label} strategy${aiSuggestion.monthly_extra > 0 ? ` + ${formatCurrency(aiSuggestion.monthly_extra)}/mo extra` : ""}`,
-    );
   };
 
   return (
@@ -738,7 +686,7 @@ function DebtTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {!aiSuggestion || aiDismissed ? (
+          {!aiAdvice || aiDismissed ? (
             <div className="space-y-2">
               <Button
                 onClick={handleGetAiRecommendation}
@@ -761,51 +709,17 @@ function DebtTab() {
           ) : (
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="capitalize text-purple-700 border-purple-300">
-                      {aiSuggestion.strategy}
-                    </Badge>
-                    {aiSuggestion.model_source && (
-                      <span className="text-xs text-muted-foreground">{aiSuggestion.model_source}</span>
-                    )}
-                  </div>
-                  <p className="text-sm">{aiSuggestion.rationale}</p>
+                <div className="space-y-2">
+                  <p className="text-sm whitespace-pre-wrap">{aiAdvice.advice}</p>
+                  <p className="text-xs text-muted-foreground">{aiAdvice.disclaimer}</p>
                 </div>
                 <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setAiDismissed(true)}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              {aiSuggestion.priority_order.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-                    Recommended payoff order
-                  </p>
-                  <ol className="space-y-1">
-                    {aiSuggestion.priority_order.map((name, i) => (
-                      <li key={i} className="flex items-center gap-2 text-sm">
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-xs font-medium shrink-0">
-                          {i + 1}
-                        </span>
-                        {name}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
-              {aiSuggestion.monthly_extra > 0 && (
-                <p className="text-sm text-muted-foreground">
-                  Suggested extra monthly payment: <span className="font-medium text-foreground">{formatCurrency(aiSuggestion.monthly_extra)}</span>
-                </p>
-              )}
-              <div className="flex gap-2 pt-1">
-                <Button size="sm" onClick={applyRecommendation}>
-                  Apply Recommendation
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setAiDismissed(true)}>
-                  Dismiss
-                </Button>
-              </div>
+              <Button size="sm" variant="outline" onClick={() => setAiDismissed(true)}>
+                Dismiss
+              </Button>
             </div>
           )}
         </CardContent>
@@ -855,11 +769,14 @@ function DebtTab() {
             <div className="flex-1 space-y-2">
               <p className="text-sm text-amber-700 dark:text-amber-300">
                 Interest rates and minimum payments are needed for payoff projections.
-                SimpleFIN doesn&apos;t provide this data — you can enter it manually or let AI suggest typical rates.
+                SimpleFIN doesn&apos;t provide this data — enter values manually or ask on-device AI for starting-point guidance.
               </p>
               <Button size="sm" variant="outline" onClick={handleSuggestRates} disabled={rateLoading} className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:text-amber-200">
-                {rateLoading ? <><Loader2 className="mr-2 h-3 w-3 animate-spin" />Estimating...</> : <><Sparkles className="mr-2 h-3 w-3" />Suggest with AI</>}
+                {rateLoading ? <><Loader2 className="mr-2 h-3 w-3 animate-spin" />Analyzing...</> : <><Sparkles className="mr-2 h-3 w-3" />Ask AI for guidance</>}
               </Button>
+              {rateNote && visibleRateSuggestions.length === 0 && (
+                <p className="text-xs text-amber-800 dark:text-amber-200 whitespace-pre-wrap">{rateNote}</p>
+              )}
             </div>
           </div>
         </div>

@@ -3,6 +3,5 @@
  * Prefer direct module imports (`./useLlm`, `./router`, `./types`) in app code.
  */
 
-export { LLMError, isLLMError } from "./providers/server";
-export { scanPrompt } from "./pii-detect";
-export type { PIIScan } from "./pii-detect";
+export { userMessageFor, OnDeviceError } from "./errors";
+export type { OnDeviceErrorCode } from "./errors";

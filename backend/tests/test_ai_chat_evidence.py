@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.api.routes.ai import (
+from app.schemas.ai import (
     ChatEvidenceCategorySpending,
     build_budget_pace_evidence_rows,
     build_category_spending_evidence,

@@ -1,67 +1,11 @@
+/**
+ * Types for FSA review UI and on-device scan results.
+ * Server cloud routes were removed — candidates/items stay on aiApi.
+ */
+
 import api from "./client";
 import type { FsaCandidatesResponse } from "../llm/contracts";
 import { LLM_HTTP_TIMEOUT_MS } from "./llm-timeout";
-
-export interface AiStatus {
-  ollama_available: boolean;
-  active_backend: string;
-}
-
-export interface InsightsResponse {
-  insights: string[];
-  model_source: string;
-}
-
-export interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
-export interface SpendingTrend {
-  category: string;
-  trend: "up" | "down" | "stable";
-  pct_change: number;
-}
-
-export interface BudgetInsightsResponse {
-  insights: string[];
-  patterns: SpendingTrend[];
-  model_source: string;
-}
-
-export interface BudgetSuggestion {
-  category_id: string;
-  category_name: string;
-  suggested_amount: number;
-  reasoning: string;
-}
-
-export interface BudgetSuggestionsResponse {
-  suggestions: BudgetSuggestion[];
-  model_source: string;
-}
-
-export interface DebtPlanSuggestion {
-  strategy: string;
-  rationale: string;
-  priority_order: string[];
-  monthly_extra: number;
-  model_source: string;
-}
-
-export interface InterestRateSuggestion {
-  account_id: string;
-  account_name: string;
-  suggested_apr: number;       // decimal, e.g. 0.2499
-  suggested_min_payment: number;
-  reasoning: string;
-}
-
-export interface InterestRateSuggestionsResponse {
-  suggestions: InterestRateSuggestion[];
-  model_source: string;
-  note: string;
-}
 
 export interface FsaEligibleTransaction {
   transaction_id: string;
@@ -86,28 +30,26 @@ export interface FsaReviewResponse {
   prefilter_skipped_count: number;
 }
 
+export interface SpendingTrend {
+  category: string;
+  trend: "up" | "down" | "stable";
+  pct_change: number;
+}
+
+export interface SpendingPatternsResponse {
+  patterns: SpendingTrend[];
+}
+
+export interface BudgetSuggestion {
+  category_id: string;
+  category_name: string;
+  suggested_amount: number;
+  reasoning: string;
+}
+
 export const aiApi = {
-  status: () => api.get<AiStatus>("/ai/status").then((r) => r.data),
-  getInsights: () =>
-    api.post<InsightsResponse>("/ai/insights", undefined, { timeout: LLM_HTTP_TIMEOUT_MS }).then((r) => r.data),
-  getBudgetInsights: () =>
-    api
-      .post<BudgetInsightsResponse>("/ai/budget-insights", undefined, { timeout: LLM_HTTP_TIMEOUT_MS })
-      .then((r) => r.data),
-  getBudgetSuggestions: () =>
-    api
-      .post<BudgetSuggestionsResponse>("/ai/budget-suggestions", undefined, { timeout: LLM_HTTP_TIMEOUT_MS })
-      .then((r) => r.data),
-  getDebtPlanSuggestion: () =>
-    api
-      .post<DebtPlanSuggestion>("/ai/debt-plan-suggestion", undefined, { timeout: LLM_HTTP_TIMEOUT_MS })
-      .then((r) => r.data),
-  suggestInterestRates: () =>
-    api
-      .post<InterestRateSuggestionsResponse>("/ai/suggest-interest-rates", undefined, {
-        timeout: LLM_HTTP_TIMEOUT_MS,
-      })
-      .then((r) => r.data),
+  getSpendingPatterns: () =>
+    api.get<SpendingPatternsResponse>("/ai/facts/spending-patterns").then((r) => r.data),
   getFsaReviewCandidates: (params?: {
     date_from?: string;
     date_to?: string;
@@ -116,8 +58,6 @@ export const aiApi = {
     api
       .post<FsaCandidatesResponse>("/ai/fsa-review/candidates", params ?? {}, { timeout: LLM_HTTP_TIMEOUT_MS })
       .then((r) => r.data),
-  getFsaReview: (params?: { date_from?: string; date_to?: string; include_all_outflows?: boolean }) =>
-    api.post<FsaReviewResponse>("/ai/fsa-review", params ?? {}, { timeout: LLM_HTTP_TIMEOUT_MS }).then((r) => r.data),
   updateFsaItemStatus: (transactionId: string, status: "pending" | "claimed" | "dismissed") =>
     api.patch<{ status: string }>(`/ai/fsa-review/items/${transactionId}`, { status }).then((r) => r.data),
 };

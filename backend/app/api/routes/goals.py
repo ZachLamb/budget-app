@@ -77,6 +77,59 @@ def _enrich_goal(goal: FinancialGoal, account_name: Optional[str] = None) -> Goa
     return resp
 
 
+async def compute_goal_facts(db: AsyncSession, household_id: str) -> dict[str, object]:
+    """Deterministic, model-free savings-goal facts for the household.
+
+    Reuses the same metric path as ``list_goals`` (``_compute_goal_metrics`` and
+    ``_derive_linked_current_amount``) so the goals route and the grounded fact
+    endpoint share ONE code path. Shaped for ``app.schemas.facts.GoalFacts``;
+    there is intentionally NO LLM call here.
+    """
+    result = await db.execute(
+        select(FinancialGoal)
+        .where(FinancialGoal.household_id == household_id)
+        .order_by(FinancialGoal.is_completed, FinancialGoal.sort_order, FinancialGoal.created_at)
+    )
+    goals = result.scalars().all()
+
+    account_ids = {g.account_id for g in goals if g.account_id}
+    account_types: dict[str, str] = {}
+    account_balances: dict[str, Decimal] = {}
+    if account_ids:
+        acct_result = await db.execute(select(Account).where(Account.id.in_(account_ids)))
+        linked_accounts = acct_result.scalars().all()
+        for a in linked_accounts:
+            account_types[a.id] = a.account_type
+        account_balances = await _compute_balances(db, linked_accounts)
+
+    facts: list[dict[str, object]] = []
+    for g in goals:
+        current_amount = g.current_amount
+        if g.account_id and g.account_id in account_balances:
+            current_amount = _derive_linked_current_amount(
+                g, account_types.get(g.account_id, ""), account_balances[g.account_id]
+            )
+        _progress_pct, months_remaining = _compute_goal_metrics(
+            target_amount=g.target_amount,
+            current_amount=current_amount,
+            monthly_contribution=g.monthly_contribution,
+            target_date=g.target_date,
+        )
+        facts.append(
+            {
+                "goal_id": g.id,
+                "name": g.name,
+                "target_amount": float(g.target_amount),
+                "current_amount": float(current_amount),
+                "monthly_contribution": (
+                    float(g.monthly_contribution) if g.monthly_contribution is not None else 0.0
+                ),
+                "months_remaining": months_remaining,
+            }
+        )
+    return {"goals": facts}
+
+
 @router.get("", response_model=list[GoalResponse])
 async def list_goals(
     household_id: str = Depends(get_household_id),

@@ -819,7 +819,6 @@ function TransactionsContent() {
         fsaError={fsaError}
         fsaErrorDetail={fsaErrorDetail}
         onScan={() => void fsaScan.scanLocal()}
-        onCloudScan={() => void fsaScan.scanCloud()}
         onCancelScan={fsaScan.cancel}
         fsaTier={fsaScan.tier}
         batchProgress={fsaScan.batchProgress}

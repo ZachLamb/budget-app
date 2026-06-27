@@ -422,15 +422,7 @@ async def delete_me(
         .values(revoked_at=datetime.now(timezone.utc))
     )
 
-    # 2. Best-effort cache purge — never block the delete on a cache failure.
-    try:
-        from app.services.ai import cache as _cache
-
-        await _cache.purge_user(user_id)
-    except Exception as cache_err:  # pragma: no cover — log only
-        logger.warning("cache.purge_user failed during user delete: %s", cache_err)
-
-    # 3. llm_audit — no FK, must be explicit.
+    # 2. llm_audit — no FK, must be explicit.
     await db.execute(delete(LlmAudit).where(LlmAudit.user_id == user_id))
 
     # 4. llm_consent — explicit even though FK is CASCADE.

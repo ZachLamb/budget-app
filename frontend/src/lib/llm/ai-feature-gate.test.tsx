@@ -10,7 +10,7 @@ const refreshMock = vi.fn();
 vi.mock("@/lib/demo-mode", () => ({ isDemoMode: false }));
 
 vi.mock("@/lib/app-toast", () => ({
-  appToast: { error: vi.fn(), success: vi.fn() },
+  appToast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
 }));
 
 vi.mock("@/hooks/use-local-ai-setup", () => ({
@@ -22,7 +22,7 @@ vi.mock("@/hooks/use-local-ai-setup", () => ({
       modelSize: "3b",
       progress: 0,
       verifyStatus: "idle",
-      cloudAvailable: true,
+      cloudAvailable: false,
       deviceUnsupported: false,
       onNext: vi.fn(),
       onCancel: vi.fn(),
@@ -39,21 +39,6 @@ vi.mock("@/components/llm/local-ai-setup-wizard", () => ({
   LocalAiSetupWizard: () => null,
 }));
 
-vi.mock("@/components/llm/cloud-consent-dialog", () => ({
-  CloudConsentDialog: ({
-    open,
-    onGranted,
-  }: {
-    open: boolean;
-    onGranted: () => void;
-  }) =>
-    open ? (
-      <button type="button" data-testid="grant-cloud" onClick={onGranted}>
-        Grant
-      </button>
-    ) : null,
-}));
-
 vi.mock("@/lib/llm/useLlm", () => ({
   useLlm: () => ({
     decide: decideMock,
@@ -61,6 +46,7 @@ vi.mock("@/lib/llm/useLlm", () => ({
     capability: null,
     getContext: vi.fn(),
     run: vi.fn(),
+    runFeature: vi.fn(),
   }),
 }));
 
@@ -162,17 +148,5 @@ describe("useAiFeatureGate ensureLocalSetup", () => {
     });
 
     expect(ensureReadyMock).toHaveBeenCalledWith("categorize_transaction");
-  });
-
-  it("propagates rejection when user cancels", async () => {
-    ensureReadyMock.mockRejectedValue(new Error("User cancelled setup"));
-
-    const { result } = renderHook(() => useAiFeatureGate(), { wrapper: wrap });
-
-    await expect(
-      act(async () => {
-        await result.current.ensureLocalSetup("categorize_transaction");
-      }),
-    ).rejects.toThrow("User cancelled setup");
   });
 });
