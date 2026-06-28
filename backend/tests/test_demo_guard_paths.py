@@ -12,12 +12,9 @@ def test_demo_auth_prefixes_stable() -> None:
     assert "/api/auth/demo-login" in _DEMO_AUTH_PREFIXES
     assert "/api/auth/login" in _DEMO_AUTH_PREFIXES
     assert "/api/auth/logout" in _DEMO_AUTH_PREFIXES
-    assert "/api/auth/register" in _DEMO_AUTH_PREFIXES
-    assert "/api/auth/passkey/" in _DEMO_AUTH_PREFIXES
-    assert "/api/auth/magic-link/" in _DEMO_AUTH_PREFIXES
-    assert "/api/auth/google/exchange" in _DEMO_AUTH_PREFIXES
     assert "/api/auth/passkey/authenticate/" in _DEMO_AUTH_PREFIXES
     assert "/api/auth/magic-link/" in _DEMO_AUTH_PREFIXES
+    assert "/api/auth/google/exchange" in _DEMO_AUTH_PREFIXES
 
 
 def test_demo_allows_passkey_and_magic_link_auth() -> None:
@@ -39,14 +36,6 @@ def test_demo_still_blocks_account_creation() -> None:
     assert not is_demo_mutation_allowed("/api/auth/passkey/register/options", "POST")
     assert not is_demo_mutation_allowed("/api/auth/passkey/register/verify", "POST")
     assert not is_demo_mutation_allowed("/api/auth/register", "POST")
-
-
-def test_demo_allows_passkey_and_magic_link_auth() -> None:
-    assert is_demo_mutation_allowed("/api/auth/passkey/authenticate/options", "POST")
-    assert is_demo_mutation_allowed("/api/auth/passkey/authenticate/verify", "POST")
-    assert is_demo_mutation_allowed("/api/auth/passkey/register/options", "POST")
-    assert is_demo_mutation_allowed("/api/auth/magic-link/request", "POST")
-    assert is_demo_mutation_allowed("/api/auth/magic-link/verify", "POST")
 
 
 def test_demo_ai_mutation_paths_empty_after_cloud_removal() -> None:

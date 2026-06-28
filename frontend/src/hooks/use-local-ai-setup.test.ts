@@ -106,11 +106,9 @@ const flush = () => new Promise<void>(r => setTimeout(r, 10));
  */
 async function openWizard(result: { current: ReturnType<typeof useLocalAiSetup> }) {
   const wizardPromise = result.current.ensureReady("fsa_review");
-  // Let microtasks from getModelDownloadStatus / getCapability resolve
-  await flush();
-  // Commit pending React state updates (setOpen, setCapability, etc.)
-  act(() => {});
-  expect(result.current.wizardProps.open).toBe(true);
+  await waitFor(() => {
+    expect(result.current.wizardProps.open).toBe(true);
+  });
   return { wizardPromise };
 }
 
@@ -274,10 +272,10 @@ describe("useLocalAiSetup", () => {
       result.current.wizardProps.onNext();
       result.current.wizardProps.onGrantConsent();
     });
-    await flush();
-    act(() => {});
 
-    expect(result.current.wizardProps.downloadError).toMatch(/network|huggingface/i);
+    await waitFor(() => {
+      expect(result.current.wizardProps.downloadError).toMatch(/network|huggingface/i);
+    });
   });
 
   it("runs the Nano download path with progress and re-probes capability", async () => {

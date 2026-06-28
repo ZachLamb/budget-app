@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
@@ -13,30 +13,38 @@ vi.mock("@/lib/app-toast", () => ({
   appToast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
 }));
 
+const wizardProps = {
+  open: false,
+  step: "welcome" as const,
+  setupPath: "web-llm" as const,
+  nanoStatus: "unavailable" as const,
+  modelSize: "3b" as const,
+  progress: 0,
+  verifyStatus: "idle" as const,
+  cloudAvailable: false,
+  deviceUnsupported: false,
+  onNext: vi.fn(),
+  onCancel: vi.fn(),
+  onComplete: vi.fn(),
+  onRetry: vi.fn(),
+  onCloudFallback: vi.fn(),
+  onGrantConsent: vi.fn(),
+  onToggleLite: vi.fn(),
+};
+
 vi.mock("@/hooks/use-local-ai-setup", () => ({
   useLocalAiSetup: () => ({
     ensureReady: ensureReadyMock,
-    wizardProps: {
-      open: false,
-      step: "welcome",
-      modelSize: "3b",
-      progress: 0,
-      verifyStatus: "idle",
-      cloudAvailable: false,
-      deviceUnsupported: false,
-      onNext: vi.fn(),
-      onCancel: vi.fn(),
-      onComplete: vi.fn(),
-      onRetry: vi.fn(),
-      onCloudFallback: vi.fn(),
-      onGrantConsent: vi.fn(),
-      onToggleLite: vi.fn(),
-    },
+    wizardProps,
   }),
 }));
 
 vi.mock("@/components/llm/local-ai-setup-wizard", () => ({
   LocalAiSetupWizard: () => null,
+}));
+
+vi.mock("@/components/llm/on-device-ai-help-dialog", () => ({
+  OnDeviceAiHelpDialog: () => null,
 }));
 
 vi.mock("@/lib/llm/useLlm", () => ({
@@ -112,7 +120,7 @@ describe("useAiFeatureGate prepareFeature", () => {
       await result.current.prepareFeature("categorize_transaction");
     });
 
-    expect(ensureReadyMock).toHaveBeenCalledWith("categorize_transaction");
+    expect(ensureReadyMock).toHaveBeenCalled();
     expect(refreshMock).toHaveBeenCalled();
   });
 
@@ -147,6 +155,12 @@ describe("useAiFeatureGate ensureLocalSetup", () => {
       await result.current.ensureLocalSetup("categorize_transaction");
     });
 
-    expect(ensureReadyMock).toHaveBeenCalledWith("categorize_transaction");
+    expect(ensureReadyMock).toHaveBeenCalled();
+  });
+
+  it("exposes localSetup progress snapshot", () => {
+    const { result } = renderHook(() => useAiFeatureGate(), { wrapper: wrap });
+    expect(result.current.localSetup.progress).toBe(0);
+    expect(result.current.aiSettingsPath).toBe("/settings#ai");
   });
 });

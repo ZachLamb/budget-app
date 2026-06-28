@@ -18,7 +18,8 @@ export class OnDeviceError extends Error {
 }
 
 const MESSAGES: Record<OnDeviceErrorCode, string> = {
-  no_model: "On-device AI needs Chrome or Edge on desktop.",
+  no_model:
+    "On-device AI needs Chrome or Edge on a desktop computer. Open Settings → AI for setup steps (no app install required).",
   download_failed: "Couldn't finish setting up on-device AI. Try again.",
   session_create_failed: "On-device AI couldn't start. Try again.",
   context_overflow:

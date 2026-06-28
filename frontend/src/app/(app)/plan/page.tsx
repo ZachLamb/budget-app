@@ -7,6 +7,7 @@ import { debtApi, type DebtAccount } from "@/lib/api/debt";
 import { accountsApi } from "@/lib/api/accounts";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { useLlm } from "@/lib/llm/useLlm";
+import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 import { userMessageFor } from "@/lib/llm/errors";
 import { goalsApi, type FinancialGoal, type GoalCreate } from "@/lib/api/goals";
 import { settingsApi } from "@/lib/api/settings";
@@ -699,9 +700,7 @@ function DebtTab() {
                   <><Sparkles className="mr-2 h-4 w-4" /> Get AI Recommendation</>
                 )}
               </Button>
-              {aiError && (
-                <p className="text-sm text-destructive">{aiError}</p>
-              )}
+              {aiError && <MaybeAiErrorWithSettings message={aiError} />}
               {debtAccounts.length === 0 && !isLoading && (
                 <p className="text-xs text-muted-foreground">No debt accounts found.</p>
               )}

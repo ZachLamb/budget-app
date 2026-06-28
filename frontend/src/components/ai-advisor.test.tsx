@@ -54,6 +54,7 @@ vi.mock("@/lib/api/settings", () => ({
 vi.mock("@/lib/llm/ai-feature-gate", () => ({
   useAiFeatureGate: () => ({
     prepareFeature: vi.fn(async () => ({ ok: true })),
+    ensureLocalSetup: vi.fn(async () => {}),
   }),
 }));
 

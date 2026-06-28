@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { Sparkles, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLlm } from "@/lib/llm/useLlm";
+import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 import { userMessageFor } from "@/lib/llm/errors";
 import type { Transaction } from "@/lib/api/transactions";
 import { formatCurrency } from "@/lib/format";
@@ -81,9 +82,9 @@ export function ExplainCharge({ txn }: Props) {
         </div>
       )}
       {error && (
-        <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          <AlertCircle className="size-4 mt-0.5 shrink-0" />
-          <span>{error}</span>
+        <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+          <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <MaybeAiErrorWithSettings message={error} />
         </div>
       )}
     </div>

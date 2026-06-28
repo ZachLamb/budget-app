@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AiSettingsCard } from "./ai-settings-card";
 
@@ -9,17 +9,25 @@ vi.mock("@/lib/llm/capability", () => ({
 }));
 import { getCapability } from "@/lib/llm/capability";
 
-// The card opens the setup wizard via the gate; stub it so we can render in
-// isolation and assert the Nano setup button calls into the hook entry.
 const ensureLocalSetup = vi.fn(async () => {});
+
 vi.mock("@/lib/llm/ai-feature-gate", () => ({
   useAiFeatureGate: () => ({
     ensureLocalSetup,
     prepareFeature: vi.fn(async () => ({ ok: true })),
+    localSetup: {
+      progress: 0,
+      open: false,
+      step: "welcome",
+      setupPath: "nano",
+      nanoStatus: "downloadable",
+      verifyStatus: "idle",
+      isDownloading: false,
+    },
+    aiSettingsPath: "/settings#ai",
   }),
 }));
 
-// Storage probe (web-llm cache) — default to "no fallback model downloaded".
 vi.mock("@/lib/llm/storage", () => ({
   getModelDownloadStatus: vi.fn(async () => ({ kind: "unsupported" })),
   clearModelFromCache: vi.fn(async () => {}),
@@ -43,64 +51,54 @@ const base = {
   specialized: { summarizer: false, writer: false, rewriter: false, proofreader: false },
 };
 
+const chromeUa =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
 describe("AiSettingsCard — Nano status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      userAgent: chromeUa,
+      platform: "MacIntel",
+      maxTouchPoints: 0,
+    });
   });
 
-  it("shows 'On-device AI ready' when Nano is available", async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("shows active status when Nano is available", async () => {
     vi.mocked(getCapability).mockResolvedValue({
       ...base,
       nano: { available: true, status: "available" },
     } as never);
     renderCard();
-    expect(await screen.findByText(/on-device ai ready/i)).toBeInTheDocument();
+    expect(await screen.findByText(/running in this browser tab/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/active in this browser/i).length).toBeGreaterThan(0);
   });
 
-  it("shows a setup button when Nano is downloadable", async () => {
+  it("shows in-app activation when Nano is downloadable", async () => {
     vi.mocked(getCapability).mockResolvedValue({
       ...base,
       nano: { available: true, status: "downloadable" },
     } as never);
     renderCard();
-    expect(await screen.findByText(/setting up on-device ai/i)).toBeInTheDocument();
+    expect(await screen.findByText(/browser requirements/i)).toBeInTheDocument();
+    expect(await screen.findByText(/fix in clarity/i)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /set up on-device ai/i }),
+      screen.getByRole("button", { name: /activate built-in ai/i }),
     ).toBeInTheDocument();
   });
 
-  it("shows a Chrome/Edge hint when nothing is available", async () => {
+  it("shows manual Chrome steps when Prompt API is missing", async () => {
     vi.mocked(getCapability).mockResolvedValue({
       ...base,
       nano: { available: false, status: "unsupported" },
     } as never);
     renderCard();
-    expect(
-      await screen.findByText(/chrome or edge on desktop/i),
-    ).toBeInTheDocument();
-  });
-
-  it("flips to 'On-device AI ready' after setup re-probes capability", async () => {
-    // Initial mount probe: Nano is downloadable (needs setup). The forced
-    // re-probe after setup completes reports it available.
-    vi.mocked(getCapability)
-      .mockResolvedValueOnce({
-        ...base,
-        nano: { available: true, status: "downloadable" },
-      } as never)
-      .mockResolvedValue({
-        ...base,
-        nano: { available: true, status: "available" },
-      } as never);
-
-    renderCard();
-
-    const setupBtn = await screen.findByRole("button", {
-      name: /set up on-device ai/i,
-    });
-    fireEvent.click(setupBtn);
-
-    expect(ensureLocalSetup).toHaveBeenCalled();
-    expect(await screen.findByText(/on-device ai ready/i)).toBeInTheDocument();
+    expect(await screen.findByText(/fix in chrome/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/prompt api/i).length).toBeGreaterThan(0);
   });
 });
