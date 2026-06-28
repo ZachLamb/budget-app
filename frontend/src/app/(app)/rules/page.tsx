@@ -7,6 +7,7 @@ import { reportsApi, type LlmSuggestion } from "@/lib/api/reports";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
 import { useFlatCategories, useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
+import { toastMaybeAiAvailability } from "@/lib/llm/ai-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -100,7 +101,11 @@ function RulesContent() {
         appToast.info("No uncategorized transactions to suggest for");
       }
     },
-    onError: (e) => toastApiError("Failed to get suggestions. Is the API key configured?", e),
+    onError: (e) => {
+      if (!toastMaybeAiAvailability("Failed to get AI category suggestions", e)) {
+        toastApiError("Failed to get suggestions", e);
+      }
+    },
   });
 
   const applySuggestionsMutation = useMutation({

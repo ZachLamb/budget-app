@@ -11,7 +11,9 @@ import {
 import { aiApi, type SpendingTrend, type BudgetSuggestion } from "@/lib/api/ai";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { useLlm } from "@/lib/llm/useLlm";
+import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 import { userMessageFor } from "@/lib/llm/errors";
+import { toastMaybeAiAvailability } from "@/lib/llm/ai-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -506,7 +508,7 @@ function SpendingPatternsPanel({ month }: { month: string }) {
               )}
 
               {insightsError ? (
-                <p className="text-sm text-destructive">{userMessageFor(insightsError)}</p>
+                <MaybeAiErrorWithSettings message={userMessageFor(insightsError)} />
               ) : insights.length > 0 ? (
                 <div>
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
@@ -590,7 +592,10 @@ function BudgetContent() {
         setShowSuggestions(true);
       }
     } catch (e) {
-      toastPlainError(userMessageFor(e));
+      const msg = userMessageFor(e);
+      if (!toastMaybeAiAvailability("Could not load AI budget suggestions", e instanceof Error ? e : new Error(msg))) {
+        toastPlainError(msg);
+      }
     } finally {
       setSuggestionsLoading(false);
     }

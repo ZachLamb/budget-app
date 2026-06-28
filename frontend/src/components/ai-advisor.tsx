@@ -16,6 +16,7 @@ import { useIsClient } from "@/lib/hooks";
 import Link from "next/link";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { useLlm } from "@/lib/llm/useLlm";
+import { AiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 import { userMessageFor } from "@/lib/llm/errors";
 import type { PipelineProgress } from "@/lib/llm/pipelines/types";
 import { AiUnavailable } from "@/components/llm/ai-unavailable";
@@ -250,7 +251,10 @@ function AiAdvisorInner() {
 
         <ScrollArea className="flex-1 px-4 py-3 overflow-y-auto">
           {unavailable && messages.length === 0 && (
-            <AiUnavailable className="my-8" />
+            <AiUnavailable
+              className="my-8"
+              onStartSetup={() => void gate.ensureLocalSetup("free_form_qa")}
+            />
           )}
 
           {messages.length === 0 && !unavailable && (
@@ -314,7 +318,9 @@ function AiAdvisorInner() {
           )}
 
           {error && (
-            <p className="text-xs text-destructive text-center mb-2 px-4">{error}</p>
+            <div className="mb-2 px-4 text-center">
+              <AiErrorWithSettings message={error} className="text-xs" />
+            </div>
           )}
 
           <div ref={bottomRef} />

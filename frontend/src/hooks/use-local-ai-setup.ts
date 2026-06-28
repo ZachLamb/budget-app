@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import type { FeatureId } from "@/lib/llm/features";
 import type {
   UseLocalAiSetup,
   WizardStep,
@@ -25,6 +24,7 @@ import {
   normalizeInitProgress,
 } from "@/lib/llm/web-llm-download";
 import type { CapabilitySnapshot } from "@/lib/llm/types";
+import { getSetupPath } from "@/lib/llm/on-device-ai-guide";
 
 interface PendingPromise {
   promise: Promise<void>;
@@ -228,7 +228,9 @@ export function useLocalAiSetup(): UseLocalAiSetup {
   }, []);
 
   const modelSize = capability?.webgpu.modelSize ?? "none";
-  const deviceUnsupported = modelSize === "none";
+  const setupPath = capability ? getSetupPath(capability) : "none";
+  const deviceUnsupported = setupPath === "none";
+  const nanoStatus = capability?.nano.status ?? "unsupported";
   const freeStorage = capability?.webgpu.storageQuotaBytes;
 
   return {
@@ -236,6 +238,8 @@ export function useLocalAiSetup(): UseLocalAiSetup {
     wizardProps: {
       open,
       step,
+      setupPath,
+      nanoStatus,
       modelSize,
       freeStorage,
       progress,

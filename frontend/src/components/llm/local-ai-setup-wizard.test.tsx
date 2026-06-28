@@ -7,6 +7,8 @@ function defaultProps(overrides: Partial<WizardProps> = {}): WizardProps {
   return {
     open: true,
     step: "welcome",
+    setupPath: "web-llm",
+    nanoStatus: "unavailable",
     modelSize: "3b",
     freeStorage: 10_000_000_000,
     progress: 0,
@@ -31,7 +33,7 @@ describe("LocalAiSetupWizard", () => {
     expect(
       screen.getByRole("heading", { name: /on-device/i }),
     ).toBeInTheDocument();
-    expect(screen.getAllByText(/no data leaves/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/budget data stays on your device/i).length).toBeGreaterThan(0);
   });
 
   it("renders device check with model size and free storage", () => {
@@ -71,7 +73,7 @@ describe("LocalAiSetupWizard", () => {
       />,
     );
 
-    expect(screen.getByText(/not supported|not available/i)).toBeInTheDocument();
+    expect(screen.getByText(/chrome or edge on desktop/i)).toBeInTheDocument();
   });
 
   it("shows progress bar during download step", () => {
@@ -133,7 +135,7 @@ describe("LocalAiSetupWizard", () => {
       />,
     );
 
-    expect(screen.getByText(/ready|success/i)).toBeInTheDocument();
+    expect(screen.getByText(/on-device ai is ready/i)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /continue/i }),
     ).toBeInTheDocument();

@@ -3,9 +3,9 @@
 import type { UseMutationResult } from "@tanstack/react-query";
 import type { FsaEligibleTransaction, FsaReviewResponse } from "@/lib/api/ai";
 import { AI_COPY } from "@/lib/ai-copy";
+import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 import { getApiErrorMessage } from "@/lib/hooks";
 import { formatCurrency } from "@/lib/format";
-import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -165,22 +165,13 @@ export function FsaReviewPanel({
           ) : null}
 
           {fsaError && (
-            <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-              <p>
-                {getApiErrorMessage(
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+              <MaybeAiErrorWithSettings
+                message={getApiErrorMessage(
                   fsaErrorDetail,
                   "Failed to scan transactions. Enable AI in Settings and complete on-device setup.",
                 )}
-              </p>
-              {(fsaErrorDetail as { response?: { status?: number } })?.response?.status === 403 && (
-                <p className="text-xs text-muted-foreground">
-                  Enable AI in Settings, then complete the on-device model setup for{" "}
-                  <span className="font-medium text-foreground">FSA reimbursement review</span>.{" "}
-                  <Link href="/settings" className="text-primary underline-offset-4 hover:underline">
-                    Open Settings
-                  </Link>
-                </p>
-              )}
+              />
             </div>
           )}
 

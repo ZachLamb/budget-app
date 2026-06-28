@@ -274,10 +274,10 @@ describe("useLocalAiSetup", () => {
       result.current.wizardProps.onNext();
       result.current.wizardProps.onGrantConsent();
     });
-    await flush();
-    act(() => {});
 
-    expect(result.current.wizardProps.downloadError).toMatch(/network|huggingface/i);
+    await waitFor(() => {
+      expect(result.current.wizardProps.downloadError).toMatch(/network|huggingface/i);
+    });
   });
 
   it("runs the Nano download path with progress and re-probes capability", async () => {

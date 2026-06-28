@@ -9,15 +9,20 @@ import {
   createContext,
   useCallback,
   useContext,
+  useMemo,
+  useState,
   type ReactNode,
 } from "react";
 import { LocalAiSetupWizard } from "@/components/llm/local-ai-setup-wizard";
+import { OnDeviceAiHelpDialog } from "@/components/llm/on-device-ai-help-dialog";
 import { useLocalAiSetup } from "@/hooks/use-local-ai-setup";
+import type { LocalSetupSnapshot } from "@/hooks/local-ai-setup-types";
 import { type FeatureId } from "@/lib/llm/features";
 import { useLlm } from "@/lib/llm/useLlm";
 import type { Decision } from "@/lib/llm/router";
 import { isDemoMode } from "@/lib/demo-mode";
-import { appToast } from "@/lib/app-toast";
+import { toastAiAvailability } from "@/lib/llm/ai-toast";
+import { AI_SETTINGS_PATH } from "@/lib/llm/ai-settings-link";
 
 export type PrepareFeatureResult =
   | { ok: true; decision?: Extract<Decision, { kind: "ready" }> }
@@ -28,6 +33,11 @@ interface AiFeatureGateContextValue {
   prepareFeature: (feature: FeatureId) => Promise<PrepareFeatureResult>;
   /** Ensure local AI model is downloaded and ready for the given feature. */
   ensureLocalSetup: (feature: FeatureId) => Promise<void>;
+  /** Open the help walkthrough (browser requirements, no PWA needed). */
+  openOnDeviceHelp: (detail?: string) => void;
+  /** Live wizard state for inline progress in Settings / help UI. */
+  localSetup: LocalSetupSnapshot;
+  aiSettingsPath: string;
 }
 
 const AiFeatureGateContext = createContext<AiFeatureGateContextValue | null>(null);
@@ -43,9 +53,33 @@ export function useAiFeatureGate(): AiFeatureGateContextValue {
 export function AiFeatureGateProvider({ children }: { children: ReactNode }) {
   const llm = useLlm();
   const localAi = useLocalAiSetup();
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpDetail, setHelpDetail] = useState<string | undefined>();
+
+  const localSetup = useMemo((): LocalSetupSnapshot => {
+    const wp = localAi.wizardProps;
+    return {
+      progress: wp.progress,
+      progressText: wp.progressText,
+      step: wp.step,
+      open: wp.open,
+      setupPath: wp.setupPath,
+      nanoStatus: wp.nanoStatus,
+      verifyStatus: wp.verifyStatus,
+      isDownloading: wp.open && wp.step === "download",
+    };
+  }, [localAi.wizardProps]);
+
+  const openOnDeviceHelp = useCallback((detail?: string) => {
+    setHelpDetail(detail);
+    setHelpOpen(true);
+  }, []);
 
   const ensureLocalSetup = useCallback(
-    (feature: FeatureId) => localAi.ensureReady(feature),
+    (_feature: FeatureId) => {
+      void _feature;
+      return localAi.ensureReady();
+    },
     [localAi],
   );
 
@@ -64,18 +98,20 @@ export function AiFeatureGateProvider({ children }: { children: ReactNode }) {
 
         if (decision.kind === "unavailable") {
           if (decision.reason === "ai_disabled_globally") {
-            appToast.warning(
+            toastAiAvailability(
               "AI is turned off. Enable AI Financial Advisor in Settings to use this feature.",
             );
+          } else if (decision.reason === "unavailable_no_capable_tier") {
+            openOnDeviceHelp(decision.message);
           } else {
-            appToast.warning(decision.message);
+            toastAiAvailability(decision.message);
           }
           return { ok: false, reason: "unavailable", message: decision.message };
         }
 
         if (decision.kind === "needs_nano_setup") {
           try {
-            await localAi.ensureReady(feature);
+            await localAi.ensureReady();
             await llm.refresh();
           } catch {
             return { ok: false, reason: "cancelled" };
@@ -86,7 +122,7 @@ export function AiFeatureGateProvider({ children }: { children: ReactNode }) {
 
         if (decision.kind === "needs_consent") {
           try {
-            await localAi.ensureReady(feature);
+            await localAi.ensureReady();
             await llm.refresh();
           } catch {
             return { ok: false, reason: "cancelled" };
@@ -96,16 +132,35 @@ export function AiFeatureGateProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      appToast.warning("Could not prepare AI for this feature. Try again from Settings.");
+      toastAiAvailability("Could not prepare AI for this feature. Check AI settings and try again.");
       return { ok: false, reason: "unavailable" };
     },
-    [llm, localAi],
+    [llm, localAi, openOnDeviceHelp],
   );
 
   return (
-    <AiFeatureGateContext.Provider value={{ prepareFeature, ensureLocalSetup }}>
+    <AiFeatureGateContext.Provider
+      value={{
+        prepareFeature,
+        ensureLocalSetup,
+        openOnDeviceHelp,
+        localSetup,
+        aiSettingsPath: AI_SETTINGS_PATH,
+      }}
+    >
       {children}
       <LocalAiSetupWizard {...localAi.wizardProps} />
+      <OnDeviceAiHelpDialog
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        detail={helpDetail}
+        localSetup={localSetup}
+        onActivate={() => localAi.ensureReady()}
+        onStartSetup={() => {
+          setHelpOpen(false);
+          void localAi.ensureReady();
+        }}
+      />
     </AiFeatureGateContext.Provider>
   );
 }

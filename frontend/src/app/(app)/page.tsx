@@ -9,7 +9,6 @@ import { reportsApi } from "@/lib/api/reports";
 import { goalsApi, type FinancialGoal } from "@/lib/api/goals";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { useLlm } from "@/lib/llm/useLlm";
-import { userMessageFor } from "@/lib/llm/errors";
 import { syncApi } from "@/lib/api/sync";
 import { recurringApi } from "@/lib/api/recurring";
 import { settingsApi } from "@/lib/api/settings";
@@ -26,6 +25,8 @@ import { cn } from "@/lib/utils";
 import { formatCurrency, formatCurrencyNegative, getMonthString, navigateMonth, formatShortMonth } from "@/lib/format";
 import { useIsClient, useChartColors, useInView } from "@/lib/hooks";
 import { QueryState, inlineErrorQueryMeta } from "@/components/page";
+import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
+import { AI_SETTINGS_PATH } from "@/lib/llm/ai-settings-link";
 import { toastApiError } from "@/lib/toast-error";
 import { PageHeader } from "@/components/page";
 import { SetupChecklist } from "@/components/setup-checklist";
@@ -146,12 +147,12 @@ function InsightsPanel({
                 </div>
               ) : error ? (
                 <div className="space-y-2 text-sm">
-                  <p className="text-destructive flex items-center gap-2">
-                    <WifiOff className="h-4 w-4 shrink-0" />
-                    {userMessageFor(error)}
-                  </p>
+                  <div className="flex items-start gap-2">
+                    <WifiOff className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    <MaybeAiErrorWithSettings message={userMessageFor(error)} />
+                  </div>
                   <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
-                    <Link href="/settings">
+                    <Link href={AI_SETTINGS_PATH}>
                       <Settings className="h-3 w-3 mr-1" /> AI Settings
                     </Link>
                   </Button>

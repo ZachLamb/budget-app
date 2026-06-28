@@ -9,6 +9,7 @@ import {
   Cpu,
   HardDrive,
   Download,
+  Monitor,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +20,17 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import { OnDeviceAiInstructions } from "@/components/llm/on-device-ai-instructions";
 import type { WizardProps, WizardStep } from "@/hooks/local-ai-setup-types";
+import {
+  WIZARD_STEPS,
+  PWA_NOT_REQUIRED,
+  nanoSetupSteps,
+  webLlmSetupSteps,
+  unsupportedSteps,
+  unsupportedHeadline,
+  detectBrowser,
+} from "@/lib/llm/on-device-ai-guide";
 
 function formatGB(bytes: number | undefined): string {
   if (bytes === undefined || bytes <= 0) return "—";
@@ -33,33 +44,60 @@ const MODEL_SIZE_LABEL: Record<string, string> = {
   none: "—",
 };
 
+function WizardStepIndicator({ step }: { step: WizardStep }) {
+  const idx = WIZARD_STEPS.findIndex((s) => s.id === step);
+  const current = WIZARD_STEPS[idx];
+  return (
+    <p className="text-xs text-muted-foreground">
+      Step {idx + 1} of {WIZARD_STEPS.length}
+      {current ? ` — ${current.label}` : ""}
+    </p>
+  );
+}
+
 function WelcomeStep({
+  setupPath,
   cloudAvailable,
   onNext,
   onCloudFallback,
-}: Pick<WizardProps, "cloudAvailable" | "onNext" | "onCloudFallback">) {
+}: Pick<WizardProps, "setupPath" | "cloudAvailable" | "onNext" | "onCloudFallback">) {
+  const isNano = setupPath === "nano";
   return (
     <>
+      <WizardStepIndicator step="welcome" />
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
           <Shield className="size-5" /> Set up on-device AI
         </DialogTitle>
         <DialogDescription>
-          On-device AI runs entirely in your browser — your data stays local and
-          no data leaves your device.
+          AI runs privately in your browser. Your budget data stays on your device — nothing is sent
+          to a cloud model for this setup path.
         </DialogDescription>
       </DialogHeader>
+
+      <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+        <p className="flex items-start gap-2">
+          <Monitor className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          {PWA_NOT_REQUIRED}
+        </p>
+      </div>
 
       <ul className="space-y-2 text-sm text-muted-foreground">
         <li className="flex items-start gap-2">
           <Cpu className="mt-0.5 size-4 shrink-0" />
-          Runs offline after a one-time download
+          {isNano
+            ? "Uses Gemini Nano built into Chrome or Edge — a one-time download, then works offline."
+            : "Downloads a small open-source model once (~700 MB–1.8 GB), then works offline."}
         </li>
         <li className="flex items-start gap-2">
           <Shield className="mt-0.5 size-4 shrink-0" />
-          Private by default — no data leaves your device
+          Private by default — no account data leaves your device during inference.
         </li>
       </ul>
+
+      <OnDeviceAiInstructions
+        steps={isNano ? nanoSetupSteps().slice(0, 2) : webLlmSetupSteps(MODEL_SIZE_LABEL["3b"]).slice(0, 2)}
+      />
 
       <div className="mt-4 flex justify-end gap-2">
         {cloudAvailable && (
@@ -67,13 +105,14 @@ function WelcomeStep({
             <Cloud className="mr-1.5 size-4" /> Use cloud AI instead
           </Button>
         )}
-        <Button onClick={onNext}>Next</Button>
+        <Button onClick={onNext}>Continue</Button>
       </div>
     </>
   );
 }
 
 function DeviceCheckStep({
+  setupPath,
   modelSize,
   freeStorage,
   deviceUnsupported,
@@ -84,6 +123,7 @@ function DeviceCheckStep({
   onToggleLite,
 }: Pick<
   WizardProps,
+  | "setupPath"
   | "modelSize"
   | "freeStorage"
   | "deviceUnsupported"
@@ -93,17 +133,20 @@ function DeviceCheckStep({
   | "onCloudFallback"
   | "onToggleLite"
 >) {
+  const browser = detectBrowser();
+
   if (deviceUnsupported) {
     return (
       <>
+        <WizardStepIndicator step="device-check" />
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertCircle className="size-5 text-destructive" /> Device check
           </DialogTitle>
-          <DialogDescription>
-            Local AI is not available on your browser. WebGPU is not supported.
-          </DialogDescription>
+          <DialogDescription>{unsupportedHeadline(browser)}</DialogDescription>
         </DialogHeader>
+
+        <OnDeviceAiInstructions steps={unsupportedSteps(browser)} />
 
         <div className="mt-4 flex justify-end gap-2">
           {cloudAvailable && (
@@ -119,14 +162,41 @@ function DeviceCheckStep({
     );
   }
 
+  if (setupPath === "nano") {
+    return (
+      <>
+        <WizardStepIndicator step="device-check" />
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Cpu className="size-5" /> Ready for Gemini Nano
+          </DialogTitle>
+          <DialogDescription>
+            Your browser supports on-device AI. The next step downloads the model (handled by
+            Chrome or Edge).
+          </DialogDescription>
+        </DialogHeader>
+
+        <OnDeviceAiInstructions steps={nanoSetupSteps().slice(2)} />
+
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel}>
+            Not now
+          </Button>
+          <Button onClick={onGrantConsent}>Download model</Button>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
+      <WizardStepIndicator step="device-check" />
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
           <HardDrive className="size-5" /> Device check
         </DialogTitle>
         <DialogDescription>
-          We&rsquo;ll download the AI model to your browser storage.
+          We&apos;ll download the fallback AI model to your browser storage.
         </DialogDescription>
       </DialogHeader>
 
@@ -156,6 +226,11 @@ function DeviceCheckStep({
         </label>
       )}
 
+      <OnDeviceAiInstructions
+        steps={webLlmSetupSteps(MODEL_SIZE_LABEL[modelSize] ?? "~1.8 GB").slice(2)}
+        className="mt-2"
+      />
+
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onCancel}>
           Not now
@@ -169,6 +244,7 @@ function DeviceCheckStep({
 }
 
 function DownloadStep({
+  setupPath,
   progress,
   progressText,
   downloadError,
@@ -178,6 +254,7 @@ function DownloadStep({
   onCloudFallback,
 }: Pick<
   WizardProps,
+  | "setupPath"
   | "progress"
   | "progressText"
   | "downloadError"
@@ -186,12 +263,19 @@ function DownloadStep({
   | "onCancel"
   | "onCloudFallback"
 >) {
+  const isNano = setupPath === "nano";
   return (
     <>
+      <WizardStepIndicator step="download" />
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
           <Download className="size-5" /> Downloading model
         </DialogTitle>
+        <DialogDescription>
+          {isNano
+            ? "Chrome or Edge is downloading Gemini Nano. Keep this tab open."
+            : "Downloading the fallback model. This may take several minutes."}
+        </DialogDescription>
       </DialogHeader>
 
       {downloadError ? (
@@ -214,9 +298,10 @@ function DownloadStep({
           <div className="space-y-2">
             <Progress value={progress} />
             {progressText && (
-              <p className="text-center text-xs text-muted-foreground">
-                {progressText}
-              </p>
+              <p className="text-center text-xs text-muted-foreground">{progressText}</p>
+            )}
+            {!progressText && progress > 0 && (
+              <p className="text-center text-xs text-muted-foreground">{progress}%</p>
             )}
           </div>
           <div className="mt-4 flex justify-end">
@@ -231,6 +316,7 @@ function DownloadStep({
 }
 
 function VerifyStep({
+  setupPath,
   verifyStatus,
   verifyResult,
   cloudAvailable,
@@ -239,6 +325,7 @@ function VerifyStep({
   onCloudFallback,
 }: Pick<
   WizardProps,
+  | "setupPath"
   | "verifyStatus"
   | "verifyResult"
   | "cloudAvailable"
@@ -246,35 +333,36 @@ function VerifyStep({
   | "onRetry"
   | "onCloudFallback"
 >) {
+  const isNano = setupPath === "nano";
   return (
     <>
+      <WizardStepIndicator step="verify" />
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
-          {verifyStatus === "running" && (
-            <Loader2 className="size-5 animate-spin" />
-          )}
-          {verifyStatus === "success" && (
-            <CheckCircle2 className="size-5 text-green-600" />
-          )}
-          {verifyStatus === "error" && (
-            <AlertCircle className="size-5 text-destructive" />
-          )}
+          {verifyStatus === "running" && <Loader2 className="size-5 animate-spin" />}
+          {verifyStatus === "success" && <CheckCircle2 className="size-5 text-green-600" />}
+          {verifyStatus === "error" && <AlertCircle className="size-5 text-destructive" />}
           {verifyStatus === "idle" && <Cpu className="size-5" />}
-          Verification
+          {isNano && verifyStatus === "success" ? "Ready" : "Verification"}
         </DialogTitle>
+        {verifyStatus === "success" && (
+          <DialogDescription>
+            On-device AI is ready. You can close this dialog and try AI suggestions again.
+          </DialogDescription>
+        )}
       </DialogHeader>
 
       {verifyStatus === "running" && (
-        <p className="text-center text-sm text-muted-foreground">
-          Verifying model…
-        </p>
+        <p className="text-center text-sm text-muted-foreground">Verifying model…</p>
       )}
 
       {verifyStatus === "success" && (
         <>
           <p className="text-sm text-muted-foreground">
-            On-device AI is ready.
-            {verifyResult && (
+            {isNano
+              ? "Gemini Nano is available on this device."
+              : "The fallback model responded successfully."}
+            {verifyResult && !isNano && (
               <>
                 {" "}
                 Test result: <span className="font-medium">{verifyResult}</span>
@@ -287,10 +375,8 @@ function VerifyStep({
         </>
       )}
 
-      {verifyStatus === "idle" && (
-        <p className="text-center text-sm text-muted-foreground">
-          Preparing verification…
-        </p>
+      {verifyStatus === "idle" && !isNano && (
+        <p className="text-center text-sm text-muted-foreground">Preparing verification…</p>
       )}
 
       {verifyStatus === "error" && (
@@ -314,10 +400,7 @@ function VerifyStep({
   );
 }
 
-const STEP_COMPONENT: Record<
-  WizardStep,
-  (props: WizardProps) => React.JSX.Element
-> = {
+const STEP_COMPONENT: Record<WizardStep, (props: WizardProps) => React.JSX.Element> = {
   welcome: WelcomeStep,
   "device-check": DeviceCheckStep,
   download: DownloadStep,
@@ -335,7 +418,7 @@ export function LocalAiSetupWizard(props: WizardProps) {
         if (!o) onCancel();
       }}
     >
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <StepContent {...props} />
       </DialogContent>
     </Dialog>
