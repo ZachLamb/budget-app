@@ -17,6 +17,20 @@ _DEMO_AUTH_PREFIXES = (
     "/api/auth/demo-login",
     "/api/auth/login",
     "/api/auth/google/exchange",
+    # Passkey and magic-link are first-class sign-in methods the demo exposes
+    # on the login screen. Their flows are multi-step POSTs matched by prefix.
+    # Omitting them made both methods 403 in demo mode while
+    # password/Google/demo-login kept working.
+    #
+    # Passkey: only the authenticate/* sub-paths (options + verify) — i.e.
+    # SIGN-IN. Registration (passkey/register/*) and add (passkey/add/*) stay
+    # blocked so demo keeps its no-account-creation invariant, consistent with
+    # password /api/auth/register also being absent here and the login UI
+    # hiding sign-up in demo.
+    # Magic-link: request + verify are both part of sign-in, so the whole
+    # prefix is allowed.
+    "/api/auth/passkey/authenticate/",
+    "/api/auth/magic-link/",
 )
 
 # Exact paths (not prefixes). Matching by prefix historically let future AI
