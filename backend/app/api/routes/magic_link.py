@@ -4,8 +4,10 @@ from __future__ import annotations
 
 POST /api/auth/magic-link/request — accept an email, generate a token,
   email it, ALWAYS return 200 (anti-enumeration).
-GET  /api/auth/magic-link/verify — exchange the token for a session.
-  Redeems single-use, sets the session cookie, redirects to the frontend.
+POST /api/auth/magic-link/verify — exchange the token (in the JSON body, not
+  the query string, so it stays out of access logs) for a session. Redeems
+  single-use, sets the httpOnly session cookie, returns {"ok": true}. The
+  frontend landing page renders success/failure from that JSON.
 
 Rate limiting:
   - Per-email cap (anti-spam): 3 requests/hour per email address.
