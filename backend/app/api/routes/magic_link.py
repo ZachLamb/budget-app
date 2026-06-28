@@ -4,8 +4,10 @@ from __future__ import annotations
 
 POST /api/auth/magic-link/request — accept an email, generate a token,
   email it, ALWAYS return 200 (anti-enumeration).
-GET  /api/auth/magic-link/verify — exchange the token for a session.
-  Redeems single-use, sets the session cookie, redirects to the frontend.
+POST /api/auth/magic-link/verify — exchange the token (in the JSON body, not
+  the query string, so it stays out of access logs) for a session. Redeems
+  single-use, sets the httpOnly session cookie, returns {"ok": true}. The
+  frontend landing page renders success/failure from that JSON.
 
 Rate limiting:
   - Per-email cap (anti-spam): 3 requests/hour per email address.
@@ -140,6 +142,19 @@ async def request_magic_link(
             user.id,
             result.error,
         )
+        # Local-dev ergonomics: with delivery unconfigured (no Resend key),
+        # the sign-in link is otherwise unobtainable, so magic-link login
+        # can't be exercised locally or in a local demo. Log it — but ONLY
+        # on a non-HTTPS host. Production and the hosted demo are always
+        # HTTPS, so a usable token can never reach logs there. This is the
+        # load-bearing guard: never log a redeemable token on an
+        # internet-facing deployment.
+        if not frontend_url.lower().startswith("https://"):
+            logger.warning(
+                "magic_link_dev_signin_url=%s "
+                "(email delivery unavailable; logged only on a non-HTTPS dev host)",
+                sign_in_url,
+            )
     return MagicLinkRequestResponse()
 
 
