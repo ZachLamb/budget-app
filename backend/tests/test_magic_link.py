@@ -11,6 +11,7 @@ but the HTTP response is identical either way.
 """
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -244,6 +245,64 @@ async def test_route_unknown_email_returns_same_shape_no_send(route_db) -> None:
     # email exists from response content, latency, or absence of an email
     # (they don't have access to the inbox).
     mock_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_route_dev_fallback_logs_signin_url_when_delivery_unavailable(
+    route_db, caplog
+) -> None:
+    """Local-dev ergonomics: with email delivery unconfigured on a non-HTTPS
+    host, the sign-in URL is otherwise unobtainable, so magic-link login can't
+    be tested. The route logs it. The HTTP response is unchanged (still
+    200/anti-enumeration)."""
+    async with route_db() as s:
+        await _seed_user(s, "devlink@test.com")
+
+    failed = AsyncMock(
+        return_value=type(
+            "R", (), {"ok": False, "provider_id": None, "error": "RESEND_API_KEY not configured"}
+        )()
+    )
+    with caplog.at_level(logging.WARNING, logger="app.api.routes.magic_link"):
+        with patch("app.api.routes.magic_link.email_service.send_email", failed):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                r = await client.post(
+                    "/api/auth/magic-link/request",
+                    json={"email": "devlink@test.com"},
+                    headers={"Origin": _allowed_origin()},
+                )
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+    logged = "\n".join(rec.getMessage() for rec in caplog.records)
+    assert "token=" in logged  # the dev sign-in URL, carrying the redeemable token
+
+
+@pytest.mark.asyncio
+async def test_route_dev_fallback_never_logs_url_on_https_host(
+    route_db, caplog, monkeypatch
+) -> None:
+    """Safety boundary: the sign-in URL must NEVER reach logs on an HTTPS host
+    (production / hosted demo are always HTTPS), even when delivery fails —
+    that would leak a usable login token to anyone who can read logs."""
+    monkeypatch.setattr(get_settings(), "frontend_url", "https://app.example.com")
+    async with route_db() as s:
+        await _seed_user(s, "prodlink@test.com")
+
+    failed = AsyncMock(
+        return_value=type("R", (), {"ok": False, "provider_id": None, "error": "boom"})()
+    )
+    with caplog.at_level(logging.WARNING, logger="app.api.routes.magic_link"):
+        with patch("app.api.routes.magic_link.email_service.send_email", failed):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                r = await client.post(
+                    "/api/auth/magic-link/request",
+                    json={"email": "prodlink@test.com"},
+                    headers={"Origin": _allowed_origin()},
+                )
+    assert r.status_code == 200
+    logged = "\n".join(rec.getMessage() for rec in caplog.records)
+    assert "token=" not in logged
+    assert "app.example.com/auth/magic-link" not in logged
 
 
 @pytest.mark.asyncio

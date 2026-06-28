@@ -142,6 +142,19 @@ async def request_magic_link(
             user.id,
             result.error,
         )
+        # Local-dev ergonomics: with delivery unconfigured (no Resend key),
+        # the sign-in link is otherwise unobtainable, so magic-link login
+        # can't be exercised locally or in a local demo. Log it — but ONLY
+        # on a non-HTTPS host. Production and the hosted demo are always
+        # HTTPS, so a usable token can never reach logs there. This is the
+        # load-bearing guard: never log a redeemable token on an
+        # internet-facing deployment.
+        if not frontend_url.lower().startswith("https://"):
+            logger.warning(
+                "magic_link_dev_signin_url=%s "
+                "(email delivery unavailable; logged only on a non-HTTPS dev host)",
+                sign_in_url,
+            )
     return MagicLinkRequestResponse()
 
 
