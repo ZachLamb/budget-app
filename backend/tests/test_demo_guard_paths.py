@@ -103,6 +103,28 @@ def test_every_demo_allowlisted_path_resolves_to_a_real_route() -> None:
     )
 
 
+def test_every_demo_auth_prefix_covers_a_real_route() -> None:
+    """Safeguard for the auth allowlist specifically: each prefix must match at
+    least one registered route. A typo (``magic_link`` vs ``magic-link``) or a
+    missing trailing slash would silently match nothing and quietly re-break
+    demo login — exactly the bug this guards against — with no test failure.
+    """
+    from app.main import app
+
+    registered = {getattr(r, "path", None) for r in app.routes}
+    registered.discard(None)
+    unmatched = {
+        prefix
+        for prefix in _DEMO_AUTH_PREFIXES
+        if not any(path.startswith(prefix) for path in registered)
+    }
+    assert not unmatched, (
+        f"_DEMO_AUTH_PREFIXES entries match no registered route: "
+        f"{sorted(unmatched)}. Likely a typo or a renamed/removed endpoint — "
+        f"these would silently fail to allowlist demo auth."
+    )
+
+
 def test_demo_blocks_random_api_mutations() -> None:
     """Anything outside the explicit allowlists stays blocked."""
     assert not is_demo_mutation_allowed("/api/transactions", "POST")
