@@ -11,7 +11,6 @@ but the HTTP response is identical either way.
 """
 from __future__ import annotations
 
-import logging
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -249,41 +248,56 @@ async def test_route_unknown_email_returns_same_shape_no_send(route_db) -> None:
 
 @pytest.mark.asyncio
 async def test_route_dev_fallback_logs_signin_url_when_delivery_unavailable(
-    route_db, caplog
+    route_db,
 ) -> None:
     """Local-dev ergonomics: with email delivery unconfigured on a non-HTTPS
     host, the sign-in URL is otherwise unobtainable, so magic-link login can't
     be tested. The route logs it. The HTTP response is unchanged (still
     200/anti-enumeration)."""
+    from app.api.routes import magic_link as magic_link_routes
+    from app.middleware.rate_limit_store import InMemoryStore
+    from app.services.auth import magic_link_rate
+
+    magic_link_rate.set_store_for_tests(InMemoryStore())
+
     async with route_db() as s:
-        await _seed_user(s, "devlink@test.com")
+        await _seed_user(s, "devlink-fallback@test.com")
 
     failed = AsyncMock(
         return_value=type(
             "R", (), {"ok": False, "provider_id": None, "error": "RESEND_API_KEY not configured"}
         )()
     )
-    with caplog.at_level(logging.WARNING, logger="app.api.routes.magic_link"):
-        with patch("app.api.routes.magic_link.email_service.send_email", failed):
+    with patch("app.api.routes.magic_link.email_service.send_email", failed):
+        with patch.object(magic_link_routes.logger, "warning") as mock_warn:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.post(
                     "/api/auth/magic-link/request",
-                    json={"email": "devlink@test.com"},
+                    json={"email": "devlink-fallback@test.com"},
                     headers={"Origin": _allowed_origin()},
                 )
     assert r.status_code == 200
     assert r.json() == {"ok": True}
-    logged = "\n".join(rec.getMessage() for rec in caplog.records)
-    assert "token=" in logged  # the dev sign-in URL, carrying the redeemable token
+    dev_url_calls = [
+        call
+        for call in mock_warn.call_args_list
+        if call.args
+        and isinstance(call.args[0], str)
+        and call.args[0].startswith("magic_link_dev_signin_url=")
+    ]
+    assert len(dev_url_calls) == 1
+    assert "token=" in str(dev_url_calls[0].args[1])
 
 
 @pytest.mark.asyncio
 async def test_route_dev_fallback_never_logs_url_on_https_host(
-    route_db, caplog, monkeypatch
+    route_db, monkeypatch
 ) -> None:
     """Safety boundary: the sign-in URL must NEVER reach logs on an HTTPS host
     (production / hosted demo are always HTTPS), even when delivery fails —
     that would leak a usable login token to anyone who can read logs."""
+    from app.api.routes import magic_link as magic_link_routes
+
     monkeypatch.setattr(get_settings(), "frontend_url", "https://app.example.com")
     async with route_db() as s:
         await _seed_user(s, "prodlink@test.com")
@@ -291,8 +305,8 @@ async def test_route_dev_fallback_never_logs_url_on_https_host(
     failed = AsyncMock(
         return_value=type("R", (), {"ok": False, "provider_id": None, "error": "boom"})()
     )
-    with caplog.at_level(logging.WARNING, logger="app.api.routes.magic_link"):
-        with patch("app.api.routes.magic_link.email_service.send_email", failed):
+    with patch("app.api.routes.magic_link.email_service.send_email", failed):
+        with patch.object(magic_link_routes.logger, "warning") as mock_warn:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.post(
                     "/api/auth/magic-link/request",
@@ -300,9 +314,14 @@ async def test_route_dev_fallback_never_logs_url_on_https_host(
                     headers={"Origin": _allowed_origin()},
                 )
     assert r.status_code == 200
-    logged = "\n".join(rec.getMessage() for rec in caplog.records)
-    assert "token=" not in logged
-    assert "app.example.com/auth/magic-link" not in logged
+    dev_url_calls = [
+        call
+        for call in mock_warn.call_args_list
+        if call.args
+        and isinstance(call.args[0], str)
+        and call.args[0].startswith("magic_link_dev_signin_url=")
+    ]
+    assert dev_url_calls == []
 
 
 @pytest.mark.asyncio

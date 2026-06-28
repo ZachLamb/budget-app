@@ -277,11 +277,9 @@ export function partitionRequirements(reqs: OnDeviceRequirement[]): {
       ready.push(req);
       continue;
     }
-    if (req.fixTier === "in-app" && req.status !== "pass") {
+    if (req.fixTier === "in-app") {
       inApp.push(req);
-    } else if (req.fixTier === "browser-manual" && req.status !== "pass") {
-      manual.push(req);
-    } else if (req.status === "pending" || req.status === "fail") {
+    } else if (req.fixTier === "browser-manual" || req.status === "pending" || req.status === "fail") {
       manual.push(req);
     } else {
       ready.push(req);

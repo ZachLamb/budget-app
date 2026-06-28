@@ -27,6 +27,7 @@ import { useIsClient, useChartColors, useInView } from "@/lib/hooks";
 import { QueryState, inlineErrorQueryMeta } from "@/components/page";
 import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 import { AI_SETTINGS_PATH } from "@/lib/llm/ai-settings-link";
+import { userMessageFor } from "@/lib/llm/errors";
 import { toastApiError } from "@/lib/toast-error";
 import { PageHeader } from "@/components/page";
 import { SetupChecklist } from "@/components/setup-checklist";
