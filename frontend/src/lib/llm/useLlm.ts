@@ -27,6 +27,7 @@ import { runBudgetPipeline } from "./pipelines/budget";
 import { runGoalPipeline } from "./pipelines/goal";
 import { runQaPipeline } from "./pipelines/qa";
 import { runAdvicePipeline } from "./pipelines/advice";
+import { runRatesPipeline } from "./pipelines/rates";
 
 /** Heavy features served by on-device pipelines (Nano-only in v1). */
 export const HEAVY_FEATURES: ReadonlySet<FeatureId> = new Set<FeatureId>([
@@ -34,11 +35,14 @@ export const HEAVY_FEATURES: ReadonlySet<FeatureId> = new Set<FeatureId>([
   "goal_planning",
   "free_form_qa",
   "financial_advice",
+  "debt_rate_suggestions",
 ]);
 
 export interface RunFeatureParams {
   /** Free-text question for `free_form_qa` / `financial_advice`. */
   question?: string;
+  /** Target a specific goal for `goal_planning`. */
+  goalId?: string;
 }
 
 export interface RunFeatureOptions {
@@ -159,7 +163,9 @@ export function useLlm(): UseLlm {
         case "budget_recommendations":
           return runBudgetPipeline(pctx);
         case "goal_planning":
-          return runGoalPipeline(pctx);
+          return runGoalPipeline(pctx, { goalId: params?.goalId });
+        case "debt_rate_suggestions":
+          return runRatesPipeline(pctx);
         case "free_form_qa":
           return runQaPipeline(pctx, { question: params?.question ?? "" });
         case "financial_advice":

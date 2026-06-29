@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Cloud,
   Cpu,
   HardDrive,
   Download,
@@ -57,10 +56,8 @@ function WizardStepIndicator({ step }: { step: WizardStep }) {
 
 function WelcomeStep({
   setupPath,
-  cloudAvailable,
   onNext,
-  onCloudFallback,
-}: Pick<WizardProps, "setupPath" | "cloudAvailable" | "onNext" | "onCloudFallback">) {
+}: Pick<WizardProps, "setupPath" | "onNext">) {
   const isNano = setupPath === "nano";
   return (
     <>
@@ -71,7 +68,7 @@ function WelcomeStep({
         </DialogTitle>
         <DialogDescription>
           AI runs privately in your browser. Your budget data stays on your device — nothing is sent
-          to a cloud model for this setup path.
+          to any server during inference.
         </DialogDescription>
       </DialogHeader>
 
@@ -100,11 +97,6 @@ function WelcomeStep({
       />
 
       <div className="mt-4 flex justify-end gap-2">
-        {cloudAvailable && (
-          <Button variant="ghost" onClick={onCloudFallback}>
-            <Cloud className="mr-1.5 size-4" /> Use cloud AI instead
-          </Button>
-        )}
         <Button onClick={onNext}>Continue</Button>
       </div>
     </>
@@ -116,10 +108,8 @@ function DeviceCheckStep({
   modelSize,
   freeStorage,
   deviceUnsupported,
-  cloudAvailable,
   onGrantConsent,
   onCancel,
-  onCloudFallback,
   onToggleLite,
 }: Pick<
   WizardProps,
@@ -127,10 +117,8 @@ function DeviceCheckStep({
   | "modelSize"
   | "freeStorage"
   | "deviceUnsupported"
-  | "cloudAvailable"
   | "onGrantConsent"
   | "onCancel"
-  | "onCloudFallback"
   | "onToggleLite"
 >) {
   const browser = detectBrowser();
@@ -149,11 +137,6 @@ function DeviceCheckStep({
         <OnDeviceAiInstructions steps={unsupportedSteps(browser)} />
 
         <div className="mt-4 flex justify-end gap-2">
-          {cloudAvailable && (
-            <Button variant="ghost" onClick={onCloudFallback}>
-              <Cloud className="mr-1.5 size-4" /> Use cloud AI
-            </Button>
-          )}
           <Button variant="outline" onClick={onCancel}>
             Dismiss
           </Button>
@@ -248,20 +231,16 @@ function DownloadStep({
   progress,
   progressText,
   downloadError,
-  cloudAvailable,
   onRetry,
   onCancel,
-  onCloudFallback,
 }: Pick<
   WizardProps,
   | "setupPath"
   | "progress"
   | "progressText"
   | "downloadError"
-  | "cloudAvailable"
   | "onRetry"
   | "onCancel"
-  | "onCloudFallback"
 >) {
   const isNano = setupPath === "nano";
   return (
@@ -285,11 +264,6 @@ function DownloadStep({
             {downloadError}
           </div>
           <div className="mt-4 flex justify-end gap-2">
-            {cloudAvailable && (
-              <Button variant="ghost" onClick={onCloudFallback}>
-                <Cloud className="mr-1.5 size-4" /> Use cloud AI
-              </Button>
-            )}
             <Button onClick={onRetry}>Retry</Button>
           </div>
         </>
@@ -319,19 +293,15 @@ function VerifyStep({
   setupPath,
   verifyStatus,
   verifyResult,
-  cloudAvailable,
   onComplete,
   onRetry,
-  onCloudFallback,
 }: Pick<
   WizardProps,
   | "setupPath"
   | "verifyStatus"
   | "verifyResult"
-  | "cloudAvailable"
   | "onComplete"
   | "onRetry"
-  | "onCloudFallback"
 >) {
   const isNano = setupPath === "nano";
   return (
@@ -387,11 +357,6 @@ function VerifyStep({
               : "Verification failed. The model may be corrupted."}
           </p>
           <div className="mt-4 flex justify-end gap-2">
-            {cloudAvailable && (
-              <Button variant="ghost" onClick={onCloudFallback}>
-                <Cloud className="mr-1.5 size-4" /> Use cloud AI
-              </Button>
-            )}
             <Button onClick={onRetry}>Try again</Button>
           </div>
         </>

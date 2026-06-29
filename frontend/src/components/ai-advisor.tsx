@@ -20,7 +20,7 @@ import { AiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 import { userMessageFor } from "@/lib/llm/errors";
 import type { PipelineProgress } from "@/lib/llm/pipelines/types";
 import { AiUnavailable } from "@/components/llm/ai-unavailable";
-import { AiStepProgress } from "@/components/llm/ai-step-progress";
+import { AiRunStatus } from "@/components/llm/ai-run-status";
 
 const SUGGESTIONS = [
   "How can I pay off my debt faster?",
@@ -310,7 +310,7 @@ function AiAdvisorInner() {
 
           {streaming && (
             <div className="mb-3">
-              <AiStepProgress
+              <AiRunStatus
                 progress={progress ?? { step: "start", label: "Starting…" }}
                 onCancel={() => abortRef.current?.abort()}
               />

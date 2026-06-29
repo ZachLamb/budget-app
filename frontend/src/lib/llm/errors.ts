@@ -30,7 +30,13 @@ const MESSAGES: Record<OnDeviceErrorCode, string> = {
   aborted: "Cancelled.",
 };
 
+import { isAiAvailabilityMessage } from "./ai-settings-link";
+
 export function userMessageFor(e: unknown): string {
   if (e instanceof OnDeviceError) return MESSAGES[e.code];
+  if (e instanceof Error) {
+    if (isAiAvailabilityMessage(e.message)) return e.message;
+    if (e.message.trim()) return e.message;
+  }
   return "Something went wrong. Try again.";
 }

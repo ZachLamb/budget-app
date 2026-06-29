@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Clarity — private budgeting & debt planning",
   description:
-    "Envelope-style budgeting, debt and savings goals, optional bank sync (SimpleFIN), and AI only when you turn it on—including local models via Ollama.",
+    "Envelope-style budgeting, debt and savings goals, optional bank sync (SimpleFIN), and optional on-device AI in Chrome or Edge.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,

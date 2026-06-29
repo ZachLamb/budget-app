@@ -20,7 +20,9 @@ import { Plus, Upload, Trash2, Download, ArrowLeftRight, MoreHorizontal, Message
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { appToast } from "@/lib/app-toast";
 import api from "@/lib/api/client";
-import { aiApi } from "@/lib/api/ai";
+import { aiApi, type AnomalyFact } from "@/lib/api/ai";
+import { useAiPipelineRun } from "@/hooks/use-ai-pipeline-run";
+import { AiRunStatus } from "@/components/llm/ai-run-status";
 import { useFsaReviewScan } from "@/hooks/use-fsa-review-scan";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
 import { cn } from "@/lib/utils";
@@ -31,6 +33,7 @@ import { toastMaybeAiAvailability } from "@/lib/llm/ai-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import Link from "next/link";
 import { ExplainCharge } from "@/components/llm/explain-charge";
+import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 import { PageHeader, inlineErrorQueryMeta } from "@/components/page";
 import { CategoryReviewDialog } from "@/components/transactions/category-review-dialog";
 import { TransactionFiltersBar } from "@/components/transactions/transaction-filters-bar";
@@ -46,6 +49,45 @@ type TransactionSplitLinePayload = {
 };
 
 const FSA_CONF_ORDER = { high: 3, medium: 2, low: 1 } as const;
+
+function AnomalyExplain({ fact }: { fact: AnomalyFact }) {
+  const ai = useAiPipelineRun("anomaly_explanation");
+  const [text, setText] = useState("");
+
+  const explain = async () => {
+    setText("");
+    ai.clearError();
+    try {
+      await ai.runStream(
+        `Explain in one sentence why this expense is unusual. Use only these facts; do not invent numbers.\n` +
+          `Facts: ${JSON.stringify(fact)}`,
+        (chunk) => setText((s) => s + chunk),
+        { maxTokens: 120 },
+      );
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+    }
+  };
+
+  return (
+    <div className="mt-1">
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 text-xs"
+        onClick={() => void explain()}
+        disabled={ai.running}
+        aria-busy={ai.running}
+      >
+        <Sparkles className={cn("mr-1 h-3 w-3", ai.running && "animate-pulse")} />
+        Explain why flagged
+      </Button>
+      {ai.running ? <AiRunStatus progress={ai.progress} onCancel={ai.cancel} /> : null}
+      {ai.error ? <MaybeAiErrorWithSettings message={ai.error} /> : null}
+      {text ? <p className="text-xs text-amber-700 dark:text-amber-300">{text}</p> : null}
+    </div>
+  );
+}
 
 function TransactionsContent() {
   const { isDemo } = useDemoGuard();
@@ -90,12 +132,22 @@ function TransactionsContent() {
     includeAllOutflows: fsaIncludeAllOutflows,
   });
   const fsaData = fsaScan.data;
-  const fsaLoading = fsaScan.loading && !fsaData;
+  const fsaLoading = fsaScan.loading;
   const fsaFetching = fsaScan.loading;
   const fsaError = Boolean(fsaScan.error);
   const fsaErrorDetail = fsaScan.error;
 
   const categorizeAi = useCategorizeSuggestions();
+
+  const { data: anomalyData } = useQuery({
+    queryKey: ["anomalies"],
+    queryFn: aiApi.getAnomalies,
+    enabled: isClient,
+  });
+  const anomalies = useMemo(
+    () => new Map((anomalyData?.anomalies ?? []).map((a) => [a.transaction_id, a])),
+    [anomalyData],
+  );
 
   const filteredFsa = useMemo(() => {
     if (!fsaData?.eligible_transactions) return [];
@@ -416,6 +468,7 @@ function TransactionsContent() {
             size="sm"
             className="hidden sm:inline-flex"
             disabled={suggestCategoriesMutation.isPending}
+            aria-busy={suggestCategoriesMutation.isPending}
             onClick={() => suggestCategoriesMutation.mutate()}
           >
             <Sparkles className="mr-2 h-4 w-4" />
@@ -531,6 +584,19 @@ function TransactionsContent() {
         </div>
         }
       />
+
+      {(categorizeAi.error || categorizeAi.tier) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {categorizeAi.error ? (
+            <MaybeAiErrorWithSettings message={categorizeAi.error} />
+          ) : null}
+          {categorizeAi.tier ? (
+            <Badge variant="secondary" className="text-xs">
+              {categorizeAi.tier === 1 ? "On-device (Nano)" : "On-device (WebGPU)"}
+            </Badge>
+          ) : null}
+        </div>
+      )}
 
       <Dialog open={importGateOpen} onOpenChange={setImportGateOpen}>
         <DialogContent className="sm:max-w-md">
@@ -772,6 +838,14 @@ function TransactionsContent() {
               </div>
               {detailTxn.is_split && <Badge variant="outline">Split Transaction</Badge>}
               {detailTxn.transfer_pair_id && <Badge variant="outline">Transfer</Badge>}
+              {anomalies.get(detailTxn.id) ? (
+                <>
+                  <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                    Unusual
+                  </Badge>
+                  <AnomalyExplain fact={anomalies.get(detailTxn.id)!} />
+                </>
+              ) : null}
               <div className="border-t pt-3">
                 <ExplainCharge txn={detailTxn} />
               </div>

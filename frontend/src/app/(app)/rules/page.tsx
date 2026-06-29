@@ -21,6 +21,7 @@ import { appToast } from "@/lib/app-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
 import { PageHeader, QueryState, inlineErrorQueryMeta } from "@/components/page";
+import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 
 const MATCH_FIELDS = [
   { value: "payee", label: "Payee" },
@@ -127,7 +128,12 @@ function RulesContent() {
           <Button variant="outline" onClick={() => applyRulesMutation.mutate()} disabled={applyRulesMutation.isPending}>
             <Play className="mr-2 h-4 w-4" /> Run Rules
           </Button>
-          <Button variant="outline" onClick={() => suggestMutation.mutate()} disabled={suggestMutation.isPending}>
+          <Button
+            variant="outline"
+            onClick={() => suggestMutation.mutate()}
+            disabled={suggestMutation.isPending}
+            aria-busy={suggestMutation.isPending}
+          >
             <Sparkles className="mr-2 h-4 w-4" /> AI Suggest
           </Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
@@ -181,6 +187,19 @@ function RulesContent() {
           </>
         }
       />
+
+      {(categorizeAi.error || categorizeAi.tier) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {categorizeAi.error ? (
+            <MaybeAiErrorWithSettings message={categorizeAi.error} />
+          ) : null}
+          {categorizeAi.tier ? (
+            <Badge variant="secondary" className="text-xs">
+              {categorizeAi.tier === 1 ? "On-device (Nano)" : "On-device (WebGPU)"}
+            </Badge>
+          ) : null}
+        </div>
+      )}
 
       <Dialog open={suggestOpen} onOpenChange={setSuggestOpen}>
         <DialogContent className="max-w-2xl">

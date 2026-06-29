@@ -14,9 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.api.routes.ai import _require_ai_enabled
 from app.api.routes.goals import compute_goal_facts
-from app.schemas.facts import BudgetFacts, ContextFacts, GoalFacts, SpendingPatternsFacts
+from app.schemas.facts import (
+    AnomalyFacts,
+    BudgetFacts,
+    ContextFacts,
+    DebtFacts,
+    GoalFacts,
+    SpendingPatternsFacts,
+)
+from app.services.ai.anomaly import compute_anomaly_facts
 from app.services.ai.budget import compute_budget_facts, compute_spending_patterns
 from app.services.ai.context import build_context_facts
+from app.services.ai.debt_facts import compute_debt_facts
 
 router = APIRouter()
 
@@ -55,4 +64,22 @@ async def spending_patterns_facts(
 ) -> SpendingPatternsFacts:
     """Category spending trends vs 3-month average (deterministic)."""
     return SpendingPatternsFacts(**await compute_spending_patterns(db, household_id))
+
+
+@router.get("/anomalies", response_model=AnomalyFacts)
+async def anomaly_facts(
+    household_id: str = Depends(_require_ai_enabled),
+    db: AsyncSession = Depends(get_db),
+) -> AnomalyFacts:
+    """Deterministically flagged unusual expense transactions (model-free)."""
+    return AnomalyFacts(**await compute_anomaly_facts(db, household_id))
+
+
+@router.get("/debt", response_model=DebtFacts)
+async def debt_facts(
+    household_id: str = Depends(_require_ai_enabled),
+    db: AsyncSession = Depends(get_db),
+) -> DebtFacts:
+    """Per-account debt facts (deterministic) for rate suggestions."""
+    return DebtFacts(**await compute_debt_facts(db, household_id))
 

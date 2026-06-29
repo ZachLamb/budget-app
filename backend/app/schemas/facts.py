@@ -73,3 +73,32 @@ class ContextFacts(BaseModel):
     recent_spend_by_category: list[SpendByCategoryFact]
     budget: BudgetFacts
     goals: list[GoalFact]
+
+
+class AnomalyFact(BaseModel):
+    transaction_id: str
+    category: str
+    amount: float  # signed, as stored (negative for expense)
+    category_avg: float  # mean absolute expense in this category, trailing 3 mo
+    ratio: float  # abs(amount) / category_avg
+    date: str  # ISO date
+    payee: str | None
+
+
+class AnomalyFacts(BaseModel):
+    anomalies: list[AnomalyFact]
+
+
+class DebtAccountFact(BaseModel):
+    account_id: str
+    name: str
+    type: str
+    balance: float
+    has_apr: bool
+    has_min_payment: bool
+    current_apr: float | None
+    current_min_payment: float | None
+
+
+class DebtFacts(BaseModel):
+    accounts: list[DebtAccountFact]

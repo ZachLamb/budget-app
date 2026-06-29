@@ -5,10 +5,12 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { debtApi, type DebtAccount } from "@/lib/api/debt";
 import { accountsApi } from "@/lib/api/accounts";
-import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
-import { useLlm } from "@/lib/llm/useLlm";
 import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
+import { AiRunStatus } from "@/components/llm/ai-run-status";
 import { userMessageFor } from "@/lib/llm/errors";
+import { useAiPipelineRun } from "@/hooks/use-ai-pipeline-run";
+import type { GoalPlan, GoalResult } from "@/lib/llm/pipelines/goal";
+import type { RateResult, RateSuggestion } from "@/lib/llm/pipelines/rates";
 import { goalsApi, type FinancialGoal, type GoalCreate } from "@/lib/api/goals";
 import { settingsApi } from "@/lib/api/settings";
 import {
@@ -31,7 +33,7 @@ import { cn } from "@/lib/utils";
 import {
   TrendingDown, Target, PiggyBank, Shield, Plus, Trash2,
   CheckCircle2, Calculator, Edit2, AlertCircle,
-  Sparkles, Loader2, X, Check, RefreshCw,
+  Sparkles, X,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PageHeader } from "@/components/page";
@@ -104,12 +106,28 @@ const EMPTY_GOAL: GoalCreate = {
 };
 const NONE_ACCOUNT_VALUE = "__none__";
 
-function GoalCard({ goal, onDelete, onToggle, onEdit }: {
+function GoalCard({ goal, onDelete, onToggle, onEdit, planFromAll }: {
   goal: FinancialGoal;
   onDelete: () => void;
   onToggle: () => void;
   onEdit: () => void;
+  planFromAll?: GoalPlan;
 }) {
+  const ai = useAiPipelineRun<GoalResult>("goal_planning");
+  const [plan, setPlan] = useState<GoalPlan | null>(null);
+  const displayPlan = planFromAll ?? plan;
+
+  const handlePlan = async () => {
+    setPlan(null);
+    ai.clearError();
+    try {
+      const result = await ai.run({ goalId: goal.id });
+      setPlan(result.plan);
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+    }
+  };
+
   const pct = Math.max(0, Math.min(100, Number(goal.progress_pct ?? 0)));
   const remaining = goal.target_amount - goal.current_amount;
   const progressText = goal.goal_type === "debt_payoff"
@@ -149,6 +167,19 @@ function GoalCard({ goal, onDelete, onToggle, onEdit }: {
             )}
           </div>
           <div className="flex gap-1 shrink-0">
+            {!goal.is_completed && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handlePlan()}
+                disabled={ai.running}
+                aria-busy={ai.running}
+                className="h-7 px-2 text-xs"
+              >
+                <Sparkles className={cn("mr-1 h-3 w-3", ai.running && "animate-pulse")} />
+                {ai.running ? "Planning…" : "AI plan"}
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={onEdit} className="h-7 px-2 text-xs">Edit</Button>
             <Button
               variant="ghost" size="sm" onClick={onToggle}
@@ -161,6 +192,14 @@ function GoalCard({ goal, onDelete, onToggle, onEdit }: {
             </Button>
           </div>
         </div>
+        {ai.running ? <AiRunStatus progress={ai.progress} onCancel={ai.cancel} /> : null}
+        {ai.error ? <MaybeAiErrorWithSettings message={ai.error} /> : null}
+        {displayPlan ? (
+          <p className="text-xs text-muted-foreground">
+            Contribute {formatCurrency(displayPlan.monthly_contribution)}/mo → about{" "}
+            {displayPlan.months_to_target} months. {displayPlan.note}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -277,6 +316,8 @@ function GoalForm({ accounts, initial, onSave, onCancel, saving }: {
 function GoalsTab() {
   const isClient = useIsClient();
   const queryClient = useQueryClient();
+  const aiPlanAll = useAiPipelineRun<GoalResult>("goal_planning");
+  const [plans, setPlans] = useState<Record<string, GoalPlan>>({});
   const [open, setOpen] = useState(false);
   const [editGoal, setEditGoal] = useState<FinancialGoal | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -321,6 +362,21 @@ function GoalsTab() {
   const activeGoals = goals.filter((g) => !g.is_completed);
   const completedGoals = goals.filter((g) => g.is_completed);
 
+  const planAll = async () => {
+    aiPlanAll.clearError();
+    setPlans({});
+    for (const g of activeGoals) {
+      if (aiPlanAll.cancelled) break;
+      try {
+        const result = await aiPlanAll.run({ goalId: g.id });
+        setPlans((prev) => ({ ...prev, [g.id]: result.plan }));
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+        break;
+      }
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -334,7 +390,20 @@ function GoalsTab() {
             </>
           )}
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <div className="flex items-center gap-2">
+          {activeGoals.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void planAll()}
+              disabled={aiPlanAll.running || activeGoals.length === 0}
+              aria-busy={aiPlanAll.running}
+            >
+              <Sparkles className={cn("mr-2 h-4 w-4", aiPlanAll.running && "animate-pulse")} />
+              {aiPlanAll.running ? "Planning…" : "Plan my goals"}
+            </Button>
+          )}
+          <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button size="sm"><Plus className="mr-2 h-4 w-4" /> New Goal</Button>
           </DialogTrigger>
@@ -350,7 +419,11 @@ function GoalsTab() {
             />
           </DialogContent>
         </Dialog>
+        </div>
       </div>
+
+      {aiPlanAll.running ? <AiRunStatus progress={aiPlanAll.progress} onCancel={aiPlanAll.cancel} /> : null}
+      {aiPlanAll.error ? <MaybeAiErrorWithSettings message={aiPlanAll.error} /> : null}
 
       {isLoading ? (
         <SkeletonTable rows={3} columns={4} />
@@ -366,6 +439,7 @@ function GoalsTab() {
         <div className="space-y-3">
           {activeGoals.map((g) => (
             <GoalCard key={g.id} goal={g}
+              planFromAll={plans[g.id]}
               onDelete={() => setDeleteId(g.id)}
               onToggle={() => updateMutation.mutate({ id: g.id, data: { is_completed: true } })}
               onEdit={() => setEditGoal(g)}
@@ -431,8 +505,8 @@ function GoalsTab() {
 // ── Debt Tab ──────────────────────────────────────────────────────────────────
 
 function DebtTab() {
-  const gate = useAiFeatureGate();
-  const llm = useLlm();
+  const aiRun = useAiPipelineRun<{ advice: string; disclaimer: string }>("financial_advice");
+  const aiRates = useAiPipelineRun<RateResult>("debt_rate_suggestions");
   const isClient = useIsClient();
   const queryClient = useQueryClient();
   const [strategy, setStrategy] = useState<DebtStrategy>("avalanche");
@@ -442,30 +516,17 @@ function DebtTab() {
   const [editAccount, setEditAccount] = useState<DebtAccount | null>(null);
   const [editForm, setEditForm] = useState({ interest_rate: "", minimum_payment: "" });
   const [aiAdvice, setAiAdvice] = useState<{ advice: string; disclaimer: string } | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiDismissed, setAiDismissed] = useState(false);
-
-  // Interest rate suggestions
-  const [rateSuggestions, setRateSuggestions] = useState<
-    { account_id: string; account_name: string; suggested_apr: number; suggested_min_payment: number; reasoning: string }[]
-  >([]);
-  const [rateLoading, setRateLoading] = useState(false);
-  const [rateNote, setRateNote] = useState<string | null>(null);
-  const [dismissedRates, setDismissedRates] = useState<Set<string>>(new Set());
-  const [acceptedRateIds, setAcceptedRateIds] = useState<Set<string>>(new Set());
-  const [isAcceptingAll, setIsAcceptingAll] = useState(false);
+  const [suggestions, setSuggestions] = useState<RateSuggestion[]>([]);
+  const [accepted, setAccepted] = useState<Set<string>>(new Set());
 
   // Persistence: track whether user has interacted to avoid overwriting with stale fetch
   const hasUserInteracted = useRef(false);
   const prefsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(true);
-  const aiRequestIdRef = useRef(0);
 
   useEffect(() => {
-    mountedRef.current = true;
     return () => {
-      mountedRef.current = false;
       if (prefsSaveTimer.current) clearTimeout(prefsSaveTimer.current);
     };
   }, []);
@@ -561,6 +622,7 @@ function DebtTab() {
   const allHaveRates = debtAccounts.length > 0 && debtAccounts.every(
     (a) => a.interest_rate != null && a.minimum_payment != null,
   );
+  const debtFactsMap = new Map(debtAccounts.map((a) => [a.id, a]));
 
   const openEdit = (acct: DebtAccount) => {
     setEditAccount(acct);
@@ -577,99 +639,54 @@ function DebtTab() {
   })) ?? [];
 
   const handleSuggestRates = async () => {
-    const prepared = await gate.prepareFeature("financial_advice");
-    if (!prepared.ok) return;
-
-    setRateLoading(true);
+    setSuggestions([]);
+    setAccepted(new Set());
+    aiRates.clearError();
     try {
-      const result = (await llm.runFeature("financial_advice", {
-        question:
-          "My debt accounts are missing APR or minimum payment data. Suggest conservative starting-point estimates I should verify on my statements.",
-      })) as { advice: string; disclaimer: string };
-      setRateNote(`${result.advice}\n\n${result.disclaimer}`);
-      setRateSuggestions([]);
-      setDismissedRates(new Set());
-      setAcceptedRateIds(new Set());
+      const result = await aiRates.run({});
+      setSuggestions(result.suggestions);
     } catch (err) {
-      toastApiError("Failed to get rate guidance.", err);
-    } finally {
-      setRateLoading(false);
+      if ((err as Error).name === "AbortError") return;
     }
   };
 
-  const visibleRateSuggestions = rateSuggestions.filter((s) => !dismissedRates.has(s.account_id));
-  const pendingSuggestions = visibleRateSuggestions.filter((s) => !acceptedRateIds.has(s.account_id));
-
-  const acceptRateSuggestion = (s: (typeof rateSuggestions)[number]) => {
-    if (isAcceptingAll) return;
+  const applyOne = (s: RateSuggestion) => {
+    const account = debtFactsMap.get(s.account_id);
+    if (!account) return;
+    const data: Record<string, number> = {};
+    if (account.interest_rate == null) data.interest_rate = s.suggested_apr;
+    if (account.minimum_payment == null) data.minimum_payment = s.suggested_min_payment;
+    if (Object.keys(data).length === 0) return;
     updateMutation.mutate(
-      { id: s.account_id, data: { interest_rate: s.suggested_apr, minimum_payment: s.suggested_min_payment } },
+      { id: s.account_id, data },
       {
         onSuccess: () => {
-          setAcceptedRateIds((prev) => new Set([...prev, s.account_id]));
-          appToast.success(`Applied rate for ${s.account_name}`);
+          setAccepted((prev) => new Set([...prev, s.account_id]));
+          appToast.success("Applied — verify on your statement");
         },
       },
     );
   };
 
-  const handleAcceptAll = async () => {
-    const toApply = visibleRateSuggestions.filter((s) => !acceptedRateIds.has(s.account_id));
-    if (toApply.length === 0 || isAcceptingAll) return;
-    setIsAcceptingAll(true);
-    let succeeded = 0;
-    let failed = 0;
-    for (const s of toApply) {
-      if (!mountedRef.current) break;
-      try {
-        await accountsApi.update(s.account_id, {
-          interest_rate: s.suggested_apr,
-          minimum_payment: s.suggested_min_payment,
-        });
-        if (mountedRef.current) {
-          setAcceptedRateIds((prev) => new Set([...prev, s.account_id]));
-        }
-        succeeded++;
-      } catch {
-        failed++;
-      }
-    }
-    if (mountedRef.current) {
-      queryClient.invalidateQueries({ queryKey: ["debtAccounts"] });
-      queryClient.invalidateQueries({ queryKey: ["payoffPlan"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      if (failed === 0) {
-        appToast.success(`Applied ${succeeded} rate suggestion${succeeded !== 1 ? "s" : ""}`);
-      } else {
-        toastPlainError(`Applied ${succeeded} of ${succeeded + failed} (${failed} failed)`);
-      }
-    }
-    if (mountedRef.current) {
-      setIsAcceptingAll(false);
+  const applyAll = () => {
+    for (const s of suggestions) {
+      if (!accepted.has(s.account_id)) applyOne(s);
     }
   };
 
   const handleGetAiRecommendation = async () => {
-    const prepared = await gate.prepareFeature("financial_advice");
-    if (!prepared.ok) return;
-
-    const requestId = ++aiRequestIdRef.current;
-    setAiLoading(true);
     setAiError(null);
+    aiRun.clearError();
     try {
-      const result = (await llm.runFeature("financial_advice", {
+      const result = await aiRun.run({
         question:
           "Recommend a debt payoff approach (avalanche, snowball, or hybrid) based on my debt accounts. Explain tradeoffs in plain language.",
-      })) as { advice: string; disclaimer: string };
-      if (requestId !== aiRequestIdRef.current) return;
+      });
       setAiAdvice(result);
       setAiDismissed(false);
     } catch (err: unknown) {
+      if ((err as Error).name === "AbortError") return;
       setAiError(userMessageFor(err));
-    } finally {
-      if (requestId === aiRequestIdRef.current) {
-        setAiLoading(false);
-      }
     }
   };
 
@@ -690,16 +707,16 @@ function DebtTab() {
           {!aiAdvice || aiDismissed ? (
             <div className="space-y-2">
               <Button
-                onClick={handleGetAiRecommendation}
-                disabled={aiLoading || debtAccounts.length === 0}
+                onClick={() => void handleGetAiRecommendation()}
+                disabled={aiRun.running || debtAccounts.length === 0}
                 size="sm"
               >
-                {aiLoading ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing your debt...</>
-                ) : (
-                  <><Sparkles className="mr-2 h-4 w-4" /> Get AI Recommendation</>
-                )}
+                <Sparkles className={cn("mr-2 h-4 w-4", aiRun.running && "animate-pulse")} />
+                {aiRun.running ? "Analyzing your debt..." : "Get AI Recommendation"}
               </Button>
+              {aiRun.running ? (
+                <AiRunStatus progress={aiRun.progress} onCancel={aiRun.cancel} />
+              ) : null}
               {aiError && <MaybeAiErrorWithSettings message={aiError} />}
               {debtAccounts.length === 0 && !isLoading && (
                 <p className="text-xs text-muted-foreground">No debt accounts found.</p>
@@ -770,90 +787,66 @@ function DebtTab() {
                 Interest rates and minimum payments are needed for payoff projections.
                 SimpleFIN doesn&apos;t provide this data — enter values manually or ask on-device AI for starting-point guidance.
               </p>
-              <Button size="sm" variant="outline" onClick={handleSuggestRates} disabled={rateLoading} className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:text-amber-200">
-                {rateLoading ? <><Loader2 className="mr-2 h-3 w-3 animate-spin" />Analyzing...</> : <><Sparkles className="mr-2 h-3 w-3" />Ask AI for guidance</>}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void handleSuggestRates()}
+                disabled={aiRates.running}
+                aria-busy={aiRates.running}
+                className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:text-amber-200"
+              >
+                <Sparkles className={cn("mr-2 h-3 w-3", aiRates.running && "animate-pulse")} />
+                {aiRates.running ? "Analyzing..." : "Suggest rates with AI"}
               </Button>
-              {rateNote && visibleRateSuggestions.length === 0 && (
-                <p className="text-xs text-amber-800 dark:text-amber-200 whitespace-pre-wrap">{rateNote}</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Rate suggestions list: independent of allHaveRates so it persists after first accept */}
-      {visibleRateSuggestions.length > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-amber-600" />
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">AI Rate Suggestions</p>
-            </div>
-            <div className="flex gap-2">
-              {pendingSuggestions.length > 1 && (
-                <Button
-                  size="sm"
-                  className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
-                  onClick={handleAcceptAll}
-                  disabled={isAcceptingAll}
-                >
-                  {isAcceptingAll ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Applying...</> : `Accept all (${pendingSuggestions.length})`}
-                </Button>
-              )}
-              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleSuggestRates} disabled={rateLoading}>
-                <RefreshCw className={cn("mr-1 h-3 w-3", rateLoading && "animate-spin")} /> Re-suggest
-              </Button>
-            </div>
-          </div>
-          {rateNote && <p className="text-xs text-amber-600 dark:text-amber-400 italic">{rateNote}</p>}
-          <p className="text-xs text-amber-800 dark:text-amber-200">
-            Verify APR and minimum payments on your statement or issuer site—estimates can be wrong.
-          </p>
-          {visibleRateSuggestions.map((s) => {
-            const isAccepted = acceptedRateIds.has(s.account_id);
-            return (
-              <div key={s.account_id} className={cn(
-                "rounded-md bg-white dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 p-3 space-y-1",
-                isAccepted && "opacity-70"
-              )}>
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <p className="font-medium text-sm">{s.account_name}</p>
-                  <div className="flex gap-2">
-                    {isAccepted ? (
-                      <span className="flex items-center gap-1 text-xs text-green-700 dark:text-green-400 font-medium">
-                        <Check className="h-3.5 w-3.5" /> Applied
-                      </span>
-                    ) : (
-                      <>
-                        <Button
-                          size="sm"
-                          className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
-                          onClick={() => acceptRateSuggestion(s)}
-                          disabled={isAcceptingAll || updateMutation.isPending}
-                        >
-                          Accept
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs"
-                          onClick={() => setDismissedRates((p) => new Set([...p, s.account_id]))}
-                          disabled={isAcceptingAll}
-                        >
-                          Dismiss
-                        </Button>
-                      </>
-                    )}
+              {aiRates.running ? (
+                <AiRunStatus progress={aiRates.progress} onCancel={aiRates.cancel} />
+              ) : null}
+              {aiRates.error ? <MaybeAiErrorWithSettings message={aiRates.error} /> : null}
+              {suggestions.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    Estimates only — verify each value on your statement before relying on it.
+                  </p>
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={applyAll}
+                      disabled={updateMutation.isPending}
+                    >
+                      Accept all
+                    </Button>
                   </div>
+                  {suggestions.map((s) => {
+                    const acct = debtFactsMap.get(s.account_id);
+                    return (
+                      <div key={s.account_id} className="rounded-md border border-amber-200 dark:border-amber-800 p-2 text-sm">
+                        <div className="font-medium">{acct?.name ?? s.account_id}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {acct?.interest_rate == null
+                            ? `APR ≈ ${(s.suggested_apr * 100).toFixed(2)}%`
+                            : null}
+                          {acct?.interest_rate == null && acct?.minimum_payment == null ? " · " : null}
+                          {acct?.minimum_payment == null
+                            ? `Min ≈ ${formatCurrency(s.suggested_min_payment)}`
+                            : null}
+                        </div>
+                        <p className="text-xs">{s.reasoning}</p>
+                        <Button
+                          size="sm"
+                          className="mt-1 h-7 text-xs"
+                          disabled={accepted.has(s.account_id) || updateMutation.isPending}
+                          onClick={() => applyOne(s)}
+                        >
+                          {accepted.has(s.account_id) ? "Applied" : "Accept"}
+                        </Button>
+                      </div>
+                    );
+                  })}
                 </div>
-                <p className="text-sm text-amber-800 dark:text-amber-200">
-                  APR: <span className="font-medium">{(s.suggested_apr * 100).toFixed(2)}%</span>
-                  {" · "}Min payment: <span className="font-medium">{formatCurrency(s.suggested_min_payment)}</span>
-                </p>
-                {s.reasoning && <p className="text-xs text-muted-foreground">{s.reasoning}</p>}
-              </div>
-            );
-          })}
+              )}
+            </div>
+          </div>
         </div>
       )}
 
