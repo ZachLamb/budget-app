@@ -12,7 +12,12 @@ describe("OnDeviceError", () => {
       /chrome or edge/i,
     );
   });
-  it("returns a generic message for non-OnDeviceError values", () => {
-    expect(userMessageFor(new Error("boom"))).toMatch(/something went wrong/i);
+  it("preserves on-device AI messages from generic Error", () => {
+    expect(
+      userMessageFor(new Error("On-device AI needs a quick one-time setup.")),
+    ).toMatch(/one-time setup/i);
+  });
+  it("passes through unrelated error messages", () => {
+    expect(userMessageFor(new Error("boom"))).toBe("boom");
   });
 });

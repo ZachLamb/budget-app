@@ -10,10 +10,12 @@ import {
 } from "@/lib/api/budget";
 import { aiApi, type SpendingTrend, type BudgetSuggestion } from "@/lib/api/ai";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
-import { useLlm } from "@/lib/llm/useLlm";
+import { interpretPrepareFeatureResult } from "@/lib/llm/prepare-feature-result";
 import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
+import { AiRunStatus } from "@/components/llm/ai-run-status";
 import { userMessageFor } from "@/lib/llm/errors";
 import { toastMaybeAiAvailability } from "@/lib/llm/ai-toast";
+import { useAiPipelineRun } from "@/hooks/use-ai-pipeline-run";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +42,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { formatCurrency, getMonthString, formatMonthDisplay, navigateMonth } from "@/lib/format";
 import { getApiErrorMessage, useIsClient } from "@/lib/hooks";
-import { toastApiError, toastPlainError } from "@/lib/toast-error";
+import { toastApiError } from "@/lib/toast-error";
 import { AI_COPY } from "@/lib/ai-copy";
 import { PageHeader, QueryState, inlineErrorQueryMeta } from "@/components/page";
 import { SkeletonTable } from "@/components/skeleton-table";
@@ -386,9 +388,12 @@ function AiSuggestionsPanel({
 function SpendingPatternsPanel({ month }: { month: string }) {
   const isClient = useIsClient();
   const gate = useAiFeatureGate();
-  const llm = useLlm();
+  const { run: runInsights, progress: insightsProgress, running: insightsRunning, cancel: cancelInsights } =
+    useAiPipelineRun<{ advice: string }>("financial_advice");
   const [open, setOpen] = useState(false);
   const [aiReady, setAiReady] = useState(false);
+  const [insights, setInsights] = useState<string[]>([]);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
 
   const { data: patternsData, isLoading: patternsLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ["spendingPatterns", month],
@@ -398,39 +403,54 @@ function SpendingPatternsPanel({ month }: { month: string }) {
     retry: false,
   });
 
-  const {
-    data: insights = [],
-    isLoading: insightsLoading,
-    isFetching: fetchingInsights,
-    error: insightsError,
-    refetch: refetchInsights,
-  } = useQuery({
-    queryKey: ["spendingInsights", month],
-    queryFn: async () => {
-      const result = (await llm.runFeature("financial_advice", {
+  const loadInsights = useCallback(async () => {
+    setInsightsError(null);
+    try {
+      const result = await runInsights({
         question:
           "Based on my recent spending patterns, give 3-4 concise insights about where I could save or adjust.",
-      })) as { advice: string };
+      });
       const bullets = result.advice
         .split(/\n+/)
         .map((s) => s.replace(/^[-*•]\s*/, "").trim())
         .filter(Boolean);
-      return bullets.length > 0 ? bullets : [result.advice];
-    },
-    enabled: isClient && open && aiReady,
-    retry: false,
-  });
+      setInsights(bullets.length > 0 ? bullets : [result.advice]);
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      setInsightsError(userMessageFor(e));
+    }
+  }, [runInsights]);
 
   const toggleOpen = async () => {
     if (!open) {
       const prepared = await gate.prepareFeature("financial_advice");
-      if (!prepared.ok) return;
+      const interpretation = interpretPrepareFeatureResult(prepared);
+      if (interpretation.action === "stop") {
+        setInsightsError(interpretation.userMessage);
+        setOpen(true);
+        return;
+      }
       setAiReady(true);
+      setOpen(true);
+      void loadInsights();
+      return;
     }
-    setOpen((o) => !o);
+    setOpen(false);
   };
 
-  const loading = patternsLoading || insightsLoading;
+  const prevMonthRef = useRef(month);
+
+  useEffect(() => {
+    if (!isClient || !open || !aiReady) {
+      prevMonthRef.current = month;
+      return;
+    }
+    if (prevMonthRef.current === month) return;
+    prevMonthRef.current = month;
+    void loadInsights();
+  }, [month, isClient, open, aiReady, loadInsights]);
+
+  const insightsLoading = insightsRunning;
 
   return (
     <Card>
@@ -458,17 +478,22 @@ function SpendingPatternsPanel({ month }: { month: string }) {
               size="sm"
               onClick={() => {
                 void refetch();
-                void refetchInsights();
+                // aiReady already set on expand — loadInsights uses hook run (fast re-gate when ready)
+                void loadInsights();
               }}
-              disabled={isFetching || fetchingInsights}
+              disabled={isFetching || insightsLoading}
               className="h-7 text-xs"
             >
-              <RefreshCw className={cn("h-3 w-3 mr-1", (isFetching || fetchingInsights) && "animate-spin")} />
+              <RefreshCw className={cn("h-3 w-3 mr-1", (isFetching || insightsLoading) && "animate-spin")} />
               Refresh
             </Button>
           </div>
 
-          {loading ? (
+          {insightsLoading && (
+            <AiRunStatus progress={insightsProgress} onCancel={cancelInsights} />
+          )}
+
+          {patternsLoading ? (
             <div className="space-y-2">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="h-4 bg-muted animate-pulse rounded" />
@@ -508,7 +533,7 @@ function SpendingPatternsPanel({ month }: { month: string }) {
               )}
 
               {insightsError ? (
-                <MaybeAiErrorWithSettings message={userMessageFor(insightsError)} />
+                <MaybeAiErrorWithSettings message={insightsError} />
               ) : insights.length > 0 ? (
                 <div>
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
@@ -523,9 +548,15 @@ function SpendingPatternsPanel({ month }: { month: string }) {
                     ))}
                   </ul>
                 </div>
+              ) : insightsLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-4 bg-muted animate-pulse rounded" />
+                  ))}
+                </div>
               ) : null}
 
-              {patternsData && patternsData.patterns.length === 0 && insights.length === 0 && !insightsError && (
+              {patternsData && patternsData.patterns.length === 0 && insights.length === 0 && !insightsError && !insightsLoading && (
                 <p className="text-sm text-muted-foreground text-center py-4">
                   No spending data yet.
                 </p>
@@ -539,14 +570,15 @@ function SpendingPatternsPanel({ month }: { month: string }) {
 }
 
 function BudgetContent() {
-  const gate = useAiFeatureGate();
-  const llm = useLlm();
+  const budgetAi = useAiPipelineRun<{
+    recommendations: { category_id: string; suggested_amount: number; rationale: string }[];
+  }>("budget_recommendations");
   const [month, setMonth] = useState(() => getMonthString(new Date()));
   const queryClient = useQueryClient();
   const isClient = useIsClient();
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestions, setSuggestions] = useState<BudgetSuggestion[]>([]);
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["budget", month],
@@ -565,14 +597,10 @@ function BudgetContent() {
   });
 
   const handleAiSuggestions = async () => {
-    const prepared = await gate.prepareFeature("budget_recommendations");
-    if (!prepared.ok) return;
-
-    setSuggestionsLoading(true);
+    setSuggestionsError(null);
+    budgetAi.clearError();
     try {
-      const result = (await llm.runFeature("budget_recommendations")) as {
-        recommendations: { category_id: string; suggested_amount: number; rationale: string }[];
-      };
+      const result = await budgetAi.run();
       const nameById = new Map<string, string>();
       for (const group of data?.groups ?? []) {
         for (const cat of group.categories) {
@@ -592,12 +620,11 @@ function BudgetContent() {
         setShowSuggestions(true);
       }
     } catch (e) {
+      if ((e as Error).name === "AbortError") return;
       const msg = userMessageFor(e);
       if (!toastMaybeAiAvailability("Could not load AI budget suggestions", e instanceof Error ? e : new Error(msg))) {
-        toastPlainError(msg);
+        setSuggestionsError(msg);
       }
-    } finally {
-      setSuggestionsLoading(false);
     }
   };
 
@@ -623,11 +650,11 @@ function BudgetContent() {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleAiSuggestions}
-            disabled={suggestionsLoading}
+            onClick={() => void handleAiSuggestions()}
+            disabled={budgetAi.running}
           >
-            <Sparkles className={cn("mr-2 h-4 w-4", suggestionsLoading && "animate-pulse")} />
-            {suggestionsLoading ? "Loading..." : "AI Suggestions"}
+            <Sparkles className={cn("mr-2 h-4 w-4", budgetAi.running && "animate-pulse")} />
+            {budgetAi.running ? "Loading..." : "AI Suggestions"}
           </Button>
           <Button
             variant="outline"
@@ -657,6 +684,14 @@ function BudgetContent() {
           </>
         }
       />
+
+      {budgetAi.running && (
+        <AiRunStatus progress={budgetAi.progress} onCancel={budgetAi.cancel} />
+      )}
+
+      {suggestionsError && (
+        <MaybeAiErrorWithSettings message={suggestionsError} />
+      )}
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>

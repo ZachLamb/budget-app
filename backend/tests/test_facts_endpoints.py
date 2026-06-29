@@ -560,3 +560,117 @@ async def test_context_facts_endpoint_403_when_ai_disabled(fixture):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/ai/facts/context", headers=headers)
     assert r.status_code == 403, r.text
+
+
+async def _seed_debt_endpoint_fixture(
+    session: AsyncSession,
+    *,
+    ai_enabled: bool = True,
+) -> tuple[User, Household, Account]:
+    """Seed a household with one credit-card debt account for /facts/debt."""
+    household = Household(id=uuid.uuid4().hex, name="HH", ai_enabled=ai_enabled)
+    session.add(household)
+    await session.flush()
+
+    user = User(
+        id=uuid.uuid4().hex,
+        email=f"{uuid.uuid4().hex}@example.com",
+        name="Test",
+        password_hash="bcrypt-hash-not-real",
+        household_id=household.id,
+        role="owner",
+        status="approved",
+    )
+    session.add(user)
+
+    account = Account(
+        household_id=household.id,
+        name="Visa",
+        account_type="credit",
+        is_budget_account=True,
+    )
+    session.add(account)
+    await session.flush()
+    session.add(
+        Transaction(
+            account_id=account.id,
+            category_id=None,
+            date=date.today(),
+            amount=Decimal("-500.00"),
+        )
+    )
+    await session.commit()
+    return user, household, account
+
+
+@pytest.mark.asyncio
+async def test_anomalies_facts_endpoint_returns_shape(fixture):
+    session, _engine = fixture
+    user, _household, _cat = await _seed_budget_fixture(session)
+
+    headers = {"Authorization": f"Bearer {_token_for(user.id)}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/anomalies", headers=headers)
+
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert "anomalies" in data
+    assert isinstance(data["anomalies"], list)
+
+
+@pytest.mark.asyncio
+async def test_anomalies_facts_endpoint_requires_auth(fixture):
+    _session, _engine = fixture
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/anomalies")
+    assert r.status_code in (401, 403), r.text
+
+
+@pytest.mark.asyncio
+async def test_anomalies_facts_endpoint_403_when_ai_disabled(fixture):
+    session, _engine = fixture
+    user, _household, _cat = await _seed_budget_fixture(session, ai_enabled=False)
+
+    headers = {"Authorization": f"Bearer {_token_for(user.id)}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/anomalies", headers=headers)
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_debt_facts_endpoint_returns_shape(fixture):
+    session, _engine = fixture
+    user, _household, account = await _seed_debt_endpoint_fixture(session)
+
+    headers = {"Authorization": f"Bearer {_token_for(user.id)}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/debt", headers=headers)
+
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert "accounts" in data
+    assert isinstance(data["accounts"], list) and len(data["accounts"]) == 1
+    row = data["accounts"][0]
+    assert row["account_id"] == account.id
+    assert row["name"] == "Visa"
+
+
+@pytest.mark.asyncio
+async def test_debt_facts_endpoint_requires_auth(fixture):
+    _session, _engine = fixture
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/debt")
+    assert r.status_code in (401, 403), r.text
+
+
+@pytest.mark.asyncio
+async def test_debt_facts_endpoint_403_when_ai_disabled(fixture):
+    session, _engine = fixture
+    user, _household, _account = await _seed_debt_endpoint_fixture(
+        session, ai_enabled=False
+    )
+
+    headers = {"Authorization": f"Bearer {_token_for(user.id)}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/ai/facts/debt", headers=headers)
+    assert r.status_code == 403, r.text

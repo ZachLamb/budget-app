@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useId } from "react";
+import { useState, useEffect, useId, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { accountsApi, type Account } from "@/lib/api/accounts";
 import { transactionsApi } from "@/lib/api/transactions";
@@ -8,11 +8,13 @@ import { budgetApi } from "@/lib/api/budget";
 import { reportsApi } from "@/lib/api/reports";
 import { goalsApi, type FinancialGoal } from "@/lib/api/goals";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
-import { useLlm } from "@/lib/llm/useLlm";
+import { interpretPrepareFeatureResult } from "@/lib/llm/prepare-feature-result";
+import { useAiPipelineRun } from "@/hooks/use-ai-pipeline-run";
+import { AiRunStatus } from "@/components/llm/ai-run-status";
 import { syncApi } from "@/lib/api/sync";
 import { recurringApi } from "@/lib/api/recurring";
 import { settingsApi } from "@/lib/api/settings";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +40,7 @@ import Link from "next/link";
 import { appToast } from "@/lib/app-toast";
 import { shouldShowMobileSyncBanner } from "@/lib/ux-plan-logic";
 import { AI_COPY } from "@/lib/ai-copy";
+import { aiApi } from "@/lib/api/ai";
 
 const DEBT_TYPES = ["credit", "loan"];
 
@@ -49,6 +52,84 @@ function formatAccountBalance(account: Account): string {
   return formatCurrency(Number(account.balance));
 }
 
+function SpendingSummaryCard() {
+  const isClient = useIsClient();
+  const ai = useAiPipelineRun("spending_summary");
+  const [summary, setSummary] = useState("");
+  const { data: patterns } = useQuery({
+    queryKey: ["spending-patterns"],
+    queryFn: aiApi.getSpendingPatterns,
+    enabled: isClient,
+  });
+
+  const topMovers = (patterns?.patterns ?? [])
+    .filter((p) => p.trend !== "stable")
+    .slice(0, 4);
+
+  const summarize = async () => {
+    setSummary("");
+    ai.clearError();
+    const facts = JSON.stringify(topMovers);
+    try {
+      await ai.runStream(
+        `In 1-2 sentences, summarize these category spending changes for the user. ` +
+          `Use only these facts; do not invent numbers.\nFacts: ${facts}`,
+        (chunk) => setSummary((s) => s + chunk),
+        { maxTokens: 160 },
+      );
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-purple-500" aria-hidden />
+          Spending trends
+        </CardTitle>
+        <CardDescription>Category changes vs your 3-month average.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {topMovers.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No notable category shifts this month.</p>
+        ) : (
+          <ul className="space-y-1 text-sm">
+            {topMovers.map((p) => (
+              <li key={p.category} className="flex items-center justify-between gap-2">
+                <span>{p.category}</span>
+                <span
+                  className={cn(
+                    "font-mono text-xs tabular-nums",
+                    p.trend === "up" ? "text-red-600" : "text-green-600",
+                  )}
+                >
+                  {p.trend === "up" ? "+" : ""}
+                  {p.pct_change.toFixed(0)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void summarize()}
+          disabled={ai.running || topMovers.length === 0}
+          aria-busy={ai.running}
+        >
+          <Sparkles className={cn("mr-2 h-3 w-3", ai.running && "animate-pulse")} />
+          {ai.running ? "Summarizing…" : "AI summary"}
+        </Button>
+        {ai.running ? <AiRunStatus progress={ai.progress} onCancel={ai.cancel} /> : null}
+        {ai.error ? <MaybeAiErrorWithSettings message={ai.error} /> : null}
+        {summary ? <p className="text-sm whitespace-pre-wrap">{summary}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function InsightsPanel({
   hasFinancialData,
   onSyncCompletedAt,
@@ -57,47 +138,53 @@ function InsightsPanel({
   onSyncCompletedAt: string | null;
 }) {
   const gate = useAiFeatureGate();
-  const llm = useLlm();
+  const { run, progress, running, cancel } = useAiPipelineRun<{ advice: string }>("financial_advice");
   const [open, setOpen] = useState(false);
   const [aiReady, setAiReady] = useState(false);
+  const [bullets, setBullets] = useState<string[]>([]);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
   const panelId = useId();
 
-  const {
-    data: insights = [],
-    isLoading,
-    isFetching,
-    error,
-    refetch,
-  } = useQuery({
-    queryKey: ["dashboardInsights"],
-    queryFn: async () => {
-      const result = (await llm.runFeature("financial_advice", {
+  const loadInsights = useCallback(async () => {
+    setInsightsError(null);
+    try {
+      const result = await run({
         question:
           "Give 3-5 specific, actionable insights about my finances based on my data. Keep each insight to 1-2 sentences.",
-      })) as { advice: string };
-      const bullets = result.advice
+      });
+      const parsed = result.advice
         .split(/\n+/)
         .map((s) => s.replace(/^[-*•]\s*/, "").trim())
         .filter(Boolean);
-      return bullets.length > 0 ? bullets : [result.advice];
-    },
-    enabled: open && aiReady && hasFinancialData,
-    retry: false,
-  });
+      setBullets(parsed.length > 0 ? parsed : [result.advice]);
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      setInsightsError(userMessageFor(e));
+    }
+  }, [run]);
 
   const toggleOpen = async () => {
     if (!open) {
       const prepared = await gate.prepareFeature("financial_advice");
-      if (!prepared.ok) return;
+      const interpretation = interpretPrepareFeatureResult(prepared);
+      if (interpretation.action === "stop") {
+        setInsightsError(interpretation.userMessage);
+        setOpen(true);
+        return;
+      }
       setAiReady(true);
+      setOpen(true);
+      if (hasFinancialData) void loadInsights();
+      return;
     }
-    setOpen((o) => !o);
+    setOpen(false);
   };
 
   useEffect(() => {
     if (!onSyncCompletedAt || !hasFinancialData || !open || !aiReady) return;
-    void refetch();
-  }, [onSyncCompletedAt, hasFinancialData, open, aiReady, refetch]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reload insights after bank sync
+    void loadInsights();
+  }, [onSyncCompletedAt, hasFinancialData, open, aiReady, loadInsights]);
 
   return (
     <Card>
@@ -133,24 +220,28 @@ function InsightsPanel({
                   size="sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    void refetch();
+                    // aiReady: expand already passed prepareFeature; run() re-checks gate internally.
+                    void loadInsights();
                   }}
-                  disabled={isFetching}
+                  disabled={running}
                   className="h-7 text-xs"
                 >
-                  <RefreshCw className={cn("h-3 w-3 mr-1", isFetching && "animate-spin")} />
+                  <RefreshCw className={cn("h-3 w-3 mr-1", running && "animate-spin")} />
                   Refresh
                 </Button>
               </div>
-              {isLoading ? (
+              {running ? (
+                <AiRunStatus progress={progress} onCancel={cancel} className="mb-3" />
+              ) : null}
+              {running && bullets.length === 0 ? (
                 <div className="space-y-2">
                   {[1, 2, 3].map((i) => <div key={i} className="h-4 bg-muted animate-pulse rounded" />)}
                 </div>
-              ) : error ? (
+              ) : insightsError ? (
                 <div className="space-y-2 text-sm">
                   <div className="flex items-start gap-2">
                     <WifiOff className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-                    <MaybeAiErrorWithSettings message={userMessageFor(error)} />
+                    <MaybeAiErrorWithSettings message={insightsError} />
                   </div>
                   <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
                     <Link href={AI_SETTINGS_PATH}>
@@ -160,8 +251,8 @@ function InsightsPanel({
                 </div>
               ) : (
                 <ul className="space-y-2">
-                  {insights.length ? (
-                    insights.map((insight, i) => (
+                  {bullets.length ? (
+                    bullets.map((insight, i) => (
                       <li key={i} className="flex gap-2 text-sm">
                         <Lightbulb className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
                         <span>{insight}</span>
@@ -729,6 +820,8 @@ function DashboardContent() {
           </CardContent>
         </Card>
       </div>
+
+      <SpendingSummaryCard />
 
       <InsightsPanel
         hasFinancialData={accounts.length > 0}

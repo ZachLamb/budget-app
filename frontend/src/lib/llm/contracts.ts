@@ -2,7 +2,7 @@
  * Wave 0 contracts for local structured LLM features.
  *
  * Decisions (do not change without updating this header):
- * - Tier policy: `defaultTier: 2` for `fsa_review` and `categorize_transaction` (see features.ts).
+ * - Tier policy: `defaultTier: 1` for all features (see features.ts).
  * - Demo mode: client canned JSON via `isDemoMode` in run-structured (no provider calls).
  * - PWA: Next.js `app/manifest.ts` + minimal hand-rolled service worker (no Serwist).
  */
@@ -179,7 +179,34 @@ export function demoStructuredResult(feature: FeatureId): unknown {
           "This is general information based on your data, not professional financial advice. Verify before acting.",
         draft: true,
       };
+    case "debt_rate_suggestions":
+      return {
+        suggestions: [
+          {
+            account_id: "demo-card",
+            suggested_apr: 0.2299,
+            suggested_min_payment: 35,
+            reasoning: "Typical store-card APR; verify on your statement.",
+          },
+        ],
+      };
     default:
       return {};
+  }
+}
+
+/**
+ * Demo canned text for streaming features. `llm.run` / `runStream` do not
+ * consult `demoStructuredResult`, so streaming features need their own demo
+ * source. Returns a few chunks so the UI streams in demo mode.
+ */
+export function demoStreamText(feature: FeatureId): string[] {
+  switch (feature) {
+    case "spending_summary":
+      return ["In demo mode, ", "dining is up a bit while ", "groceries held steady."];
+    case "anomaly_explanation":
+      return ["In demo mode, ", "this charge is well above ", "your usual for this category."];
+    default:
+      return ["In demo mode, no AI summary is available for this feature."];
   }
 }

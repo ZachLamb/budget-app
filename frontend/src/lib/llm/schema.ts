@@ -102,6 +102,27 @@ const SCHEMAS: Partial<Record<FeatureId, Record<string, unknown>>> = {
       disclaimer: { type: "string" },
     },
   },
+  debt_rate_suggestions: {
+    type: "object",
+    required: ["suggestions"],
+    additionalProperties: false,
+    properties: {
+      suggestions: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["account_id", "suggested_apr", "suggested_min_payment", "reasoning"],
+          additionalProperties: false,
+          properties: {
+            account_id: { type: "string" },
+            suggested_apr: { type: "number" },
+            suggested_min_payment: { type: "number" },
+            reasoning: { type: "string" },
+          },
+        },
+      },
+    },
+  },
 };
 
 export function schemaForFeature(feature: FeatureId): Record<string, unknown> | undefined {

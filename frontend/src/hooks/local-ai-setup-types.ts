@@ -16,14 +16,12 @@ export interface WizardProps {
   progressText?: string;
   verifyStatus: VerifyStatus;
   verifyResult?: string;
-  cloudAvailable: boolean;
   deviceUnsupported: boolean;
   downloadError?: string;
   onNext: () => void;
   onCancel: () => void;
   onComplete: () => void;
   onRetry: () => void;
-  onCloudFallback: () => void;
   onGrantConsent: () => void;
   onToggleLite: (useLite: boolean) => void;
 }

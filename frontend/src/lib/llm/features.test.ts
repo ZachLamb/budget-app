@@ -13,6 +13,7 @@ const HEAVY: FeatureId[] = [
   "goal_planning",
   "free_form_qa",
   "financial_advice",
+  "debt_rate_suggestions",
 ];
 
 describe("features (on-device only)", () => {
@@ -41,9 +42,20 @@ describe("features (on-device only)", () => {
     }
   });
 
-  it("each feature carries an enabled kill switch (default on)", () => {
+  it("every feature is enabled (kill switch default on)", () => {
     for (const p of listFeatures()) {
       expect(p.enabled).toBe(true);
+    }
+  });
+
+  it("enables the newly wired features", () => {
+    for (const id of [
+      "goal_planning",
+      "spending_summary",
+      "anomaly_explanation",
+      "debt_rate_suggestions",
+    ] as const) {
+      expect(getFeaturePolicy(id).enabled).toBe(true);
     }
   });
 

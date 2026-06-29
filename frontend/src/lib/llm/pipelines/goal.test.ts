@@ -16,6 +16,14 @@ vi.mock("./steps", async (orig) => {
           monthly_contribution: 400,
           months_remaining: 12,
         },
+        {
+          goal_id: "g2",
+          name: "New car",
+          target_amount: 10000,
+          current_amount: 2000,
+          monthly_contribution: 500,
+          months_remaining: 16,
+        },
       ],
     }),
   };
@@ -68,6 +76,25 @@ describe("runGoalPipeline", () => {
     const out =
       '{"plan":{"goal_id":"g1","monthly_contribution":400,"months_to_target":2,"note":"x"}}';
     await expect(runGoalPipeline(ctx(out))).rejects.toMatchObject({
+      code: "verify_failed",
+    });
+  });
+
+  it("plans the requested goal when goalId is provided", async () => {
+    // (10000 - 2000) / 500 = 16 months → in range for g2.
+    const out =
+      '{"plan":{"goal_id":"g2","monthly_contribution":500,"months_to_target":16,"note":"steady"}}';
+    const result = await runGoalPipeline(ctx(out), { goalId: "g2" });
+    expect(result.plan.goal_id).toBe("g2");
+  });
+
+  it("rejects a plan for a different goal than the requested goalId", async () => {
+    // Target g2, but the model returns an otherwise-valid plan for g1.
+    const out =
+      '{"plan":{"goal_id":"g1","monthly_contribution":400,"months_to_target":12,"note":"steady"}}';
+    await expect(
+      runGoalPipeline(ctx(out), { goalId: "g2" }),
+    ).rejects.toMatchObject({
       code: "verify_failed",
     });
   });

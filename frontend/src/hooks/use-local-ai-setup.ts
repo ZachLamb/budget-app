@@ -41,7 +41,6 @@ export function useLocalAiSetup(): UseLocalAiSetup {
   const [verifyResult, setVerifyResult] = useState<string | undefined>();
   const [downloadError, setDownloadError] = useState<string | undefined>();
   const [capability, setCapability] = useState<CapabilitySnapshot | null>(null);
-  const [cloudAvailable, setCloudAvailable] = useState(false);
 
   const pendingRef = useRef<PendingPromise | null>(null);
 
@@ -139,8 +138,16 @@ export function useLocalAiSetup(): UseLocalAiSetup {
     async (): Promise<void> => {
       if (isDemoMode) return;
 
-      const status = await getModelDownloadStatus(true);
-      if (status.kind === "downloaded") return;
+      const cap = await getCapability(true);
+      const downloadStatus = await getModelDownloadStatus(true);
+
+      const nanoNeedsSetup =
+        cap.nano.status === "downloadable" || cap.nano.status === "downloading";
+      const webLlmReady = downloadStatus.kind === "downloaded";
+
+      if (!nanoNeedsSetup && (cap.nano.available || webLlmReady)) {
+        return;
+      }
 
       if (pendingRef.current) return pendingRef.current.promise;
 
@@ -152,10 +159,7 @@ export function useLocalAiSetup(): UseLocalAiSetup {
       });
       pendingRef.current = { promise, resolve, reject };
 
-      const cap = await getCapability(true);
       setCapability(cap);
-
-      setCloudAvailable(false);
 
       setStep("welcome");
       setProgress(0);
@@ -208,14 +212,6 @@ export function useLocalAiSetup(): UseLocalAiSetup {
     }
   }, [step, startDownload, runVerification]);
 
-  const onCloudFallback = useCallback(() => {
-    if (pendingRef.current) {
-      pendingRef.current.resolve();
-      pendingRef.current = null;
-    }
-    setOpen(false);
-  }, []);
-
   const onGrantConsent = useCallback(() => {
     setDownloadModel("granted");
     setStep("download");
@@ -246,14 +242,12 @@ export function useLocalAiSetup(): UseLocalAiSetup {
       progressText,
       verifyStatus,
       verifyResult,
-      cloudAvailable,
       deviceUnsupported,
       downloadError,
       onNext,
       onCancel,
       onComplete,
       onRetry,
-      onCloudFallback,
       onGrantConsent,
       onToggleLite,
     },

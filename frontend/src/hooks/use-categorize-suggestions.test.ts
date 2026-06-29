@@ -67,9 +67,10 @@ describe("useCategorizeSuggestions – suggest() error routing", () => {
 
     const { result } = renderHook(() => useCategorizeSuggestions(), { wrapper: wrap });
 
-    await expect(
-      act(() => result.current.suggest()),
-    ).rejects.toThrow(/consent|download|cancelled/i);
+    await act(async () => {
+      await expect(result.current.suggest()).rejects.toThrow(/cancelled/i);
+    });
+    expect(result.current.error).toMatch(/cancelled/i);
   });
 
   it("surfaces local inference failures", async () => {

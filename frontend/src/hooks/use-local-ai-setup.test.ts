@@ -167,6 +167,30 @@ describe("useLocalAiSetup", () => {
     expect(raceP2).toBe("pending");
   });
 
+  it("opens wizard when WebGPU is cached but Nano is downloadable", async () => {
+    getModelDownloadStatusMock.mockResolvedValue({
+      kind: "downloaded",
+      modelId: "model-3b",
+      sizeLabel: "1.8 GB",
+    });
+    getCapabilityMock.mockResolvedValue({
+      webgpu: { available: true, modelSize: "3b", storageQuotaBytes: 5_000_000_000 },
+      nano: { available: false, status: "downloadable" },
+    });
+
+    const { result } = renderHook(() => useLocalAiSetup());
+    const wizardPromise = result.current.ensureReady();
+
+    await waitFor(() => {
+      expect(result.current.wizardProps.open).toBe(true);
+    });
+
+    act(() => {
+      result.current.wizardProps.onCancel();
+    });
+    await expect(wizardPromise).rejects.toThrow();
+  });
+
   it("onCancel rejects the pending promise and closes wizard", async () => {
     const { result } = renderHook(() => useLocalAiSetup());
 

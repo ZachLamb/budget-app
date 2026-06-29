@@ -19,7 +19,8 @@ export type FeatureId =
   | "goal_planning"
   | "free_form_qa"
   | "financial_advice"
-  | "fsa_review";
+  | "fsa_review"
+  | "debt_rate_suggestions";
 
 export interface FeaturePolicy {
   /** Stable identifier — also used as the consent record's `feature` field. */
@@ -108,6 +109,14 @@ const FEATURES: Record<FeatureId, FeaturePolicy> = {
     id: "fsa_review",
     label: "FSA reimbursement review",
     allowedTiers: LIGHT_TIERS,
+    minimumTier: 1,
+    defaultTier: 1,
+    enabled: true,
+  },
+  debt_rate_suggestions: {
+    id: "debt_rate_suggestions",
+    label: "Debt rate suggestions",
+    allowedTiers: HEAVY_TIERS,
     minimumTier: 1,
     defaultTier: 1,
     enabled: true,

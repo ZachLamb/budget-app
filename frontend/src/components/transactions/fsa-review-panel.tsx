@@ -4,6 +4,7 @@ import type { UseMutationResult } from "@tanstack/react-query";
 import type { FsaEligibleTransaction, FsaReviewResponse } from "@/lib/api/ai";
 import { AI_COPY } from "@/lib/ai-copy";
 import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
+import { AiRunStatus } from "@/components/llm/ai-run-status";
 import { getApiErrorMessage } from "@/lib/hooks";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -112,8 +113,8 @@ export function FsaReviewPanel({
       {fsaOpen && (
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            When this section is open, we scan recent outflows for health-related payees (or all outflows if you choose below).
-            Adjust dates and click Scan again to refresh.
+            Click Scan now to review recent outflows for health-related payees (or all outflows if you choose below).
+            Adjust dates and scan again to refresh.
           </p>
           <p className="text-xs text-muted-foreground">
             Results assume a standard Healthcare FSA (HCFSA). Rules differ for
@@ -155,13 +156,16 @@ export function FsaReviewPanel({
             ) : null}
           </div>
 
-          {(fsaLoading || fsaFetching) && !fsaData ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-              {batchProgress && batchProgress.total > 0
-                ? `Running FSA scan (batch ${batchProgress.done + 1} of ${batchProgress.total})…`
-                : "Running FSA scan…"}
-            </p>
+          {(fsaLoading || fsaFetching) ? (
+            <AiRunStatus
+              progress={
+                batchProgress && batchProgress.total > 0
+                  ? null
+                  : { step: "scan", label: "Running FSA scan…" }
+              }
+              batch={batchProgress}
+              onCancel={onCancelScan}
+            />
           ) : null}
 
           {fsaError && (
@@ -222,9 +226,11 @@ export function FsaReviewPanel({
                 (fsaData.candidate_count ?? 0) > 0 &&
                 (fsaData.llm_batch_failures ?? 0) > 0 &&
                 (fsaData.parse_errors ?? 0) === 0 ? (
-                <p className="text-sm text-destructive rounded-md border border-destructive/30 bg-destructive/5 p-3">
-                  The AI did not return results for this scan. Enable Ollama in Settings or retry. If the problem persists, check server logs.
-                </p>
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                  <MaybeAiErrorWithSettings
+                    message="The AI did not return results for this scan. Check on-device AI setup in Settings and try again."
+                  />
+                </div>
               ) : null}
 
               {fsaData.eligible_transactions.length > 0 && (
