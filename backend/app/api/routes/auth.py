@@ -10,7 +10,7 @@ import secrets
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -239,6 +239,24 @@ _OAUTH_LOGIN_CODE_COOKIE = "oauth_login_code"
 _OAUTH_LOGIN_CODE_COOKIE_PATH = "/api/auth/google/exchange"
 
 
+def get_webauthn_rp_id() -> str:
+    """Effective WebAuthn RP ID.
+
+    Explicit WEBAUTHN_RP_ID always wins. When it's unset, derive the RP ID
+    from FRONTEND_URL's hostname — the RP ID must equal (or suffix) the
+    domain the login page is served from, so a deploy that sets FRONTEND_URL
+    correctly gets working passkeys without a second secret. The old
+    hardcoded "localhost" fallback made browsers throw SecurityError on
+    every hosted deploy that forgot the WEBAUTHN_RP_ID secret.
+    """
+    settings = get_settings()
+    rp_id = (settings.webauthn_rp_id or "").strip()
+    if rp_id:
+        return rp_id
+    host = urlparse(settings.frontend_url).hostname
+    return host or "localhost"
+
+
 def _get_origin(request: Request) -> str:
     origin = request.headers.get("origin") or request.headers.get("referer")
     if origin:
@@ -299,6 +317,7 @@ async def passkey_debug(db: AsyncSession = Depends(get_db)):
         out["webauthn"] = "imported"
         s = get_settings()
         out["rp_id"] = s.webauthn_rp_id or "(empty)"
+        out["effective_rp_id"] = get_webauthn_rp_id()
         out["rp_name"] = s.webauthn_rp_name or "(empty)"
     except Exception as e:
         out["config_error"] = _safe_error_detail(e)
@@ -340,7 +359,7 @@ async def passkey_register_options(
             logger.info("passkey_register_options_rejected duplicate_email")
             raise HTTPException(status_code=400, detail=_REGISTRATION_FAILED_DETAIL)
         settings = get_settings()
-        rp_id = (settings.webauthn_rp_id or "localhost").strip() or "localhost"
+        rp_id = get_webauthn_rp_id()
         rp_name = (settings.webauthn_rp_name or "Budget App").strip() or "Budget App"
         user_id = str(uuid.uuid4())
         options = generate_registration_options(
@@ -401,7 +420,7 @@ async def passkey_register_verify(
         settings = get_settings()
         origin_from_client = client_data.get("origin", "")
         origin = _validate_origin_from_credential(origin_from_client)
-        rp_id = (settings.webauthn_rp_id or "localhost").strip() or "localhost"
+        rp_id = get_webauthn_rp_id()
         try:
             verification = verify_registration_response(
                 credential=credential_json,
@@ -483,7 +502,7 @@ async def passkey_authenticate_options(
     """Return WebAuthn options for signing in with a passkey."""
     try:
         settings = get_settings()
-        rp_id = (settings.webauthn_rp_id or "localhost").strip() or "localhost"
+        rp_id = get_webauthn_rp_id()
         allow_credentials: list[PublicKeyCredentialDescriptor] = []
         if data.email:
             result = await db.execute(select(User).where(User.email == data.email))
@@ -558,7 +577,7 @@ async def passkey_authenticate_verify(
     pad = (4 - len(challenge_b64) % 4) % 4
     expected_challenge = base64.urlsafe_b64decode(challenge_b64 + ("=" * pad))
     settings = get_settings()
-    rp_id = (settings.webauthn_rp_id or "localhost").strip() or "localhost"
+    rp_id = get_webauthn_rp_id()
     # Use origin from the credential (clientDataJSON) so verification works when the HTTP request
     # does not send Origin (e.g. same-origin proxy). We only allowlist-check it.
     origin_from_client = client_data.get("origin", "")
@@ -631,7 +650,7 @@ async def passkey_add_options(
     """Return WebAuthn registration options for adding a passkey to the current user (authenticated)."""
     try:
         settings = get_settings()
-        rp_id = (settings.webauthn_rp_id or "localhost").strip() or "localhost"
+        rp_id = get_webauthn_rp_id()
         rp_name = (settings.webauthn_rp_name or "Budget App").strip() or "Budget App"
         options = generate_registration_options(
             rp_id=rp_id,
@@ -683,7 +702,7 @@ async def passkey_add_verify(
     settings = get_settings()
     origin_from_client = client_data.get("origin", "")
     origin = _validate_origin_from_credential(origin_from_client)
-    rp_id = (settings.webauthn_rp_id or "localhost").strip() or "localhost"
+    rp_id = get_webauthn_rp_id()
     try:
         verification = verify_registration_response(
             credential=credential_json,

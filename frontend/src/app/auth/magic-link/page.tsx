@@ -33,17 +33,25 @@ function MagicLinkVerify() {
   const router = useRouter();
   const { refreshSession } = useAuth();
   const params = useSearchParams();
-  const token = readTokenFromLocation(params.get("token"));
 
   const ranRef = useRef(false);
   const [state, setState] = useState<"loading" | "ok" | "fail">("loading");
 
+  // Run-once, and deliberately NOT cancelled on effect cleanup. The old
+  // cancellation pattern deadlocked the page: refreshSession() re-renders
+  // the auth context, and the URL scrub below empties the token, so the
+  // effect's cleanup ran mid-flight — `cancelled` flipped before the
+  // success handler could set state or schedule the redirect, while the
+  // ranRef guard stopped the re-run from retrying. The user was signed in
+  // (cookie set) but stared at "Signing you in…" forever. StrictMode's
+  // double-invoke in dev triggered the same hang deterministically.
   useEffect(() => {
     if (ranRef.current) return;
     ranRef.current = true;
 
-    // Scrub the token from the visible URL/history as soon as we've read it.
-    if (typeof window !== "undefined" && (window.location.hash || params.get("token"))) {
+    // Read the token now, then scrub it from the visible URL/history.
+    const token = readTokenFromLocation(params.get("token"));
+    if (window.location.hash || params.get("token")) {
       window.history.replaceState(null, "", window.location.pathname);
     }
 
@@ -51,28 +59,17 @@ function MagicLinkVerify() {
       queueMicrotask(() => setState("fail"));
       return;
     }
-    let cancelled = false;
-    let bounceTimer: ReturnType<typeof setTimeout> | null = null;
-    queueMicrotask(() => {
-      authApi
-        .magicLinkVerify(token)
-        .then(() => refreshSession())
-        .then(() => {
-          if (cancelled) return;
-          setState("ok");
-          bounceTimer = setTimeout(() => {
-            if (!cancelled) router.replace("/");
-          }, 600);
-        })
-        .catch(() => {
-          if (!cancelled) setState("fail");
-        });
-    });
-    return () => {
-      cancelled = true;
-      if (bounceTimer !== null) clearTimeout(bounceTimer);
-    };
-  }, [token, router, refreshSession, params]);
+    authApi
+      .magicLinkVerify(token)
+      .then(() => refreshSession())
+      .then(() => {
+        setState("ok");
+        setTimeout(() => router.replace("/"), 600);
+      })
+      .catch(() => setState("fail"));
+    // Intentionally run-once: deps would re-fire on token scrub / context refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return <MagicLinkCard state={state} />;
 }
