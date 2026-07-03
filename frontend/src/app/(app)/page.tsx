@@ -433,7 +433,7 @@ function DashboardContent() {
     .reduce((sum: number, a: Account) => sum + Math.abs(Number(a.balance)), 0);
 
   const netWorth = totalAssets - totalLiabilities;
-  const readyToAssign = (budgetData?.total_income ?? 0) - (budgetData?.total_assigned ?? 0);
+  const readyToAssign = budgetData?.ready_to_assign ?? 0;
 
   const debtAccounts = accounts.filter((a: Account) => DEBT_TYPES.includes(a.account_type));
   const activeGoals = goals.filter((g: FinancialGoal) => !g.is_completed).slice(0, 3);
