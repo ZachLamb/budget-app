@@ -18,8 +18,10 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     # Frontend URL for OAuth redirect after login (e.g. http://localhost:3001)
     frontend_url: str = "http://localhost:3001"
-    # WebAuthn / passkeys: rp_id must match the host (e.g. localhost in dev)
-    webauthn_rp_id: str = "localhost"
+    # WebAuthn / passkeys: rp_id must match the host the login page is served
+    # from. Empty means "derive from FRONTEND_URL's hostname" (see
+    # app.api.routes.auth.get_webauthn_rp_id) with a final localhost fallback.
+    webauthn_rp_id: str = ""
     webauthn_rp_name: str = "Budget App"
     webauthn_debug: bool = False  # if True, GET /api/auth/passkey/debug is enabled
 
@@ -159,6 +161,26 @@ def get_settings() -> Settings:
             "remain 'pending' with no way to approve them. Set ADMIN_EMAIL to "
             "the bootstrap admin's email if registrations should be usable."
         )
+    # Loud warnings for the two silent production login-breakers. Neither is
+    # a hard fail — a deploy may legitimately run passkey-only or
+    # magic-link-only — but both failure modes are invisible to end users
+    # (no email ever arrives; the passkey prompt throws before any request
+    # reaches us), so the operator log is the only place they can surface.
+    if not settings.demo_mode and _looks_like_production():
+        if not settings.resend_api_key or not settings.email_from_address:
+            logging.warning(
+                "RESEND_API_KEY and/or EMAIL_FROM_ADDRESS is not set on a "
+                "production deploy: magic-link sign-in emails will silently "
+                "never send. Set both to enable email sign-in."
+            )
+        if not settings.webauthn_rp_id and "localhost" in settings.frontend_url:
+            logging.warning(
+                "WEBAUTHN_RP_ID is not set and FRONTEND_URL points at "
+                "localhost on a production deploy: passkey prompts will fail "
+                "in the browser with SecurityError. Set WEBAUTHN_RP_ID to the "
+                "domain the login page is served from (or set FRONTEND_URL "
+                "correctly to derive it)."
+            )
     if settings.webauthn_debug and _looks_like_production():
         raise RuntimeError(
             "WEBAUTHN_DEBUG=true is set alongside a production environment "
