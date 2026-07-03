@@ -26,6 +26,9 @@ async def compute_budget_facts(
       - ``actual``    = net outflow = ``-sum(activity)`` so spending is positive
       - ``remaining`` = ``budgeted - actual`` (== assigned + activity)
 
+    NOTE: this is a month-scoped view by design; it does NOT include envelope
+    carryover (see services/budget_math.py). The budget page's 'available' is cumulative.
+
     Only non-income categories with a non-zero assignment or activity for the
     month are included. Activity is summed over open budget accounts, ignoring
     split-parent rows to avoid double counting.

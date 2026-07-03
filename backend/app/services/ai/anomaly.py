@@ -21,6 +21,7 @@ from sqlalchemy import extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Account, Category, Payee, Transaction
+from app.services.ai.prompt_safety import DEFAULT_PAYEE_MAX, sanitize_user_text
 
 # Server-side detection knobs — never client-supplied.
 ANOMALY_RATIO = 3.0
@@ -123,7 +124,7 @@ async def compute_anomaly_facts(
                 "category_avg": round(mean, 2),
                 "ratio": round(ratio, 2),
                 "date": txn.date.isoformat(),
-                "payee": payee_name,
+                "payee": sanitize_user_text(payee_name, DEFAULT_PAYEE_MAX) or "Unknown",
             }
         )
 

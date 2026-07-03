@@ -20,9 +20,8 @@ import { Plus, Upload, Trash2, Download, ArrowLeftRight, MoreHorizontal, Message
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { appToast } from "@/lib/app-toast";
 import api from "@/lib/api/client";
-import { aiApi, type AnomalyFact } from "@/lib/api/ai";
-import { useAiPipelineRun } from "@/hooks/use-ai-pipeline-run";
-import { AiRunStatus } from "@/components/llm/ai-run-status";
+import { aiApi } from "@/lib/api/ai";
+import { AnomalyExplain } from "@/components/transactions/anomaly-explain";
 import { useFsaReviewScan } from "@/hooks/use-fsa-review-scan";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
 import { cn } from "@/lib/utils";
@@ -49,45 +48,6 @@ type TransactionSplitLinePayload = {
 };
 
 const FSA_CONF_ORDER = { high: 3, medium: 2, low: 1 } as const;
-
-function AnomalyExplain({ fact }: { fact: AnomalyFact }) {
-  const ai = useAiPipelineRun("anomaly_explanation");
-  const [text, setText] = useState("");
-
-  const explain = async () => {
-    setText("");
-    ai.clearError();
-    try {
-      await ai.runStream(
-        `Explain in one sentence why this expense is unusual. Use only these facts; do not invent numbers.\n` +
-          `Facts: ${JSON.stringify(fact)}`,
-        (chunk) => setText((s) => s + chunk),
-        { maxTokens: 120 },
-      );
-    } catch (err) {
-      if ((err as Error).name === "AbortError") return;
-    }
-  };
-
-  return (
-    <div className="mt-1">
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-6 text-xs"
-        onClick={() => void explain()}
-        disabled={ai.running}
-        aria-busy={ai.running}
-      >
-        <Sparkles className={cn("mr-1 h-3 w-3", ai.running && "animate-pulse")} />
-        Explain why flagged
-      </Button>
-      {ai.running ? <AiRunStatus progress={ai.progress} onCancel={ai.cancel} /> : null}
-      {ai.error ? <MaybeAiErrorWithSettings message={ai.error} /> : null}
-      {text ? <p className="text-xs text-amber-700 dark:text-amber-300">{text}</p> : null}
-    </div>
-  );
-}
 
 function TransactionsContent() {
   const { isDemo } = useDemoGuard();
@@ -148,6 +108,7 @@ function TransactionsContent() {
     () => new Map((anomalyData?.anomalies ?? []).map((a) => [a.transaction_id, a])),
     [anomalyData],
   );
+  const anomalyIds = useMemo(() => new Set(anomalies.keys()), [anomalies]);
 
   const filteredFsa = useMemo(() => {
     if (!fsaData?.eligible_transactions) return [];
@@ -932,6 +893,7 @@ function TransactionsContent() {
         startEdit={startEdit}
         startSplit={startSplit}
         setDeleteId={setDeleteId}
+        anomalyIds={anomalyIds}
       />
     </div>
   );

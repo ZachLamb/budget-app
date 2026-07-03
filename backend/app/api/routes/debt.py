@@ -258,16 +258,18 @@ async def calculate_payoff_plan(
 
     while any(balances_sim[did] > 0 for did in active_order) and month < MAX_MONTHS:
         month += 1
-        freed_up = Decimal("0")   # payments freed from paid-off debts go to next target
-
-        # Available extra this month = user's extra + any freed minimums
+        # Every already-paid-off debt frees its minimum for this month's pool,
+        # regardless of where it sits in the payoff order.
+        freed_up = sum(
+            (d["min_payment"] for d in debts if balances_sim[d["id"]] <= 0),
+            Decimal("0"),
+        )
         extra_pool = req.extra_monthly + freed_up
 
         for i, debt in enumerate(debts):
             did = debt["id"]
             bal = balances_sim[did]
             if bal <= 0:
-                extra_pool += debt["min_payment"]  # free up this minimum for next debt
                 continue
 
             monthly_rate = debt["apr"] / 12
@@ -311,16 +313,17 @@ async def calculate_payoff_plan(
         n = len(sched)
         ti = debt_total_interest[did]
         tp = debt_total_paid[did]
+        paid_off = balances_sim[did] <= 0 and n > 0
         results.append(DebtPayoffResult(
             account_id=did,
             account_name=debt["name"],
             starting_balance=debt["balance"],
             interest_rate=debt["apr"] if debt["apr"] else None,
             minimum_payment=debt["min_payment"],
-            months_to_payoff=n if n > 0 else None,
+            months_to_payoff=n if paid_off else None,
             total_interest=ti,
             total_paid=tp,
-            payoff_date=_payoff_date(n) if n > 0 else None,
+            payoff_date=_payoff_date(n) if paid_off else None,
             schedule=sched[:24],  # return first 2 years of schedule only
         ))
         total_interest += ti

@@ -14,15 +14,17 @@ function isMobileDevice(): boolean {
   return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 }
 
-function buildEligibleFromBatches(
+export function buildEligibleFromBatches(
   candidates: FsaCandidateRow[],
   batchSize: number,
-  batchResults: { eligible: { index: number; confidence: "high" | "medium" | "low"; fsa_category: string; reason: string }[] }[],
+  batchResults: ({ eligible: { index: number; confidence: "high" | "medium" | "low"; fsa_category: string; reason: string }[] } | null)[],
 ): FsaReviewResponse["eligible_transactions"] {
   const eligible: FsaReviewResponse["eligible_transactions"] = [];
   for (let b = 0; b < batchResults.length; b++) {
+    const batch = batchResults[b];
+    if (!batch) continue; // failed batch — its slice contributes nothing
     const slice = candidates.slice(b * batchSize, b * batchSize + batchSize);
-    for (const item of batchResults[b]!.eligible) {
+    for (const item of batch.eligible) {
       if (item.index < 0 || item.index >= slice.length) continue;
       const row = slice[item.index]!;
       eligible.push({

@@ -41,6 +41,7 @@ import { appToast } from "@/lib/app-toast";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { formatCurrency, getMonthString, formatMonthDisplay, navigateMonth } from "@/lib/format";
+import { carryoverNote, overspendNote, rtaDeductionNote } from "@/lib/budget-rollover-copy";
 import { getApiErrorMessage, useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
 import { AI_COPY } from "@/lib/ai-copy";
@@ -68,16 +69,24 @@ function AssignedCell({
       const previous = queryClient.getQueryData(["budget", month]);
       queryClient.setQueryData(["budget", month], (old: BudgetMonthResponse | undefined) => {
         if (!old) return old;
+        let delta = 0;
+        const groups = old.groups.map((g) => ({
+          ...g,
+          categories: g.categories.map((c) => {
+            if (c.category_id !== newData.category_id) return c;
+            delta = newData.assigned_amount - c.assigned;
+            return {
+              ...c,
+              assigned: newData.assigned_amount,
+              available: newData.assigned_amount + c.activity + c.carryover,
+            };
+          }),
+        }));
         return {
           ...old,
-          groups: old.groups.map((g) => ({
-            ...g,
-            categories: g.categories.map((c) =>
-              c.category_id === newData.category_id
-                ? { ...c, assigned: newData.assigned_amount, available: newData.assigned_amount + c.activity }
-                : c
-            ),
-          })),
+          groups,
+          total_assigned: old.total_assigned + delta,
+          ready_to_assign: old.ready_to_assign - delta,
         };
       });
       return { previous };
@@ -146,34 +155,38 @@ function AssignedCell({
   );
 }
 
-function CategoryRow({
+export function CategoryRow({
   cat,
   month,
 }: {
   cat: CategoryBudgetRow;
   month: string;
 }) {
+  const note = overspendNote(cat.available) ?? carryoverNote(cat.carryover, month);
   return (
-    <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-4 py-1.5 hover:bg-muted/50 transition-colors">
-      <span className="pl-6 text-sm truncate">{cat.category_name}</span>
-      <AssignedCell
-        categoryId={cat.category_id}
-        month={month}
-        value={cat.assigned}
-      />
-      <span className="w-28 text-right font-mono text-sm text-muted-foreground">
-        {formatCurrency(cat.activity)}
-      </span>
-      <span
-        className={cn(
-          "w-28 text-right font-mono text-sm font-medium",
-          cat.available > 0 && "text-green-600",
-          cat.available < 0 && "text-red-600",
-          cat.available === 0 && "text-muted-foreground"
-        )}
-      >
-        {formatCurrency(cat.available)}
-      </span>
+    <div className="px-4 py-1.5 hover:bg-muted/50 transition-colors">
+      <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2">
+        <span className="pl-6 text-sm truncate">{cat.category_name}</span>
+        <AssignedCell
+          categoryId={cat.category_id}
+          month={month}
+          value={cat.assigned}
+        />
+        <span className="w-28 text-right font-mono text-sm text-muted-foreground">
+          {formatCurrency(cat.activity)}
+        </span>
+        <span
+          className={cn(
+            "w-28 text-right font-mono text-sm font-medium",
+            cat.available > 0 && "text-green-600",
+            cat.available < 0 && "text-red-600",
+            cat.available === 0 && "text-muted-foreground"
+          )}
+        >
+          {formatCurrency(cat.available)}
+        </span>
+      </div>
+      {note && <p className="pl-6 pt-0.5 text-xs text-muted-foreground">{note}</p>}
     </div>
   );
 }
@@ -628,7 +641,7 @@ function BudgetContent() {
     }
   };
 
-  const readyToAssign = (data?.total_income ?? 0) - (data?.total_assigned ?? 0);
+  const readyToAssign = data?.ready_to_assign ?? 0;
 
   return (
     <div className="space-y-6">
@@ -722,6 +735,11 @@ function BudgetContent() {
             >
               {formatCurrency(readyToAssign)}
             </p>
+            {rtaDeductionNote(data?.overspend_deducted ?? 0) && (
+              <p className="text-xs text-muted-foreground">
+                {rtaDeductionNote(data?.overspend_deducted ?? 0)}
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
