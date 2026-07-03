@@ -42,6 +42,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { formatCurrency, getMonthString, formatMonthDisplay, navigateMonth } from "@/lib/format";
 import { carryoverNote, overspendNote, rtaDeductionNote } from "@/lib/budget-rollover-copy";
+import { applyAssignedOptimistic } from "@/lib/budget-optimistic";
 import { getApiErrorMessage, useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
 import { AI_COPY } from "@/lib/ai-copy";
@@ -67,28 +68,9 @@ function AssignedCell({
     onMutate: async (newData) => {
       await queryClient.cancelQueries({ queryKey: ["budget", month] });
       const previous = queryClient.getQueryData(["budget", month]);
-      queryClient.setQueryData(["budget", month], (old: BudgetMonthResponse | undefined) => {
-        if (!old) return old;
-        let delta = 0;
-        const groups = old.groups.map((g) => ({
-          ...g,
-          categories: g.categories.map((c) => {
-            if (c.category_id !== newData.category_id) return c;
-            delta = newData.assigned_amount - c.assigned;
-            return {
-              ...c,
-              assigned: newData.assigned_amount,
-              available: newData.assigned_amount + c.activity + c.carryover,
-            };
-          }),
-        }));
-        return {
-          ...old,
-          groups,
-          total_assigned: old.total_assigned + delta,
-          ready_to_assign: old.ready_to_assign - delta,
-        };
-      });
+      queryClient.setQueryData(["budget", month], (old: BudgetMonthResponse | undefined) =>
+        old ? applyAssignedOptimistic(old, newData) : old
+      );
       return { previous };
     },
     onError: (e, _vars, context) => {
@@ -158,11 +140,16 @@ function AssignedCell({
 export function CategoryRow({
   cat,
   month,
+  isIncome = false,
 }: {
   cat: CategoryBudgetRow;
   month: string;
+  isIncome?: boolean;
 }) {
-  const note = overspendNote(cat.available) ?? carryoverNote(cat.carryover, month);
+  // Rollover notes are envelope concepts; income rows aren't envelopes.
+  const note = isIncome
+    ? null
+    : overspendNote(cat.available) ?? carryoverNote(cat.carryover, month);
   return (
     <div className="px-4 py-1.5 hover:bg-muted/50 transition-colors">
       <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2">
@@ -233,7 +220,7 @@ function GroupSection({
       </button>
       {!collapsed &&
         group.categories.map((cat) => (
-          <CategoryRow key={cat.category_id} cat={cat} month={month} />
+          <CategoryRow key={cat.category_id} cat={cat} month={month} isIncome={group.is_income} />
         ))}
     </div>
   );

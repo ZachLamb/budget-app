@@ -60,6 +60,27 @@ def test_demo_blocks_categorization_suggest() -> None:
     assert not is_demo_mutation_allowed("/api/categorization/apply", "POST")
 
 
+def _registered_paths(routes, prefix: str = "") -> set[str]:
+    """Full paths of every registered route. Handles both flat routing
+    (fastapi < 0.129 copied fully-prefixed APIRoutes onto the app) and the
+    lazy include of newer fastapi/starlette, where ``include_router`` nests
+    the original router behind an ``include_context`` carrying the prefix.
+    """
+    paths: set[str] = set()
+    for r in routes:
+        path = getattr(r, "path", None)
+        ctx = getattr(r, "include_context", None)
+        if ctx is not None:
+            paths |= _registered_paths(
+                ctx.included_router.routes, prefix + (ctx.prefix or "")
+            )
+        elif path and hasattr(r, "routes"):  # Mount
+            paths |= _registered_paths(r.routes, prefix + path)
+        elif path:
+            paths.add(prefix + path)
+    return paths
+
+
 def test_every_demo_auth_prefix_covers_a_real_route() -> None:
     """Safeguard for the auth allowlist specifically: each prefix must match at
     least one registered route. A typo (``magic_link`` vs ``magic-link``) or a
@@ -68,8 +89,7 @@ def test_every_demo_auth_prefix_covers_a_real_route() -> None:
     """
     from app.main import app
 
-    registered = {getattr(r, "path", None) for r in app.routes}
-    registered.discard(None)
+    registered = _registered_paths(app.routes)
     unmatched = {
         prefix
         for prefix in _DEMO_AUTH_PREFIXES
