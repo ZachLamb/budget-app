@@ -60,6 +60,8 @@ export interface TransactionListSectionProps {
   startEdit: (txn: Transaction) => void;
   startSplit: (txn: Transaction) => void;
   setDeleteId: (id: string | null) => void;
+  /** Ids of transactions flagged as unusual by the deterministic anomaly facts. */
+  anomalyIds?: Set<string>;
 }
 
 export function TransactionListSection({
@@ -81,6 +83,7 @@ export function TransactionListSection({
   startEdit,
   startSplit,
   setDeleteId,
+  anomalyIds,
 }: TransactionListSectionProps) {
   return (
     <Card>
@@ -146,6 +149,14 @@ export function TransactionListSection({
                       {txn.is_split && (
                         <Badge variant="outline" className="ml-1 text-xs">
                           Split
+                        </Badge>
+                      )}
+                      {anomalyIds?.has(txn.id) && (
+                        <Badge
+                          variant="outline"
+                          className="ml-1 text-xs border-amber-400 text-amber-700 dark:text-amber-300"
+                        >
+                          Unusual
                         </Badge>
                       )}
                     </button>

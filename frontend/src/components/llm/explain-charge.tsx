@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Sparkles, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLlm } from "@/lib/llm/useLlm";
-import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
+import { AiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
+import { AiRunStatus } from "@/components/llm/ai-run-status";
 import { userMessageFor } from "@/lib/llm/errors";
+import { interpretPrepareFeatureResult } from "@/lib/llm/prepare-feature-result";
 import type { Transaction } from "@/lib/api/transactions";
 import { formatCurrency } from "@/lib/format";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
@@ -37,56 +39,90 @@ export function ExplainCharge({ txn }: Props) {
   const llm = useLlm();
   const gate = useAiFeatureGate();
   const [output, setOutput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorShowsSettings, setErrorShowsSettings] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setRunning(false);
+  }, []);
 
   const run = useCallback(async () => {
     setError(null);
+    setErrorShowsSettings(false);
     setOutput("");
-    setLoading(true);
+
+    const prepared = await gate.prepareFeature(FEATURE);
+    const interpretation = interpretPrepareFeatureResult(prepared);
+    if (interpretation.action === "stop") {
+      setError(interpretation.userMessage);
+      setErrorShowsSettings(interpretation.showSettingsLink);
+      return;
+    }
+
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setRunning(true);
+
     try {
-      const prepared = await gate.prepareFeature(FEATURE);
-      if (!prepared.ok) {
-        if (prepared.reason !== "cancelled" && prepared.message) {
-          setError(prepared.message);
-        }
-        return;
-      }
       const prompt = buildPrompt(txn);
       for await (const chunk of llm.run(FEATURE, prompt, {
         system: SYSTEM_PROMPT,
         maxTokens: 200,
+        signal: ac.signal,
       })) {
         setOutput((prev) => prev + chunk);
       }
     } catch (e) {
+      if ((e as Error).name === "AbortError") return;
       setError(userMessageFor(e));
     } finally {
-      setLoading(false);
+      setRunning(false);
+      abortRef.current = null;
     }
   }, [gate, llm, txn]);
 
   return (
     <div className="space-y-2">
-      <Button onClick={() => void run()} disabled={loading} size="sm" variant="outline">
-        {loading ? (
+      <Button
+        onClick={() => void run()}
+        disabled={running}
+        size="sm"
+        variant="outline"
+        aria-busy={running}
+      >
+        {running ? (
           <Loader2 className="size-4 animate-spin" />
         ) : (
           <Sparkles className="size-4" />
         )}
         Explain this charge
       </Button>
-      {output && (
+      {running ? (
+        <AiRunStatus
+          progress={{ step: "explain", label: "Explaining…" }}
+          onCancel={cancel}
+        />
+      ) : null}
+      {output ? (
         <div className="rounded-md border bg-muted/40 p-3 text-sm leading-relaxed">
           {output}
         </div>
-      )}
-      {error && (
+      ) : null}
+      {error ? (
         <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
           <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
-          <MaybeAiErrorWithSettings message={error} />
+          {errorShowsSettings ? (
+            <AiErrorWithSettings message={error} />
+          ) : (
+            <p className="text-sm text-destructive">{error}</p>
+          )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

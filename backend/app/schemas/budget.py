@@ -25,6 +25,7 @@ class CategoryBudgetRow(BaseModel):
     assigned: Decimal
     activity: Decimal
     available: Decimal
+    carryover: Decimal
 
 
 class GroupBudgetRow(BaseModel):
@@ -35,6 +36,7 @@ class GroupBudgetRow(BaseModel):
     assigned: Decimal
     activity: Decimal
     available: Decimal
+    carryover: Decimal
     categories: list[CategoryBudgetRow]
 
 
@@ -44,4 +46,9 @@ class BudgetMonthResponse(BaseModel):
     total_assigned: Decimal
     total_activity: Decimal
     total_available: Decimal
+    # Envelope rollover (docs/superpowers/specs/2026-07-02-budget-rollover-design.md):
+    # `available` is cumulative (carryover + assigned + activity).
+    ready_to_assign: Decimal
+    total_carryover_in: Decimal
+    overspend_deducted: Decimal
     groups: list[GroupBudgetRow]

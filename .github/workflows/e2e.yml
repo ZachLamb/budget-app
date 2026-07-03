@@ -1,10 +1,12 @@
 name: E2E (smoke)
 
-# Manually triggered for now — e2e in every PR is expensive and we don't
-# want flakes blocking merges. Graduate to `pull_request` when the suite
-# has proven reliable.
+# Nightly + manual. Not on every PR yet — e2e in PRs is expensive and we
+# don't want flakes blocking merges. Graduate to `pull_request` when the
+# suite has proven reliable. (Scheduled workflows run on the default branch.)
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
 
 jobs:
   e2e:

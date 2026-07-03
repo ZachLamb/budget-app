@@ -135,8 +135,8 @@ async def seed_demo_data(session_factory) -> None:
         accounts_data = [
             (acct_checking_id, "Main Checking", "checking", "First National Bank", True, None, None),
             (acct_savings_id, "Emergency Savings", "savings", "First National Bank", True, None, None),
-            (acct_visa_id, "Chase Visa", "credit", "Chase", True, Decimal("21.9900"), Decimal("45.00")),
-            (acct_loan_id, "Car Loan", "loan", "Credit Union", False, Decimal("4.5000"), Decimal("285.00")),
+            (acct_visa_id, "Chase Visa", "credit", "Chase", True, Decimal("0.2199"), Decimal("45.00")),
+            (acct_loan_id, "Car Loan", "loan", "Credit Union", False, Decimal("0.0450"), Decimal("285.00")),
             (acct_vacation_id, "Vacation Fund", "savings", "Ally Bank", True, None, None),
         ]
         for aid, name, atype, inst, is_budget, rate, minpay in accounts_data:
@@ -319,13 +319,19 @@ async def seed_demo_data(session_factory) -> None:
             m_date = today.replace(day=1) - timedelta(days=months_ago * 30)
             month_str = m_date.strftime("%Y-%m")
             for cat_name, amount in budget_plan.items():
-                if cat_name in cat_lookup:
-                    db.add(BudgetAssignment(
+                if cat_name not in cat_lookup:
+                    continue
+                assigned = Decimal(str(amount))
+                # Charity spends a fixed $25/month; over-assigning prior months
+                # guarantees a visible rollover carry-in on the current month.
+                if cat_name == "Charity" and months_ago > 0:
+                    assigned = Decimal("50")
+                db.add(BudgetAssignment(
                         id=_id(),
                         household_id=household_id,
                         category_id=cat_lookup[cat_name],
                         month=month_str,
-                        assigned_amount=Decimal(str(amount)),
+                        assigned_amount=assigned,
                     ))
 
         # ── Financial Goals ────────────────────────────────────────

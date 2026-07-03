@@ -4,6 +4,8 @@ import { useCallback, useState } from "react";
 import { reportsApi, type LlmSuggestion, type SuggestCategoriesParams } from "@/lib/api/reports";
 import { isDemoMode } from "@/lib/demo-mode";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
+import { userMessageFor } from "@/lib/llm/errors";
+import { interpretPrepareFeatureResult } from "@/lib/llm/prepare-feature-result";
 import { useLlm } from "@/lib/llm/useLlm";
 import { runStructuredJson } from "@/lib/llm/run-structured";
 import type { CategorizeSuggestion } from "@/lib/llm/contracts";
@@ -55,7 +57,8 @@ export function useCategorizeSuggestions() {
         setTier(usedTier);
         return out;
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Local categorization failed");
+        const msg = userMessageFor(e);
+        setError(msg);
         throw e;
       } finally {
         setLoading(false);
@@ -68,13 +71,12 @@ export function useCategorizeSuggestions() {
     async (params?: SuggestCategoriesParams): Promise<LlmSuggestion[]> => {
       if (isDemoMode) return suggestLocal(params);
 
+      setError(null);
       const prepared = await gate.prepareFeature("categorize_transaction");
-      if (!prepared.ok) {
-        throw new Error(
-          prepared.reason === "cancelled"
-            ? "On-device AI setup was cancelled"
-            : prepared.message ?? "AI is not available for categorization",
-        );
+      const interpretation = interpretPrepareFeatureResult(prepared);
+      if (interpretation.action === "stop") {
+        setError(interpretation.userMessage);
+        throw new Error(interpretation.userMessage);
       }
       return suggestLocal(params);
     },

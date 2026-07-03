@@ -33,6 +33,7 @@ export interface GoalResult {
  */
 export async function runGoalPipeline(
   ctx: PipelineContext,
+  params?: { goalId?: string },
 ): Promise<GoalResult> {
   return withNanoSlot(async () => {
     ctx.onProgress?.({ step: "ground", label: "Checking your goals…" });
@@ -40,8 +41,17 @@ export async function runGoalPipeline(
 
     const byId = new Map(facts.goals.map((g) => [g.goal_id, g]));
 
+    // When a specific goal is requested (and it exists), constrain the prompt
+    // and the verifier to that single goal; otherwise let the model pick one.
+    const targetId = params?.goalId;
+    const candidates =
+      targetId && byId.has(targetId)
+        ? facts.goals.filter((g) => g.goal_id === targetId)
+        : facts.goals;
+
     const checks: Check<GoalResult>[] = [
       ({ plan }) => byId.has(plan.goal_id),
+      ({ plan }) => (targetId ? plan.goal_id === targetId : true),
       ({ plan }) => plan.monthly_contribution >= 0,
       ({ plan }) => plan.note.trim().length > 0,
       ({ plan }) => {
@@ -60,9 +70,9 @@ export async function runGoalPipeline(
     const system =
       "You are a careful savings-planning assistant. Only use the provided goal IDs and the given amounts. Do not invent numbers.";
     const prompt =
-      `Propose a contribution plan for ONE of these goals.\n` +
-      `Use ONLY these goal_id values: ${[...byId.keys()].join(", ")}.\n` +
-      `Facts: ${JSON.stringify(facts.goals)}`;
+      `Propose a contribution plan for ${targetId ? "this goal" : "ONE of these goals"}.\n` +
+      `Use ONLY these goal_id values: ${candidates.map((g) => g.goal_id).join(", ")}.\n` +
+      `Facts: ${JSON.stringify(candidates)}`;
 
     ctx.onProgress?.({ step: "generate", label: "Building a plan…" });
     const result = await generateVerified<GoalResult>(

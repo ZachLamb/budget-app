@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Wallet, KeyRound, Play, Mail, CheckCircle2 } from "lucide-react";
 import { toastApiError, toastPlainError } from "@/lib/toast-error";
+import { appToast } from "@/lib/app-toast";
+import { passkeyRegisterErrorAction } from "@/lib/passkey-register-error";
 import { useDemoGuard } from "@/lib/hooks";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -150,6 +152,12 @@ function LoginPageContent() {
       login(result.user);
       router.push("/onboarding");
     } catch (err: unknown) {
+      const action = passkeyRegisterErrorAction(err);
+      if (action.kind === "approval-gate") {
+        appToast.info("Account created — awaiting admin approval");
+        router.push("/pending-approval");
+        return;
+      }
       toastApiError("Passkey registration failed", err);
     } finally {
       setLoading(false);

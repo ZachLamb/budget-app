@@ -1,3 +1,4 @@
+from datetime import date as date_cls
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -9,6 +10,7 @@ from app.database import get_db
 from app.api.deps import get_household_id
 from app.models import BudgetAssignment, CategoryGroup, Category, Transaction, Account
 from app.utils import parse_month
+from app.services.budget_math import CategoryMonthResult, compute_rollover
 from app.schemas.budget import (
     BudgetAssignmentUpsert,
     BudgetAssignmentResponse,
@@ -27,6 +29,9 @@ async def get_budget_month(
     db: AsyncSession = Depends(get_db),
 ):
     year, month_num = parse_month(month)
+    first_of_next = (
+        date_cls(year + 1, 1, 1) if month_num == 12 else date_cls(year, month_num + 1, 1)
+    )
 
     groups_result = await db.execute(
         select(CategoryGroup)
@@ -39,11 +44,12 @@ async def get_budget_month(
     assignments_result = await db.execute(
         select(BudgetAssignment).where(
             BudgetAssignment.household_id == household_id,
-            BudgetAssignment.month == month,
+            BudgetAssignment.month <= month,
         )
     )
-    assignments_map: dict[str, Decimal] = {
-        a.category_id: a.assigned_amount for a in assignments_result.scalars().all()
+    assigned_by_cat_month: dict[tuple[str, str], Decimal] = {
+        (a.category_id, a.month): a.assigned_amount
+        for a in assignments_result.scalars().all()
     }
 
     budget_account_ids = (
@@ -55,19 +61,36 @@ async def get_budget_month(
     )
 
     activity_result = await db.execute(
-        select(Transaction.category_id, func.sum(Transaction.amount))
+        select(
+            Transaction.category_id,
+            extract("year", Transaction.date).label("y"),
+            extract("month", Transaction.date).label("m"),
+            func.sum(Transaction.amount),
+        )
         .where(
             Transaction.account_id.in_(budget_account_ids),
-            extract("year", Transaction.date) == year,
-            extract("month", Transaction.date) == month_num,
+            Transaction.date < first_of_next,
             Transaction.category_id.isnot(None),
             Transaction.parent_transaction_id.is_(None),
         )
-        .group_by(Transaction.category_id)
+        .group_by(
+            Transaction.category_id,
+            extract("year", Transaction.date),
+            extract("month", Transaction.date),
+        )
     )
-    activity_map: dict[str, Decimal] = {
-        row[0]: row[1] or Decimal(0) for row in activity_result.all()
+    activity_by_cat_month: dict[tuple[str, str], Decimal] = {
+        (row[0], f"{int(row[1]):04d}-{int(row[2]):02d}"): row[3] or Decimal(0)
+        for row in activity_result.all()
     }
+
+    income_category_ids = {
+        cat.id for g in groups if g.is_income for cat in g.categories
+    }
+    roll = compute_rollover(
+        assigned_by_cat_month, activity_by_cat_month, income_category_ids, month
+    )
+    zero_row = CategoryMonthResult(Decimal(0), Decimal(0), Decimal(0), Decimal(0))
 
     total_income = Decimal(0)
     total_assigned = Decimal(0)
@@ -79,24 +102,29 @@ async def get_budget_month(
         g_assigned = Decimal(0)
         g_activity = Decimal(0)
         g_available = Decimal(0)
+        g_carryover = Decimal(0)
         cat_rows: list[CategoryBudgetRow] = []
 
         for cat in sorted(group.categories, key=lambda c: c.sort_order):
-            assigned = assignments_map.get(cat.id, Decimal(0))
-            activity = activity_map.get(cat.id, Decimal(0))
-            available = assigned + activity
-
+            if group.is_income:
+                assigned = assigned_by_cat_month.get((cat.id, month), Decimal(0))
+                activity = activity_by_cat_month.get((cat.id, month), Decimal(0))
+                row = CategoryMonthResult(Decimal(0), assigned, activity, assigned + activity)
+            else:
+                row = roll.categories.get(cat.id, zero_row)
             cat_rows.append(CategoryBudgetRow(
                 category_id=cat.id,
                 category_name=cat.name,
                 group_id=group.id,
-                assigned=assigned,
-                activity=activity,
-                available=available,
+                assigned=row.assigned,
+                activity=row.activity,
+                available=row.available,
+                carryover=row.carryover,
             ))
-            g_assigned += assigned
-            g_activity += activity
-            g_available += available
+            g_assigned += row.assigned
+            g_activity += row.activity
+            g_available += row.available
+            g_carryover += row.carryover
 
         if group.is_income:
             total_income += g_activity
@@ -113,6 +141,7 @@ async def get_budget_month(
             assigned=g_assigned,
             activity=g_activity,
             available=g_available,
+            carryover=g_carryover,
             categories=cat_rows,
         ))
 
@@ -122,6 +151,9 @@ async def get_budget_month(
         total_assigned=total_assigned,
         total_activity=total_activity,
         total_available=total_available,
+        ready_to_assign=roll.ready_to_assign,
+        total_carryover_in=roll.total_carryover_in,
+        overspend_deducted=roll.overspend_deducted,
         groups=group_rows,
     )
 

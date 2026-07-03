@@ -21,6 +21,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { appToast } from "@/lib/app-toast";
 import api from "@/lib/api/client";
 import { aiApi } from "@/lib/api/ai";
+import { AnomalyExplain } from "@/components/transactions/anomaly-explain";
 import { useFsaReviewScan } from "@/hooks/use-fsa-review-scan";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,7 @@ import { toastMaybeAiAvailability } from "@/lib/llm/ai-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import Link from "next/link";
 import { ExplainCharge } from "@/components/llm/explain-charge";
+import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 import { PageHeader, inlineErrorQueryMeta } from "@/components/page";
 import { CategoryReviewDialog } from "@/components/transactions/category-review-dialog";
 import { TransactionFiltersBar } from "@/components/transactions/transaction-filters-bar";
@@ -90,12 +92,23 @@ function TransactionsContent() {
     includeAllOutflows: fsaIncludeAllOutflows,
   });
   const fsaData = fsaScan.data;
-  const fsaLoading = fsaScan.loading && !fsaData;
+  const fsaLoading = fsaScan.loading;
   const fsaFetching = fsaScan.loading;
   const fsaError = Boolean(fsaScan.error);
   const fsaErrorDetail = fsaScan.error;
 
   const categorizeAi = useCategorizeSuggestions();
+
+  const { data: anomalyData } = useQuery({
+    queryKey: ["anomalies"],
+    queryFn: aiApi.getAnomalies,
+    enabled: isClient,
+  });
+  const anomalies = useMemo(
+    () => new Map((anomalyData?.anomalies ?? []).map((a) => [a.transaction_id, a])),
+    [anomalyData],
+  );
+  const anomalyIds = useMemo(() => new Set(anomalies.keys()), [anomalies]);
 
   const filteredFsa = useMemo(() => {
     if (!fsaData?.eligible_transactions) return [];
@@ -416,6 +429,7 @@ function TransactionsContent() {
             size="sm"
             className="hidden sm:inline-flex"
             disabled={suggestCategoriesMutation.isPending}
+            aria-busy={suggestCategoriesMutation.isPending}
             onClick={() => suggestCategoriesMutation.mutate()}
           >
             <Sparkles className="mr-2 h-4 w-4" />
@@ -531,6 +545,19 @@ function TransactionsContent() {
         </div>
         }
       />
+
+      {(categorizeAi.error || categorizeAi.tier) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {categorizeAi.error ? (
+            <MaybeAiErrorWithSettings message={categorizeAi.error} />
+          ) : null}
+          {categorizeAi.tier ? (
+            <Badge variant="secondary" className="text-xs">
+              {categorizeAi.tier === 1 ? "On-device (Nano)" : "On-device (WebGPU)"}
+            </Badge>
+          ) : null}
+        </div>
+      )}
 
       <Dialog open={importGateOpen} onOpenChange={setImportGateOpen}>
         <DialogContent className="sm:max-w-md">
@@ -772,6 +799,14 @@ function TransactionsContent() {
               </div>
               {detailTxn.is_split && <Badge variant="outline">Split Transaction</Badge>}
               {detailTxn.transfer_pair_id && <Badge variant="outline">Transfer</Badge>}
+              {anomalies.get(detailTxn.id) ? (
+                <>
+                  <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                    Unusual
+                  </Badge>
+                  <AnomalyExplain fact={anomalies.get(detailTxn.id)!} />
+                </>
+              ) : null}
               <div className="border-t pt-3">
                 <ExplainCharge txn={detailTxn} />
               </div>
@@ -858,6 +893,7 @@ function TransactionsContent() {
         startEdit={startEdit}
         startSplit={startSplit}
         setDeleteId={setDeleteId}
+        anomalyIds={anomalyIds}
       />
     </div>
   );

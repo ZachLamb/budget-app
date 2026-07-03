@@ -47,9 +47,21 @@ export interface BudgetSuggestion {
   reasoning: string;
 }
 
+export interface AnomalyFact {
+  transaction_id: string;
+  category: string;
+  amount: number;
+  category_avg: number;
+  ratio: number;
+  date: string;
+  payee: string | null;
+}
+
 export const aiApi = {
   getSpendingPatterns: () =>
     api.get<SpendingPatternsResponse>("/ai/facts/spending-patterns").then((r) => r.data),
+  getAnomalies: () =>
+    api.get<{ anomalies: AnomalyFact[] }>("/ai/facts/anomalies").then((r) => r.data),
   getFsaReviewCandidates: (params?: {
     date_from?: string;
     date_to?: string;

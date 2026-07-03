@@ -13,13 +13,11 @@ function defaultProps(overrides: Partial<WizardProps> = {}): WizardProps {
     freeStorage: 10_000_000_000,
     progress: 0,
     verifyStatus: "idle",
-    cloudAvailable: false,
     deviceUnsupported: false,
     onNext: vi.fn(),
     onCancel: vi.fn(),
     onComplete: vi.fn(),
     onRetry: vi.fn(),
-    onCloudFallback: vi.fn(),
     onGrantConsent: vi.fn(),
     onToggleLite: vi.fn(),
     ...overrides,
@@ -98,30 +96,6 @@ describe("LocalAiSetupWizard", () => {
 
     expect(screen.getByText(/Network failed/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
-  });
-
-  it("shows cloud fallback button when cloudAvailable is true", () => {
-    render(
-      <LocalAiSetupWizard
-        {...defaultProps({ step: "welcome", cloudAvailable: true })}
-      />,
-    );
-
-    expect(
-      screen.getByRole("button", { name: /cloud/i }),
-    ).toBeInTheDocument();
-  });
-
-  it("hides cloud fallback when cloudAvailable is false", () => {
-    render(
-      <LocalAiSetupWizard
-        {...defaultProps({ step: "welcome", cloudAvailable: false })}
-      />,
-    );
-
-    expect(
-      screen.queryByRole("button", { name: /cloud/i }),
-    ).not.toBeInTheDocument();
   });
 
   it("renders verification success", () => {

@@ -21,13 +21,11 @@ const wizardProps = {
   modelSize: "3b" as const,
   progress: 0,
   verifyStatus: "idle" as const,
-  cloudAvailable: false,
   deviceUnsupported: false,
   onNext: vi.fn(),
   onCancel: vi.fn(),
   onComplete: vi.fn(),
   onRetry: vi.fn(),
-  onCloudFallback: vi.fn(),
   onGrantConsent: vi.fn(),
   onToggleLite: vi.fn(),
 };

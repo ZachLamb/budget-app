@@ -8,7 +8,7 @@ import {
 import type { GenerateOptions, LLMProvider } from "./types";
 import type { RouterContext } from "./router";
 import { decide } from "./router";
-import { runStructuredJson } from "./run-structured";
+import { runStructuredJson, runBatchedStructuredJson } from "./run-structured";
 
 vi.mock("./router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./router")>();
@@ -177,5 +177,38 @@ describe("contracts parsers", () => {
     expect(Array.isArray(raw.basis)).toBe(true);
     expect(raw.disclaimer).toMatch(/not professional financial advice/i);
     expect(raw.draft).toBe(true);
+  });
+});
+
+function flakyProvider(): LLMProvider {
+  return {
+    name: "web-llm",
+    tier: 2,
+    privacy: "local",
+    async *generate(prompt: string) {
+      if (prompt.includes("FAIL")) throw new Error("engine crashed");
+      yield '{"eligible":[{"index":0,"confidence":"high","fsa_category":"Rx","reason":"med"}]}';
+    },
+  };
+}
+
+describe("runBatchedStructuredJson alignment", () => {
+  it("keeps one result slot per input batch when a middle batch fails", async () => {
+    const provider = flakyProvider();
+    decideMock.mockResolvedValue({ kind: "ready", provider, tier: 2, reason: "ok" });
+
+    const res = await runBatchedStructuredJson("fsa_review", fakeCtx, {
+      batches: [
+        { system: "s", prompt: "batch0" },
+        { system: "s", prompt: "FAIL batch1" },
+        { system: "s", prompt: "batch2" },
+      ],
+    });
+
+    expect(res.results).toHaveLength(3);
+    expect(res.results[1]).toBeNull();
+    expect(res.results[0]?.eligible).toHaveLength(1);
+    expect(res.results[2]?.eligible).toHaveLength(1);
+    expect(res.batchFailures).toBe(1);
   });
 });

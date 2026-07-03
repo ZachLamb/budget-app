@@ -143,7 +143,8 @@ export interface RunBatchedOptions {
 }
 
 export interface RunBatchedResult<T> {
-  results: T[];
+  /** One slot per input batch, in order; null means that batch failed. */
+  results: (T | null)[];
   tier: 1 | 2;
   parseErrors: number;
   batchFailures: number;
@@ -154,7 +155,7 @@ export async function runBatchedStructuredJson<T extends FsaStructuredResult>(
   ctx: RouterContext,
   opts: RunBatchedOptions,
 ): Promise<RunBatchedResult<T>> {
-  const results: T[] = [];
+  const results: (T | null)[] = [];
   let tier: 1 | 2 = 2;
   let parseErrors = 0;
   let batchFailures = 0;
@@ -173,6 +174,7 @@ export async function runBatchedStructuredJson<T extends FsaStructuredResult>(
       tier = one.tier;
       results.push(one.data);
     } catch (e) {
+      results.push(null);
       if (opts.signal?.aborted) break;
       if (e instanceof StructuredParseError) parseErrors += 1;
       else batchFailures += 1;

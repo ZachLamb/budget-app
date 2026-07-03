@@ -31,10 +31,26 @@ async def upload_csv(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    raw = await file.read()
-    if len(raw) > _MAX_CSV_BYTES:
-        raise HTTPException(status_code=413, detail="CSV file is too large (max 15 MB)")
-    content = raw.decode("utf-8-sig")
+    # Read in bounded chunks so an oversized body is rejected without
+    # buffering the whole thing (Starlette spools big uploads to disk,
+    # but .read() of the full file would still materialize it in RAM).
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > _MAX_CSV_BYTES:
+            raise HTTPException(status_code=413, detail="CSV file is too large (max 15 MB)")
+        chunks.append(chunk)
+    try:
+        content = b"".join(chunks).decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="File must be UTF-8 encoded. Re-export the CSV as UTF-8 and try again.",
+        )
     result = parse_csv(content)
 
     if not result.transactions:

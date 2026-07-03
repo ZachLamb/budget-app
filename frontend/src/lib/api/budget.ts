@@ -7,6 +7,7 @@ export interface CategoryBudgetRow {
   assigned: number;
   activity: number;
   available: number;
+  carryover: number;
 }
 
 export interface GroupBudgetRow {
@@ -17,6 +18,7 @@ export interface GroupBudgetRow {
   assigned: number;
   activity: number;
   available: number;
+  carryover: number;
   categories: CategoryBudgetRow[];
 }
 
@@ -26,6 +28,9 @@ export interface BudgetMonthResponse {
   total_assigned: number;
   total_activity: number;
   total_available: number;
+  ready_to_assign: number;
+  total_carryover_in: number;
+  overspend_deducted: number;
   groups: GroupBudgetRow[];
 }
 
