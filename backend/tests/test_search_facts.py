@@ -11,10 +11,14 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.database import Base
+from app.api.deps import get_household_id
+from app.database import Base, get_db
+from app.main import app
+from app.middleware.rate_limit_store import InMemoryStore
 from app.models import Account, Category, CategoryGroup, Household, Payee, Transaction
 from app.services.ai.search import compute_search_facts, extract_terms
 
@@ -85,3 +89,48 @@ async def test_no_terms_returns_empty(db):
     await seed(db)
     out = await compute_search_facts(db, "hh-1", "so is it ok??")
     assert out["matches"] == []
+
+
+def _client() -> AsyncClient:
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+
+@pytest_asyncio.fixture()
+async def client_hh1():
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    test_session = Session()
+
+    async def _override_get_db():
+        yield test_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_household_id] = lambda: "hh-1"
+
+    prior_store = getattr(app.state, "rate_limit_store", None)
+    app.state.rate_limit_store = InMemoryStore()
+    await seed(test_session)
+    try:
+        yield _client()
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_household_id, None)
+        await test_session.close()
+        await engine.dispose()
+        if prior_store is not None:
+            app.state.rate_limit_store = prior_store
+
+
+@pytest.mark.asyncio
+async def test_search_endpoint_returns_matches(client_hh1):
+    r = await client_hh1.get("/api/ai/facts/search", params={"q": "foreign transaction fees"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["matches"][0]["name"] == "Foreign Transaction Fees"
+    assert body["matches"][0]["this_month"] == 7.75
