@@ -15,11 +15,21 @@ interface NanoSession {
   destroy?: () => void;
 }
 
+interface LanguageExpectation {
+  type: "text";
+  languages: string[];
+}
+
 interface CreateOpts {
   initialPrompts?: { role: "system" | "user" | "assistant"; content: string }[];
   temperature?: number;
   topK?: number;
   monitor?: (m: EventTarget) => void;
+  // Declaring expected I/O languages silences Chrome's "no output language
+  // was specified" warning and lets it attest output safety. The app is
+  // English-only, so both sides are pinned to "en".
+  expectedInputs?: LanguageExpectation[];
+  expectedOutputs?: LanguageExpectation[];
 }
 
 interface NanoNamespace {
@@ -65,6 +75,8 @@ async function ensureSession(opts: GenerateOptions, monitor?: (p: number) => voi
       initialPrompts: opts.system ? [{ role: "system", content: opts.system }] : undefined,
       temperature,
       topK,
+      expectedInputs: [{ type: "text", languages: ["en"] }],
+      expectedOutputs: [{ type: "text", languages: ["en"] }],
       monitor: monitor
         ? (m: EventTarget) => {
             m.addEventListener("downloadprogress", (e: Event) => {
