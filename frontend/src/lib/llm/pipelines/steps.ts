@@ -15,7 +15,10 @@ export async function ground<T>(
     const r = await api.get<T>(factPath, { signal });
     return r.data;
   } catch {
-    throw new OnDeviceError("no_model", "Could not load the data to analyze.");
+    if (signal?.aborted) {
+      throw new OnDeviceError("aborted", "Cancelled.");
+    }
+    throw new OnDeviceError("facts_unavailable", "Could not load the data to analyze.");
   }
 }
 
