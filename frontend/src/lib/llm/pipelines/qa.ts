@@ -1,6 +1,8 @@
 import { schemaForFeature } from "../schema";
 import { withNanoSlot } from "../session-pool";
 import { summarize } from "../specialized";
+import { amountsAreGrounded, collectAmountsCents } from "./grounded-amounts";
+import { buildQaPrompt, buildQaSystem, type SearchMatch } from "./qa-prompt";
 import { generateVerified, ground, type Check } from "./steps";
 import type { PipelineContext } from "./types";
 
@@ -36,6 +38,11 @@ export interface QaParams {
   question: string;
 }
 
+interface SearchFacts {
+  query_terms: string[];
+  matches: SearchMatch[];
+}
+
 const ANSWER_CAP = 1500;
 /** Condense the grounded context first when its serialization is large. */
 const CONDENSE_THRESHOLD = 4000;
@@ -50,6 +57,21 @@ function knownFactIds(facts: ContextFacts): Set<string> {
   return ids;
 }
 
+async function groundSearch(
+  question: string,
+  signal?: AbortSignal,
+): Promise<SearchMatch[]> {
+  try {
+    const r = await ground<SearchFacts>(
+      `/ai/facts/search?q=${encodeURIComponent(question.slice(0, 500))}`,
+      signal,
+    );
+    return r.matches;
+  } catch {
+    return [];
+  }
+}
+
 /**
  * `free_form_qa` on-device pipeline:
  * ground → (optional summarize) → generate(schema) → verify (retry).
@@ -62,8 +84,12 @@ export async function runQaPipeline(
 ): Promise<QaResult> {
   return withNanoSlot(async () => {
     ctx.onProgress?.({ step: "ground", label: "Gathering your data…" });
-    const facts = await ground<ContextFacts>("/ai/facts/context", ctx.signal);
+    const [facts, matches] = await Promise.all([
+      ground<ContextFacts>("/ai/facts/context", ctx.signal),
+      groundSearch(params.question, ctx.signal),
+    ]);
     const known = knownFactIds(facts);
+    for (const m of matches) known.add(m.id);
 
     let factsText = JSON.stringify(facts);
     if (factsText.length > CONDENSE_THRESHOLD) {
@@ -73,19 +99,21 @@ export async function runQaPipeline(
       });
     }
 
+    const allowedAmounts = collectAmountsCents({ facts, matches });
     const checks: Check<QaResult>[] = [
       (r) => r.answer.trim().length > 0,
       (r) => r.answer.length <= ANSWER_CAP,
       (r) => r.cited_facts.every((id) => known.has(id)),
+      (r) => amountsAreGrounded(r.answer, allowedAmounts),
     ];
 
-    const system =
-      "You answer questions about the user's finances using ONLY the provided facts. " +
-      "Cite the fact ids you used in cited_facts. Never invent numbers or ids.";
-    const prompt =
-      `Question: ${params.question}\n` +
-      `Valid fact ids you may cite: ${[...known].join(", ")}.\n` +
-      `Facts: ${factsText}`;
+    const system = buildQaSystem();
+    const prompt = buildQaPrompt(
+      params.question,
+      [...known],
+      factsText,
+      matches,
+    );
 
     ctx.onProgress?.({ step: "generate", label: "Answering…" });
     const result = await generateVerified<QaResult>(
