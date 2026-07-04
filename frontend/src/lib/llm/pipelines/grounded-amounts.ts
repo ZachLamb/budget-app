@@ -13,6 +13,13 @@ export function collectAmountsCents(value: unknown): Set<number> {
   return out;
 }
 
+// Intentionally `$`-prefixed only: the system prompt requires the model to
+// format cited amounts with a leading `$`, so this verifier checks that
+// every `$`-formatted amount in the answer is one the model was actually
+// given. Broadening this to scan bare numbers would false-reject legitimate
+// non-dollar figures (years, counts, percentages, etc.) that have nothing
+// to do with grounding. Residual risk: an answer that writes an invented
+// amount without a `$` bypasses this check; low risk given the prompt.
 const DOLLAR_RE = /\$\s?([\d,]+(?:\.\d{1,2})?)/g;
 
 export function amountsAreGrounded(answer: string, allowed: Set<number>): boolean {

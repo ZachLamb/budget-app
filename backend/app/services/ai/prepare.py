@@ -12,6 +12,23 @@ from app.utils import escape_like
 _ALLOWED = frozenset(
     {"add_transaction", "add_debt", "create_category", "bulk_recategorize"}
 )
+_MAX_AMOUNT = 1_000_000  # sanity cap — mirrors app/services/ai/action.py
+
+
+def _parse_amount(data: dict) -> tuple[bool, float]:
+    """Parse and range-check an untrusted LLM-proposed amount.
+
+    Returns (ok, amount). On ok=False the caller should reject the proposal
+    at prepare time with a recoverable {"ok": False, ...} response instead of
+    letting a bad cast/value reach execute.
+    """
+    try:
+        amount = float(data.get("amount", 0))
+    except (TypeError, ValueError):
+        return False, 0.0
+    if amount <= 0 or amount > _MAX_AMOUNT:
+        return False, 0.0
+    return True, amount
 
 
 async def _count_bulk_recategorize(
@@ -133,11 +150,27 @@ async def prepare_action(
     if action_type in ("add_transaction", "add_debt"):
         normalized = dict(data)
         if action_type == "add_transaction":
+            amount_ok, amount = _parse_amount(data)
+            if not amount_ok:
+                return {
+                    "ok": False,
+                    "confirmation_token": None,
+                    "preview": "Invalid amount.",
+                    "normalized_data": {},
+                }
             preview = (
-                f"Add ${float(data.get('amount', 0)):.2f} transaction"
+                f"Add ${amount:.2f} transaction"
                 f" to '{str(data.get('account_name', '')).strip()[:200]}'."
             )
         else:
+            amount_ok, _amount = _parse_amount(data)
+            if not amount_ok:
+                return {
+                    "ok": False,
+                    "confirmation_token": None,
+                    "preview": "Invalid amount.",
+                    "normalized_data": {},
+                }
             preview = (
                 f"Create debt account '{str(data.get('account_name', 'Debt Account')).strip()[:200]}'."
             )

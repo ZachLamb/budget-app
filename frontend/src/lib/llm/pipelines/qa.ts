@@ -149,6 +149,11 @@ export async function runQaPipeline(
         ctx.signal,
       );
       if (!prepared.ok || !prepared.confirmation_token) {
+        // `preview` must remain server-authored (see prepare.py) and must
+        // never interpolate free-form model text: this path bypasses the
+        // grounded-amounts/citation verifier that every other answer goes
+        // through, so an ungrounded/model-influenced string here would ship
+        // unchecked.
         return {
           kind: "answer",
           answer: prepared.preview,

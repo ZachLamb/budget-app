@@ -128,6 +128,40 @@ async def test_bulk_recategorize_preview_and_token(api_fixture):
     )
 
 
+@pytest.mark.asyncio
+async def test_add_transaction_non_numeric_amount_returns_not_ok(api_fixture):
+    """Untrusted LLM output like amount="40 dollars" must not crash the route."""
+    async with _client() as client:
+        resp = await client.post(
+            "/api/ai/prepare-action",
+            json={
+                "action_type": "add_transaction",
+                "data": {"amount": "40 dollars", "account_name": "Checking"},
+            },
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["confirmation_token"] is None
+    assert body["preview"] == "Invalid amount."
+
+
+@pytest.mark.asyncio
+async def test_add_transaction_out_of_range_amount_returns_not_ok(api_fixture):
+    async with _client() as client:
+        resp = await client.post(
+            "/api/ai/prepare-action",
+            json={
+                "action_type": "add_transaction",
+                "data": {"amount": -5, "account_name": "Checking"},
+            },
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["preview"] == "Invalid amount."
+
+
 @pytest_asyncio.fixture()
 async def ai_disabled_fixture():
     engine = create_async_engine(

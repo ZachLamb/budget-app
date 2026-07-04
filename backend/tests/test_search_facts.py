@@ -46,7 +46,13 @@ async def seed(db):
     grp = CategoryGroup(id="g-1", household_id="hh-1", name="Fees")
     cat = Category(id="c-1", group_id="g-1", name="Foreign Transaction Fees")
     payee = Payee(id="p-1", household_id="hh-1", name="Chase Fee")
-    db.add_all([hh, other, acct, acct2, grp, cat, payee])
+    # hh-2 gets its OWN category/payee with the SAME name so the isolation
+    # test below actually exercises the household scoping, rather than
+    # passing vacuously because hh-2 has nothing to match.
+    grp2 = CategoryGroup(id="g-2", household_id="hh-2", name="Fees")
+    cat2 = Category(id="c-2", group_id="g-2", name="Foreign Transaction Fees")
+    payee2 = Payee(id="p-2", household_id="hh-2", name="Other Fee")
+    db.add_all([hh, other, acct, acct2, grp, cat, payee, grp2, cat2, payee2])
     today = date.today()
     db.add_all([
         Transaction(id=str(uuid.uuid4()), account_id="a-1", category_id="c-1",
@@ -56,6 +62,10 @@ async def seed(db):
         # Different household — must never appear.
         Transaction(id=str(uuid.uuid4()), account_id="a-2", category_id=None,
                     date=today.replace(day=1), amount=Decimal("-99.00")),
+        # hh-2's own same-named category, with a DIFFERENT amount, so the
+        # isolation test can distinguish "correctly scoped" from "leaked".
+        Transaction(id=str(uuid.uuid4()), account_id="a-2", category_id="c-2",
+                    payee_id="p-2", date=today.replace(day=1), amount=Decimal("-50.00")),
     ])
     await db.commit()
 
@@ -80,8 +90,23 @@ async def test_matches_category_and_sums_this_month(db):
 @pytest.mark.asyncio
 async def test_never_leaks_other_household(db):
     await seed(db)
-    out = await compute_search_facts(db, "hh-2", "foreign transaction fees")
-    assert all(m["this_month"] != pytest.approx(7.75) for m in out["matches"])
+
+    # hh-2 has its own "Foreign Transaction Fees" category with a different
+    # sum (50.00). If the household filter in search.py were removed, this
+    # query would return hh-1's 7.75 (or double-count both households) —
+    # so this test fails unless the scoping is real, unlike a query against
+    # a household with no matching data at all.
+    out2 = await compute_search_facts(db, "hh-2", "foreign transaction fees")
+    cats2 = [m for m in out2["matches"] if m["kind"] == "category"]
+    assert cats2 and cats2[0]["name"] == "Foreign Transaction Fees"
+    assert cats2[0]["this_month"] == pytest.approx(50.00)
+    assert all(m["this_month"] != pytest.approx(7.75) for m in out2["matches"])
+
+    out1 = await compute_search_facts(db, "hh-1", "foreign transaction fees")
+    cats1 = [m for m in out1["matches"] if m["kind"] == "category"]
+    assert cats1 and cats1[0]["name"] == "Foreign Transaction Fees"
+    assert cats1[0]["this_month"] == pytest.approx(7.75)
+    assert all(m["this_month"] != pytest.approx(50.00) for m in out1["matches"])
 
 
 @pytest.mark.asyncio
