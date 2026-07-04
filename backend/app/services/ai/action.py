@@ -3,15 +3,17 @@ from __future__ import annotations
 """Natural-language action execution (parse route removed; execute stays for tokens)."""
 
 import logging
+import uuid
 from datetime import date
 from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Account, Payee, Transaction
+from app.models import Account, Category, CategoryGroup, Payee, Transaction
+from app.utils import escape_like
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +152,112 @@ async def execute_parsed_action(
         return {
             "success": True,
             "message": f"Created debt account '{account_name}' with balance ${abs(amount):.2f}.",
+        }
+
+    elif action_type == "create_category":
+        name = str(data.get("name", "")).strip()[:100]
+        group_name = str(data.get("group_name", "") or "").strip()[:100]
+        if not name:
+            return {"success": False, "message": "Category name is required."}
+
+        existing = (
+            await db.execute(
+                select(Category)
+                .join(CategoryGroup, Category.group_id == CategoryGroup.id)
+                .where(CategoryGroup.household_id == household_id)
+                .where(func.lower(Category.name) == name.lower())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return {
+                "success": True,
+                "message": f"Category '{existing.name}' already exists.",
+            }
+
+        target_group_name = group_name or "Other"
+        group = (
+            await db.execute(
+                select(CategoryGroup)
+                .where(CategoryGroup.household_id == household_id)
+                .where(func.lower(CategoryGroup.name) == target_group_name.lower())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if not group:
+            group = CategoryGroup(
+                id=str(uuid.uuid4()),
+                household_id=household_id,
+                name=target_group_name,
+            )
+            db.add(group)
+            await db.flush()
+
+        db.add(
+            Category(
+                id=str(uuid.uuid4()),
+                group_id=group.id,
+                name=name,
+            )
+        )
+        await db.commit()
+        return {
+            "success": True,
+            "message": f"Created category '{name}' in '{group.name}'.",
+        }
+
+    elif action_type == "bulk_recategorize":
+        payee_match = str(data.get("payee_match", "")).strip()[:200]
+        category_name = str(data.get("category_name", "")).strip()[:100]
+        if len(payee_match) < 3:
+            return {
+                "success": False,
+                "message": "Payee match must be at least 3 characters.",
+            }
+
+        category = (
+            await db.execute(
+                select(Category)
+                .join(CategoryGroup, Category.group_id == CategoryGroup.id)
+                .where(CategoryGroup.household_id == household_id)
+                .where(func.lower(Category.name) == category_name.lower())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if not category:
+            return {
+                "success": False,
+                "message": f"No category named '{category_name}'. Create it first.",
+            }
+
+        esc = escape_like(payee_match)
+        txn_ids = (
+            await db.execute(
+                select(Transaction.id)
+                .join(Account, Transaction.account_id == Account.id)
+                .join(Payee, Transaction.payee_id == Payee.id)
+                .where(Account.household_id == household_id)
+                .where(Payee.name.ilike(f"%{esc}%"))
+                .limit(500)
+            )
+        ).scalars().all()
+        if not txn_ids:
+            return {
+                "success": False,
+                "message": f"No transactions matched '{payee_match}'.",
+            }
+
+        await db.execute(
+            update(Transaction)
+            .where(Transaction.id.in_(txn_ids))
+            .values(category_id=category.id)
+        )
+        await db.commit()
+        n = len(txn_ids)
+        txn_word = "transaction" if n == 1 else "transactions"
+        return {
+            "success": True,
+            "message": f"Moved {n} {txn_word} to '{category.name}'.",
         }
 
     return {"success": False, "message": "Unknown action type."}
