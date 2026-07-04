@@ -52,6 +52,9 @@ const nextConfig: NextConfig = {
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
+      // The PWA web app manifest is same-origin; without an explicit
+      // manifest-src it falls back to default-src and Chrome logs a violation.
+      "manifest-src 'self'",
       // web-llm fetches model weights from huggingface.co (LFS redirects to
       // *.hf.co) and config/wasm from raw.githubusercontent.com (mlc-ai).
       "connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com",
