@@ -168,6 +168,7 @@ export function demoStructuredResult(feature: FeatureId): unknown {
       };
     case "free_form_qa":
       return {
+        kind: "answer",
         answer: "In demo mode, your spending looks on track this month.",
         cited_facts: [],
       };

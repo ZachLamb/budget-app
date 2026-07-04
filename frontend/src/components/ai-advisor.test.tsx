@@ -12,7 +12,7 @@
  *    against silent regression).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const NAV_MOCKS = {
@@ -58,6 +58,25 @@ vi.mock("@/lib/llm/ai-feature-gate", () => ({
   }),
 }));
 
+const runFeatureMock = vi.fn();
+
+vi.mock("@/lib/llm/useLlm", () => ({
+  useLlm: () => ({
+    runFeature: runFeatureMock,
+    capability: null,
+    getContext: vi.fn(),
+    decide: vi.fn(),
+    run: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
+
+vi.mock("@/lib/api/client", () => ({
+  default: {
+    post: vi.fn(),
+  },
+}));
+
 // Use a minimal local provider instead of the full providers module to
 // avoid dragging in AuthProvider / ThemeProvider side effects.
 vi.mock("@/lib/providers", () => ({
@@ -71,6 +90,7 @@ vi.mock("@/lib/providers", () => ({
 }));
 
 const { AiAdvisor } = await import("./ai-advisor");
+import api from "@/lib/api/client";
 
 function wrap(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -79,6 +99,8 @@ function wrap(ui: React.ReactElement) {
 
 beforeEach(() => {
   localStorage.clear();
+  runFeatureMock.mockReset();
+  vi.mocked(api.post).mockReset();
 });
 
 describe("<AiAdvisor /> smoke", () => {
@@ -127,5 +149,85 @@ describe("<AiAdvisor /> unmount abort", () => {
     } finally {
       globalThis.AbortController = OriginalAC;
     }
+  });
+});
+
+describe("<AiAdvisor /> action confirm", () => {
+  it("renders preview with Confirm and Cancel for action results", async () => {
+    runFeatureMock.mockResolvedValueOnce({
+      kind: "action",
+      preview: "Create category 'Fees'.",
+      confirmationToken: "tok-1",
+      actionType: "create_category",
+      data: { name: "Fees" },
+    });
+
+    wrap(<AiAdvisor />);
+    fireEvent.click(screen.getByLabelText(/Open AI advisor/i));
+
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "create fees category" } });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Create category 'Fees'/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    });
+  });
+
+  it("Confirm posts execute-action and appends the result message", async () => {
+    runFeatureMock.mockResolvedValueOnce({
+      kind: "action",
+      preview: "Create category 'Fees'.",
+      confirmationToken: "tok-1",
+      actionType: "create_category",
+      data: { name: "Fees" },
+    });
+    vi.mocked(api.post).mockResolvedValueOnce({
+      data: { success: true, message: "Created category 'Fees' in 'Other'." },
+    });
+
+    wrap(<AiAdvisor />);
+    fireEvent.click(screen.getByLabelText(/Open AI advisor/i));
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "create fees" } });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    await waitFor(() => screen.getByRole("button", { name: "Confirm" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith("/ai/execute-action", {
+        action_type: "create_category",
+        data: { name: "Fees" },
+        confirmation_token: "tok-1",
+      });
+      expect(screen.getByText(/Created category 'Fees'/)).toBeInTheDocument();
+    });
+  });
+
+  it("Cancel appends a cancelled note and never calls execute", async () => {
+    runFeatureMock.mockResolvedValueOnce({
+      kind: "action",
+      preview: "Create category 'Fees'.",
+      confirmationToken: "tok-1",
+      actionType: "create_category",
+      data: { name: "Fees" },
+    });
+
+    wrap(<AiAdvisor />);
+    fireEvent.click(screen.getByLabelText(/Open AI advisor/i));
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "create fees" } });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    await waitFor(() => screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Cancelled/)).toBeInTheDocument();
+    });
+    expect(api.post).not.toHaveBeenCalled();
   });
 });

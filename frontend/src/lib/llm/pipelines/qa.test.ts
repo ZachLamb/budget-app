@@ -25,6 +25,11 @@ const contextFacts = {
   goals: [{ goal_id: "g1", name: "Emergency fund" }],
 };
 
+vi.mock("./intent", () => ({
+  detectIntent: vi.fn().mockResolvedValue(null),
+  prepareAction: vi.fn(),
+}));
+
 vi.mock("./steps", async (orig) => {
   const mod = await (orig as () => Promise<Record<string, unknown>>)();
   return {
@@ -63,6 +68,7 @@ vi.mock("./steps", async (orig) => {
   };
 });
 
+import { detectIntent, prepareAction } from "./intent";
 import { ground } from "./steps";
 import { runQaPipeline } from "./qa";
 
@@ -96,6 +102,8 @@ describe("runQaPipeline", () => {
     const result = await runQaPipeline(ctx(out), {
       question: "How am I doing on dining?",
     });
+    expect(result.kind).toBe("answer");
+    if (result.kind !== "answer") return;
     expect(result.answer).toMatch(/dining/i);
     expect(result.cited_facts).toEqual(["c1"]);
   });
@@ -141,6 +149,8 @@ describe("runQaPipeline", () => {
     const result = await runQaPipeline(ctx(out), {
       question: "How much did I spend on foreign transaction fees?",
     });
+    expect(result.kind).toBe("answer");
+    if (result.kind !== "answer") return;
     expect(result.answer).toContain("7.75");
     expect(result.cited_facts).toEqual(["c-fees"]);
   });
@@ -157,6 +167,53 @@ describe("runQaPipeline", () => {
     const result = await runQaPipeline(ctx(out), {
       question: "How am I doing on dining?",
     });
+    expect(result.kind).toBe("answer");
+    if (result.kind !== "answer") return;
     expect(result.answer).toMatch(/dining/i);
+  });
+
+  it("returns action variant when intent is detected and prepare succeeds", async () => {
+    vi.mocked(detectIntent).mockResolvedValueOnce({
+      action_type: "create_category",
+      data: { name: "Fees" },
+      confirmation_text: "Create Fees?",
+    });
+    vi.mocked(prepareAction).mockResolvedValueOnce({
+      ok: true,
+      confirmation_token: "tok-1",
+      preview: "Create category 'Fees'.",
+      normalized_data: { name: "Fees" },
+    });
+
+    const result = await runQaPipeline(ctx("{}"), {
+      question: "create a fees category",
+    });
+    expect(result).toEqual({
+      kind: "action",
+      preview: "Create category 'Fees'.",
+      confirmationToken: "tok-1",
+      actionType: "create_category",
+      data: { name: "Fees" },
+    });
+  });
+
+  it("returns answer with preview when prepare fails", async () => {
+    vi.mocked(detectIntent).mockResolvedValueOnce({
+      action_type: "bulk_recategorize",
+      data: { payee_match: "x", category_name: "Missing" },
+      confirmation_text: "Move?",
+    });
+    vi.mocked(prepareAction).mockResolvedValueOnce({
+      ok: false,
+      preview: "No category named 'Missing'. Create it first.",
+      normalized_data: {},
+    });
+
+    const result = await runQaPipeline(ctx("{}"), { question: "recategorize x" });
+    expect(result).toEqual({
+      kind: "answer",
+      answer: "No category named 'Missing'. Create it first.",
+      cited_facts: [],
+    });
   });
 });

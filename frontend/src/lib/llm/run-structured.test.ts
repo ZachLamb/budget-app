@@ -159,9 +159,11 @@ describe("contracts parsers", () => {
 
   it("demo free_form_qa matches the pipeline result shape", () => {
     const raw = demoStructuredResult("free_form_qa") as {
+      kind: string;
       answer: string;
       cited_facts: string[];
     };
+    expect(raw.kind).toBe("answer");
     expect(raw.answer.length).toBeGreaterThan(0);
     expect(Array.isArray(raw.cited_facts)).toBe(true);
   });
