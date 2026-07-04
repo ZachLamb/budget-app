@@ -102,3 +102,18 @@ class DebtAccountFact(BaseModel):
 
 class DebtFacts(BaseModel):
     accounts: list[DebtAccountFact]
+
+
+class SearchMatchFact(BaseModel):
+    kind: str
+    id: str
+    name: str
+    this_month: float
+    last_month: float
+    three_month_total: float
+    txn_count: int
+
+
+class SearchFacts(BaseModel):
+    query_terms: list[str]
+    matches: list[SearchMatchFact]

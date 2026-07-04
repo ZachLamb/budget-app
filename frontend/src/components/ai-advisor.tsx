@@ -18,7 +18,9 @@ import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { useLlm } from "@/lib/llm/useLlm";
 import { AiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 import { userMessageFor } from "@/lib/llm/errors";
+import type { QaActionResult } from "@/lib/llm/pipelines/qa";
 import type { PipelineProgress } from "@/lib/llm/pipelines/types";
+import api from "@/lib/api/client";
 import { AiUnavailable } from "@/components/llm/ai-unavailable";
 import { AiRunStatus } from "@/components/llm/ai-run-status";
 
@@ -32,6 +34,13 @@ const SUGGESTIONS = [
 interface Message {
   role: "user" | "assistant";
   content: string;
+}
+
+interface PendingAction {
+  preview: string;
+  confirmationToken: string;
+  actionType: string;
+  data: Record<string, unknown>;
 }
 
 function AiAdvisorInner() {
@@ -48,6 +57,8 @@ function AiAdvisorInner() {
   const [progress, setProgress] = useState<PipelineProgress | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [actionPending, setActionPending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
@@ -139,18 +150,50 @@ function AiAdvisorInner() {
     abortRef.current = ctrl;
 
     try {
-      const result = (await llm.runFeature(
+      const result = await llm.runFeature(
         "free_form_qa",
         { question: text },
         {
           signal: ctrl.signal,
           onProgress: setProgress,
         },
-      )) as { answer: string };
+      );
+
+      if (
+        result &&
+        typeof result === "object" &&
+        "kind" in result &&
+        (result as { kind: string }).kind === "action"
+      ) {
+        const action = result as QaActionResult;
+        setPendingAction({
+          preview: action.preview,
+          confirmationToken: action.confirmationToken,
+          actionType: action.actionType,
+          data: action.data,
+        });
+        return;
+      }
+
+      if (
+        result &&
+        typeof result === "object" &&
+        "kind" in result &&
+        (result as { kind: string }).kind === "answer"
+      ) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: (result as unknown as { answer: string }).answer,
+          },
+        ]);
+        return;
+      }
 
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: result.answer },
+        { role: "assistant", content: "I couldn't produce an answer." },
       ]);
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
@@ -161,6 +204,39 @@ function AiAdvisorInner() {
       abortRef.current = null;
     }
   }, [gate, input, llm, streaming]);
+
+  const confirmAction = useCallback(async () => {
+    if (!pendingAction || actionPending) return;
+    setActionPending(true);
+    setError(null);
+    try {
+      const r = await api.post<{ success: boolean; message: string }>(
+        "/ai/execute-action",
+        {
+          action_type: pendingAction.actionType,
+          data: pendingAction.data,
+          confirmation_token: pendingAction.confirmationToken,
+        },
+      );
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: r.data.message },
+      ]);
+      setPendingAction(null);
+    } catch (e) {
+      setError(userMessageFor(e));
+    } finally {
+      setActionPending(false);
+    }
+  }, [actionPending, pendingAction]);
+
+  const cancelAction = useCallback(() => {
+    setPendingAction(null);
+    setMessages((prev) => [
+      ...prev,
+      { role: "assistant", content: "Cancelled — no changes were made." },
+    ]);
+  }, []);
 
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -174,6 +250,8 @@ function AiAdvisorInner() {
     setMessages([]);
     setError(null);
     setProgress(null);
+    setPendingAction(null);
+    setActionPending(false);
   };
 
   if (!isClient) return null;
@@ -307,6 +385,36 @@ function AiAdvisorInner() {
               </div>
             </div>
           ))}
+
+          {pendingAction && (
+            <div className="mb-3 rounded-xl border bg-muted/40 p-3 text-sm space-y-3">
+              <p className="text-foreground">{pendingAction.preview}</p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => void confirmAction()}
+                  disabled={actionPending}
+                >
+                  {actionPending ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      Applying…
+                    </>
+                  ) : (
+                    "Confirm"
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={cancelAction}
+                  disabled={actionPending}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
 
           {streaming && (
             <div className="mb-3">

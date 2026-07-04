@@ -165,6 +165,42 @@ async def test_month_view_includes_carryover_and_rta(fixture):
 
 
 @pytest.mark.asyncio
+async def test_unpadded_month_returns_same_values_as_padded(fixture):
+    """GET /budget/month/2026-6 must return the same ready_to_assign and
+    per-category carryover/available as /budget/month/2026-06.
+
+    Unpadded input was silently corrupting lexicographic comparisons:
+    "2026-12" <= "2026-6" is True, causing rollover queries to include
+    the wrong months and dict-key matching against generated "YYYY-MM"
+    keys to never match (viewed_month mismatch).
+    """
+    session, _ = fixture
+    _, headers, _, _ = await _seed_budget_household(session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        padded = await client.get(f"/api/budget/month/{CUR}", headers=headers)
+        unpadded = await client.get("/api/budget/month/2026-6", headers=headers)
+    assert padded.status_code == 200
+    assert unpadded.status_code == 200
+
+    pb = padded.json()
+    ub = unpadded.json()
+
+    assert Decimal(str(ub["ready_to_assign"])) == Decimal(str(pb["ready_to_assign"]))
+    assert Decimal(str(ub["total_carryover_in"])) == Decimal(str(pb["total_carryover_in"]))
+    assert Decimal(str(ub["overspend_deducted"])) == Decimal(str(pb["overspend_deducted"]))
+
+    p_groc = _cat(pb, "Groceries")
+    u_groc = _cat(ub, "Groceries")
+    assert Decimal(str(u_groc["carryover"])) == Decimal(str(p_groc["carryover"]))
+    assert Decimal(str(u_groc["available"])) == Decimal(str(p_groc["available"]))
+
+    p_dine = _cat(pb, "Dining")
+    u_dine = _cat(ub, "Dining")
+    assert Decimal(str(u_dine["carryover"])) == Decimal(str(p_dine["carryover"]))
+
+
+@pytest.mark.asyncio
 async def test_assign_upsert_roundtrip(fixture):
     session, _ = fixture
     _, headers, groceries_id, _ = await _seed_budget_household(session)

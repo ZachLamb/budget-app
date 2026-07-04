@@ -148,16 +148,20 @@ function LoginPageContent() {
         toastPlainError("Passkey creation was cancelled or failed");
         return;
       }
-      const result = await authApi.passkeyRegisterVerify(credentialToJSON(credential));
-      login(result.user);
-      router.push("/onboarding");
-    } catch (err: unknown) {
-      const action = passkeyRegisterErrorAction(err);
-      if (action.kind === "approval-gate") {
-        appToast.info("Account created — awaiting admin approval");
-        router.push("/pending-approval");
-        return;
+      try {
+        const result = await authApi.passkeyRegisterVerify(credentialToJSON(credential));
+        login(result.user);
+        router.push("/onboarding");
+      } catch (verifyErr: unknown) {
+        const action = passkeyRegisterErrorAction(verifyErr);
+        if (action.kind === "approval-gate") {
+          appToast.info(action.detail);
+          router.push("/pending-approval");
+          return;
+        }
+        throw verifyErr;
       }
+    } catch (err: unknown) {
       toastApiError("Passkey registration failed", err);
     } finally {
       setLoading(false);

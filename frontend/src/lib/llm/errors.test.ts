@@ -12,6 +12,11 @@ describe("OnDeviceError", () => {
       /chrome or edge/i,
     );
   });
+  it("maps facts_unavailable to a data-loading message, not a browser hint", () => {
+    const msg = userMessageFor(new OnDeviceError("facts_unavailable", ""));
+    expect(msg).toMatch(/financial data/i);
+    expect(msg).not.toMatch(/chrome or edge/i);
+  });
   it("preserves on-device AI messages from generic Error", () => {
     expect(
       userMessageFor(new Error("On-device AI needs a quick one-time setup.")),

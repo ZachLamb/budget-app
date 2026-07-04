@@ -1,0 +1,21 @@
+{
+  "net_worth": 0,
+  "accounts": [],
+  "recent_spend_by_category": [],
+  "budget": {
+    "month": "2026-07",
+    "categories": [],
+    "total_budgeted": 0,
+    "total_actual": 0
+  },
+  "goals": [
+    {
+      "goal_id": "g-empty",
+      "name": "Vacation",
+      "target_amount": 2000,
+      "current_amount": 0,
+      "monthly_contribution": 0,
+      "months_remaining": null
+    }
+  ]
+}

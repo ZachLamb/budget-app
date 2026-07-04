@@ -29,6 +29,7 @@ async def get_budget_month(
     db: AsyncSession = Depends(get_db),
 ):
     year, month_num = parse_month(month)
+    month = f"{year}-{month_num:02d}"  # canonicalize before any string comparisons
     first_of_next = (
         date_cls(year + 1, 1, 1) if month_num == 12 else date_cls(year, month_num + 1, 1)
     )
@@ -164,7 +165,8 @@ async def upsert_budget_assignment(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):
-    parse_month(data.month)
+    year_m, month_num_m = parse_month(data.month)
+    normalized_month = f"{year_m}-{month_num_m:02d}"
 
     cat_result = await db.execute(
         select(Category)
@@ -178,7 +180,7 @@ async def upsert_budget_assignment(
         select(BudgetAssignment).where(
             BudgetAssignment.household_id == household_id,
             BudgetAssignment.category_id == data.category_id,
-            BudgetAssignment.month == data.month,
+            BudgetAssignment.month == normalized_month,
         )
     )
     assignment = result.scalar_one_or_none()
@@ -189,7 +191,7 @@ async def upsert_budget_assignment(
         assignment = BudgetAssignment(
             household_id=household_id,
             category_id=data.category_id,
-            month=data.month,
+            month=normalized_month,
             assigned_amount=data.assigned_amount,
         )
         db.add(assignment)
@@ -210,13 +212,15 @@ async def copy_budget_month(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):
-    parse_month(data.source_month)
-    parse_month(data.target_month)
+    sy, sm = parse_month(data.source_month)
+    source_month = f"{sy}-{sm:02d}"
+    ty, tm = parse_month(data.target_month)
+    target_month = f"{ty}-{tm:02d}"
 
     source_result = await db.execute(
         select(BudgetAssignment).where(
             BudgetAssignment.household_id == household_id,
-            BudgetAssignment.month == data.source_month,
+            BudgetAssignment.month == source_month,
         )
     )
     source_assignments = source_result.scalars().all()
@@ -229,7 +233,7 @@ async def copy_budget_month(
             select(BudgetAssignment).where(
                 BudgetAssignment.household_id == household_id,
                 BudgetAssignment.category_id == src.category_id,
-                BudgetAssignment.month == data.target_month,
+                BudgetAssignment.month == target_month,
             )
         )
         if existing.scalar_one_or_none():
@@ -237,7 +241,7 @@ async def copy_budget_month(
         assignment = BudgetAssignment(
             household_id=household_id,
             category_id=src.category_id,
-            month=data.target_month,
+            month=target_month,
             assigned_amount=src.assigned_amount,
         )
         db.add(assignment)

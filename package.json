@@ -7,6 +7,10 @@
     "ci:vercel": "./scripts/vercel-build-check.sh",
     "quality:frontend": "npm run quality:check --prefix frontend",
     "dev:up": "docker compose up --build",
-    "dev:down": "docker compose down"
+    "dev:down": "docker compose down",
+    "eval:ai": "promptfoo eval -c evals/promptfooconfig.yaml"
+  },
+  "devDependencies": {
+    "promptfoo": "^0.121.17"
   }
 }

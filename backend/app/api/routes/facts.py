@@ -8,7 +8,7 @@ route (``_require_ai_enabled``), and covered by the existing ``/api/ai/``
 IP rate-limit middleware.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -20,12 +20,14 @@ from app.schemas.facts import (
     ContextFacts,
     DebtFacts,
     GoalFacts,
+    SearchFacts,
     SpendingPatternsFacts,
 )
 from app.services.ai.anomaly import compute_anomaly_facts
 from app.services.ai.budget import compute_budget_facts, compute_spending_patterns
 from app.services.ai.context import build_context_facts
 from app.services.ai.debt_facts import compute_debt_facts
+from app.services.ai.search import compute_search_facts
 
 router = APIRouter()
 
@@ -82,4 +84,14 @@ async def debt_facts(
 ) -> DebtFacts:
     """Per-account debt facts (deterministic) for rate suggestions."""
     return DebtFacts(**await compute_debt_facts(db, household_id))
+
+
+@router.get("/search", response_model=SearchFacts)
+async def search_facts(
+    q: str = Query(..., min_length=1, max_length=500),
+    household_id: str = Depends(_require_ai_enabled),
+    db: AsyncSession = Depends(get_db),
+) -> SearchFacts:
+    """Question-aware category/payee matches with SQL-computed sums (deterministic)."""
+    return SearchFacts(**await compute_search_facts(db, household_id, q))
 

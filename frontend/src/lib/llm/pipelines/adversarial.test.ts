@@ -38,11 +38,17 @@ const CONTEXT_FACTS = {
   goals: [{ goal_id: "g1", name: "Emergency fund" }],
 };
 
+vi.mock("./intent", () => ({
+  detectIntent: vi.fn().mockResolvedValue(null),
+  prepareAction: vi.fn(),
+}));
+
 vi.mock("./steps", async (orig) => {
   const mod = await (orig as () => Promise<Record<string, unknown>>)();
   return {
     ...mod,
     ground: vi.fn(async (path: string) => {
+      if (path.includes("search")) return { query_terms: [], matches: [] };
       if (path.includes("budget")) return BUDGET_FACTS;
       if (path.includes("goal")) return GOAL_FACTS;
       return CONTEXT_FACTS;
@@ -140,6 +146,8 @@ describe("qa pipeline — adversarial retry ladder", () => {
       ]),
       { question: "How am I doing?" },
     );
+    expect(result.kind).toBe("answer");
+    if (result.kind !== "answer") return;
     expect(result.cited_facts).toEqual(["c1"]);
   });
 });

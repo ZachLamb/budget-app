@@ -85,10 +85,27 @@ describe("ground", () => {
     });
   });
 
-  it("throws no_model when the fetch fails", async () => {
+  it("throws facts_unavailable when the fetch fails", async () => {
     vi.mocked(api.get).mockRejectedValueOnce(new Error("network"));
     await expect(ground("/ai/facts/budget")).rejects.toMatchObject({
-      code: "no_model",
+      code: "facts_unavailable",
+    });
+  });
+});
+
+describe("ground error taxonomy", () => {
+  it("throws facts_unavailable when the fetch fails", async () => {
+    vi.mocked(api.get).mockRejectedValueOnce(new Error("network down"));
+    await expect(ground("/ai/facts/context")).rejects.toMatchObject({
+      code: "facts_unavailable",
+    });
+  });
+  it("throws aborted when the signal is already aborted", async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    vi.mocked(api.get).mockRejectedValueOnce(new Error("canceled"));
+    await expect(ground("/ai/facts/context", ctrl.signal)).rejects.toMatchObject({
+      code: "aborted",
     });
   });
 });

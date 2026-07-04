@@ -22,9 +22,12 @@ from app.schemas.ai import (
     FsaCandidatesResponse,
     FsaItemUpdateRequest,
     FsaReviewRequest,
+    PrepareActionRequest,
+    PrepareActionResponse,
 )
 from app.services.ai.action import execute_parsed_action
 from app.services.ai.action_token import redeem_action_token
+from app.services.ai.prepare import prepare_action
 from app.services.ai.fsa import (
     fetch_fsa_candidates,
     list_fsa_items as _list_fsa_items_service,
@@ -115,4 +118,16 @@ async def execute_action(
         )
     return ExecuteActionResponse(
         **await execute_parsed_action(db, household_id, req.action_type, req.data)
+    )
+
+
+@router.post("/prepare-action", response_model=PrepareActionResponse)
+async def prepare_action_route(
+    req: PrepareActionRequest,
+    household_id: str = Depends(_require_ai_enabled),
+    db: AsyncSession = Depends(get_db),
+):
+    """Validate a proposed action and issue a single-use confirmation token."""
+    return PrepareActionResponse(
+        **await prepare_action(db, household_id, req.action_type, req.data)
     )
