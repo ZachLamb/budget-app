@@ -1,0 +1,35 @@
+{
+  "net_worth": 12450.25,
+  "accounts": [
+    { "account_id": "a-checking", "name": "Checking", "balance": 5200.0 },
+    { "account_id": "a-visa", "name": "Visa", "balance": -1249.75 }
+  ],
+  "recent_spend_by_category": [
+    { "category_id": "c-fees", "name": "Foreign Transaction Fees", "amount": 7.75 },
+    { "category_id": "c-dining", "name": "Dining Out", "amount": 142.5 }
+  ],
+  "budget": {
+    "month": "2026-07",
+    "categories": [
+      {
+        "category_id": "c-fees",
+        "name": "Foreign Transaction Fees",
+        "budgeted": 0,
+        "actual": 7.75,
+        "remaining": -7.75
+      },
+      {
+        "category_id": "c-dining",
+        "name": "Dining Out",
+        "budgeted": 200,
+        "actual": 142.5,
+        "remaining": 57.5
+      }
+    ],
+    "total_budgeted": 200,
+    "total_actual": 150.25
+  },
+  "goals": [
+    { "goal_id": "g-efund", "name": "Emergency fund" }
+  ]
+}
