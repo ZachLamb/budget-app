@@ -49,7 +49,7 @@ def normalize_advisor_turn_payload(
     branch = raw.get("branch")
     if branch == "action":
         at = raw.get("action_type")
-        if at not in ("add_transaction", "add_debt"):
+        if at not in ("add_transaction", "add_debt", "create_category", "bulk_recategorize"):
             raise ValueError("invalid action_type")
         data = raw.get("data")
         if not isinstance(data, dict):
@@ -285,6 +285,20 @@ class ExecuteActionRequest(BaseModel):
 class ExecuteActionResponse(BaseModel):
     success: bool
     message: str
+
+
+class PrepareActionRequest(BaseModel):
+    action_type: Literal[
+        "add_transaction", "add_debt", "create_category", "bulk_recategorize"
+    ]
+    data: dict
+
+
+class PrepareActionResponse(BaseModel):
+    ok: bool
+    confirmation_token: Optional[str] = None
+    preview: str
+    normalized_data: dict = Field(default_factory=dict)
 
 
 class InterestRateSuggestion(BaseModel):
