@@ -1,0 +1,43 @@
+name: Prod health alert
+
+# Every 30 minutes: fail loudly if any Fly health check on the backend or
+# the Postgres machine is not passing, or if /api/health degrades. A failing
+# run triggers GitHub's workflow-failure notification — this is the alert.
+# Added after the clarity-db `vm` check sat critical (memory starvation,
+# intermittent 500s) with zero visibility for an unknown period.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+jobs:
+  health:
+    name: Fly checks + API health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: API health endpoint
+        run: |
+          body=$(curl -sf --max-time 15 https://clarity-backend.fly.dev/api/health)
+          echo "$body"
+          echo "$body" | grep -q '"status":"ok"' || { echo "API status not ok" >&2; exit 1; }
+          echo "$body" | grep -q '"db":"ok"' || { echo "DB status not ok" >&2; exit 1; }
+
+      - name: Fly machine checks (backend + database)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_READONLY_TOKEN }}
+        run: |
+          fail=0
+          for app in clarity-backend clarity-db; do
+            echo "== $app =="
+            out=$(flyctl checks list -a "$app" 2>&1) || { echo "$out"; fail=1; continue; }
+            echo "$out"
+            # Any check row not in a passing state fails the run.
+            if echo "$out" | grep -Eiq "critical|warning|error"; then
+              echo "::error::$app has a non-passing health check"
+              fail=1
+            fi
+          done
+          exit $fail

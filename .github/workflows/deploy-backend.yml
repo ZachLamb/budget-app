@@ -1,0 +1,45 @@
+name: Deploy backend
+
+# Auto-deploys the FastAPI backend to Fly on merges to main that touch it.
+# Root cause this prevents: Vercel auto-deploys the frontend on every merge,
+# but the backend was deployed manually and drifted weeks behind — shipping
+# a frontend that called routes prod didn't have (2026-07 facts-404 incident).
+# Migrations apply automatically: the image entrypoint runs
+# `alembic upgrade head` before uvicorn.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: fly deploy clarity-backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        working-directory: backend
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Verify health
+        run: |
+          for i in $(seq 1 10); do
+            body=$(curl -sf --max-time 10 https://clarity-backend.fly.dev/api/health || true)
+            echo "$body"
+            echo "$body" | grep -q '"db":"ok"' && exit 0
+            sleep 15
+          done
+          echo "Backend health check did not pass after deploy" >&2
+          exit 1
