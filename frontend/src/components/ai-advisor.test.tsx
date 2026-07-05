@@ -113,42 +113,31 @@ describe("<AiAdvisor /> smoke", () => {
 });
 
 describe("<AiAdvisor /> unmount abort", () => {
-  it("calls AbortController.abort on unmount when a stream was in flight", async () => {
-    // Spy on all AbortController instances created inside the component.
-    const aborts: Array<ReturnType<typeof vi.fn>> = [];
-    const OriginalAC = globalThis.AbortController;
-    class SpyAC extends OriginalAC {
-      constructor() {
-        super();
-        const spy = vi.fn();
-        aborts.push(spy);
-        const real = this.abort.bind(this);
-        this.abort = (reason?: unknown) => {
-          spy(reason);
-          return real(reason);
-        };
-      }
-    }
-    globalThis.AbortController = SpyAC as unknown as typeof AbortController;
+  it("aborts the in-flight runFeature signal on unmount", async () => {
+    // Capture the AbortSignal the component actually hands to runFeature,
+    // and keep the feature promise pending so the stream stays in flight.
+    let capturedSignal: AbortSignal | undefined;
+    runFeatureMock.mockImplementation(
+      (_feature: string, _params: unknown, opts?: { signal?: AbortSignal }) => {
+        capturedSignal = opts?.signal;
+        return new Promise(() => {});
+      },
+    );
 
-    try {
-      const { unmount } = wrap(<AiAdvisor />);
-      // Seed an active stream by assigning a fresh controller to the ref —
-      // we can't easily drive a real fetch stream here, so we simulate the
-      // precondition and assert the unmount cleanup would abort it. The
-      // cleanup effect is wired to `abortRef.current?.abort()` so any live
-      // controller created anywhere in the tree gets aborted.
-      const seeded = new globalThis.AbortController();
-      // After mount, the component's abortRef starts null. We verify that
-      // unmount with no active stream doesn't crash (no abort calls).
-      unmount();
-      // The cleanup path runs; abort is only called if a controller was set,
-      // so seeded controllers outside the component are unaffected — this
-      // is the contract we want. No crash == passed.
-      expect(seeded.signal.aborted).toBe(false);
-    } finally {
-      globalThis.AbortController = OriginalAC;
-    }
+    const { unmount } = wrap(<AiAdvisor />);
+    fireEvent.click(await screen.findByLabelText(/Open AI advisor/i));
+    const input = await screen.findByPlaceholderText(/Ask about your finances/i);
+    fireEvent.change(input, { target: { value: "how am I doing?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(runFeatureMock).toHaveBeenCalled();
+      expect(capturedSignal).toBeDefined();
+    });
+    expect(capturedSignal!.aborted).toBe(false);
+
+    unmount();
+    expect(capturedSignal!.aborted).toBe(true);
   });
 });
 

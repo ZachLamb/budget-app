@@ -1,4 +1,5 @@
 import api from "@/lib/api/client";
+import { OnDeviceError } from "../errors";
 import type { LLMProvider } from "../types";
 import { buildIntentPrompt, buildIntentSystem, INTENT_SCHEMA } from "./intent-prompt";
 import { generateStructured } from "./steps";
@@ -54,6 +55,11 @@ export async function detectIntent(
       confirmation_text: confirmation,
     };
   } catch {
+    // Fail open to plain Q&A on parse/generation failures — but a user
+    // cancel must propagate, not fall through into a second full pipeline.
+    if (signal?.aborted) {
+      throw new OnDeviceError("aborted", "Cancelled.");
+    }
     return null;
   }
 }

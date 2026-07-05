@@ -64,6 +64,11 @@ function AiAdvisorInner() {
   const fabRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Abort any in-flight stream on unmount (e.g. route change while
+  // streaming) — otherwise the run keeps holding the Nano slot / engine
+  // lock until it finishes against a detached component.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   const closePanel = useCallback(() => {
     setOpen(false);
     requestAnimationFrame(() => fabRef.current?.focus());
