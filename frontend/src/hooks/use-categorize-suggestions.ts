@@ -37,6 +37,16 @@ function mapSuggestions(
   return out;
 }
 
+type RunScope = {
+  runId: number;
+  ac: AbortController;
+  isCurrent: () => boolean;
+  setProgressSafe: (p: PipelineProgress | null) => void;
+  setBatchProgressSafe: (b: { done: number; total: number } | null) => void;
+  setTierSafe: (t: 1 | 2) => void;
+  finish: () => void;
+};
+
 export function useCategorizeSuggestions() {
   const gate = useAiFeatureGate();
   const llm = useLlm();
@@ -46,9 +56,42 @@ export function useCategorizeSuggestions() {
   const [progress, setProgress] = useState<PipelineProgress | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef(0);
+
+  const beginRun = useCallback((): RunScope => {
+    abortRef.current?.abort();
+    const runId = ++runIdRef.current;
+    const ac = new AbortController();
+    abortRef.current = ac;
+
+    const isCurrent = () => runIdRef.current === runId;
+
+    return {
+      runId,
+      ac,
+      isCurrent,
+      setProgressSafe: (p) => {
+        if (isCurrent()) setProgress(p);
+      },
+      setBatchProgressSafe: (b) => {
+        if (isCurrent()) setBatchProgress(b);
+      },
+      setTierSafe: (t) => {
+        if (isCurrent()) setTier(t);
+      },
+      finish: () => {
+        if (!isCurrent()) return;
+        setLoading(false);
+        setProgress(null);
+        setBatchProgress(null);
+        abortRef.current = null;
+      },
+    };
+  }, []);
 
   const cancel = useCallback(() => {
     abortRef.current?.abort();
+    runIdRef.current += 1;
     abortRef.current = null;
     setLoading(false);
     setProgress(null);
@@ -56,12 +99,16 @@ export function useCategorizeSuggestions() {
   }, []);
 
   const runInference = useCallback(
-    async (params: SuggestCategoriesParams | undefined, ac: AbortController): Promise<LlmSuggestion[]> => {
-      setProgress({ step: "fetch", label: "Loading uncategorized transactions…" });
-      setBatchProgress(null);
+    async (
+      params: SuggestCategoriesParams | undefined,
+      scope: RunScope,
+    ): Promise<LlmSuggestion[]> => {
+      scope.setProgressSafe({ step: "fetch", label: "Loading uncategorized transactions…" });
+      scope.setBatchProgressSafe(null);
 
-      const payload = await reportsApi.getCategorizeCandidates(params, ac.signal);
-      if (ac.signal.aborted) throw new DOMException("Aborted", "AbortError");
+      const payload = await reportsApi.getCategorizeCandidates(params, scope.ac.signal);
+      if (scope.ac.signal.aborted) throw new DOMException("Aborted", "AbortError");
+      if (!scope.isCurrent()) throw new DOMException("Aborted", "AbortError");
       if (payload.transactions.length === 0) return [];
 
       const ctx = llm.getContext("categorize_transaction");
@@ -75,11 +122,12 @@ export function useCategorizeSuggestions() {
       let usedTier: 1 | 2 = 2;
 
       for (let i = 0; i < total; i++) {
-        if (ac.signal.aborted) throw new DOMException("Aborted", "AbortError");
+        if (scope.ac.signal.aborted) throw new DOMException("Aborted", "AbortError");
+        if (!scope.isCurrent()) throw new DOMException("Aborted", "AbortError");
 
         const slice = batches[i]!;
-        setBatchProgress(total > 1 ? { done: i, total } : null);
-        setProgress({
+        scope.setBatchProgressSafe(total > 1 ? { done: i, total } : null);
+        scope.setProgressSafe({
           step: "analyze",
           label:
             total > 1
@@ -95,7 +143,7 @@ export function useCategorizeSuggestions() {
             system: CATEGORIZE_SYSTEM_PROMPT,
             prompt,
             maxTokens: 2048,
-            signal: ac.signal,
+            signal: scope.ac.signal,
           },
         );
         usedTier = batchTier;
@@ -103,9 +151,9 @@ export function useCategorizeSuggestions() {
       }
 
       if (total > 1) {
-        setBatchProgress({ done: total, total });
+        scope.setBatchProgressSafe({ done: total, total });
       }
-      setTier(usedTier);
+      scope.setTierSafe(usedTier);
       return merged;
     },
     [llm],
@@ -113,70 +161,66 @@ export function useCategorizeSuggestions() {
 
   const suggestLocal = useCallback(
     async (params?: SuggestCategoriesParams): Promise<LlmSuggestion[]> => {
-      abortRef.current?.abort();
-      const ac = new AbortController();
-      abortRef.current = ac;
-
+      const scope = beginRun();
       setLoading(true);
       setError(null);
 
       try {
-        return await runInference(params, ac);
+        return await runInference(params, scope);
       } catch (e) {
         if ((e as Error).name === "AbortError") throw e;
-        const msg = userMessageFor(e);
-        setError(msg);
-        reportInlineError(msg);
+        if (scope.isCurrent()) {
+          const msg = userMessageFor(e);
+          setError(msg);
+          reportInlineError(msg);
+        }
         throw e;
       } finally {
-        setLoading(false);
-        setProgress(null);
-        setBatchProgress(null);
-        abortRef.current = null;
+        scope.finish();
       }
     },
-    [runInference],
+    [beginRun, runInference],
   );
 
   const suggest = useCallback(
     async (params?: SuggestCategoriesParams): Promise<LlmSuggestion[]> => {
       if (isDemoMode) return suggestLocal(params);
 
-      abortRef.current?.abort();
-      const ac = new AbortController();
-      abortRef.current = ac;
-
+      const scope = beginRun();
       setLoading(true);
       setError(null);
-      setProgress({ step: "setup", label: "Preparing on-device AI…" });
-      setBatchProgress(null);
+      scope.setProgressSafe({ step: "setup", label: "Preparing on-device AI…" });
+      scope.setBatchProgressSafe(null);
 
       try {
         const prepared = await gate.prepareFeature("categorize_transaction");
-        if (ac.signal.aborted) throw new DOMException("Aborted", "AbortError");
+        if (scope.ac.signal.aborted || !scope.isCurrent()) {
+          throw new DOMException("Aborted", "AbortError");
+        }
 
         const interpretation = interpretPrepareFeatureResult(prepared);
         if (interpretation.action === "stop") {
-          setError(interpretation.userMessage);
-          reportInlineError(interpretation.userMessage);
+          if (scope.isCurrent()) {
+            setError(interpretation.userMessage);
+            reportInlineError(interpretation.userMessage);
+          }
           throw new Error(interpretation.userMessage);
         }
 
-        return await runInference(params, ac);
+        return await runInference(params, scope);
       } catch (e) {
         if ((e as Error).name === "AbortError") throw e;
-        const msg = userMessageFor(e);
-        setError((prev) => prev ?? msg);
-        reportInlineError(msg);
+        if (scope.isCurrent()) {
+          const msg = userMessageFor(e);
+          setError((prev) => prev ?? msg);
+          reportInlineError(msg);
+        }
         throw e;
       } finally {
-        setLoading(false);
-        setProgress(null);
-        setBatchProgress(null);
-        abortRef.current = null;
+        scope.finish();
       }
     },
-    [gate, runInference, suggestLocal],
+    [gate, runInference, suggestLocal, beginRun],
   );
 
   return { suggest, suggestLocal, loading, error, tier, progress, batchProgress, cancel };

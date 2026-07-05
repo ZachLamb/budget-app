@@ -415,6 +415,8 @@ function TransactionsContent() {
   const getReviewCategoryId = (s: LlmSuggestion) =>
     categoryReviewOverrides[s.transaction_id] ?? s.suggested_category_id;
 
+  const categorizeBusy = categorizeAi.loading || suggestCategoriesMutation.isPending;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -426,12 +428,12 @@ function TransactionsContent() {
             variant="outline"
             size="sm"
             className="hidden sm:inline-flex"
-            disabled={categorizeAi.loading}
-            aria-busy={categorizeAi.loading}
+            disabled={categorizeBusy}
+            aria-busy={categorizeBusy}
             onClick={() => suggestCategoriesMutation.mutate()}
           >
-            <Sparkles className={cn("mr-2 h-4 w-4", categorizeAi.loading && "animate-pulse")} />
-            {categorizeAi.loading ? "Suggesting…" : "Suggest categories"}
+            <Sparkles className={cn("mr-2 h-4 w-4", categorizeBusy && "animate-pulse")} />
+            {categorizeBusy ? "Suggesting…" : "Suggest categories"}
           </Button>
           <Button variant="outline" size="sm" className="hidden sm:inline-flex" asChild>
             <Link
@@ -461,11 +463,11 @@ function TransactionsContent() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
-                disabled={categorizeAi.loading}
+                disabled={categorizeBusy}
                 onClick={() => suggestCategoriesMutation.mutate()}
               >
-                <Sparkles className={cn("mr-2 h-4 w-4", categorizeAi.loading && "animate-pulse")} />
-                {categorizeAi.loading ? "Suggesting…" : "Suggest categories"}
+                <Sparkles className={cn("mr-2 h-4 w-4", categorizeBusy && "animate-pulse")} />
+                {categorizeBusy ? "Suggesting…" : "Suggest categories"}
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link
@@ -557,7 +559,7 @@ function TransactionsContent() {
         </div>
       )}
 
-      {categorizeAi.loading ? (
+      {categorizeBusy ? (
         <AiRunStatus
           progress={
             categorizeAi.batchProgress && categorizeAi.batchProgress.total > 0

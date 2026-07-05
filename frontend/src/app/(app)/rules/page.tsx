@@ -117,6 +117,8 @@ function RulesContent() {
     },
   });
 
+  const categorizeBusy = categorizeAi.loading || suggestMutation.isPending;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -130,11 +132,11 @@ function RulesContent() {
           <Button
             variant="outline"
             onClick={() => suggestMutation.mutate()}
-            disabled={categorizeAi.loading}
-            aria-busy={categorizeAi.loading}
+            disabled={categorizeBusy}
+            aria-busy={categorizeBusy}
           >
-            <Sparkles className={cn("mr-2 h-4 w-4", categorizeAi.loading && "animate-pulse")} />{" "}
-            {categorizeAi.loading ? "Suggesting…" : "AI Suggest"}
+            <Sparkles className={cn("mr-2 h-4 w-4", categorizeBusy && "animate-pulse")} />{" "}
+            {categorizeBusy ? "Suggesting…" : "AI Suggest"}
           </Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
@@ -201,7 +203,7 @@ function RulesContent() {
         </div>
       )}
 
-      {categorizeAi.loading ? (
+      {categorizeBusy ? (
         <AiRunStatus
           progress={
             categorizeAi.batchProgress && categorizeAi.batchProgress.total > 0
