@@ -5,6 +5,7 @@ import { reportsApi, type LlmSuggestion, type SuggestCategoriesParams } from "@/
 import { isDemoMode } from "@/lib/demo-mode";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { userMessageFor } from "@/lib/llm/errors";
+import { reportInlineError } from "@/lib/report-inline-error";
 import { interpretPrepareFeatureResult } from "@/lib/llm/prepare-feature-result";
 import { useLlm } from "@/lib/llm/useLlm";
 import { runStructuredJson } from "@/lib/llm/run-structured";
@@ -125,6 +126,7 @@ export function useCategorizeSuggestions() {
         if ((e as Error).name === "AbortError") throw e;
         const msg = userMessageFor(e);
         setError(msg);
+        reportInlineError(msg);
         throw e;
       } finally {
         setLoading(false);
@@ -156,6 +158,7 @@ export function useCategorizeSuggestions() {
         const interpretation = interpretPrepareFeatureResult(prepared);
         if (interpretation.action === "stop") {
           setError(interpretation.userMessage);
+          reportInlineError(interpretation.userMessage);
           throw new Error(interpretation.userMessage);
         }
 
@@ -164,6 +167,7 @@ export function useCategorizeSuggestions() {
         if ((e as Error).name === "AbortError") throw e;
         const msg = userMessageFor(e);
         setError((prev) => prev ?? msg);
+        reportInlineError(msg);
         throw e;
       } finally {
         setLoading(false);
