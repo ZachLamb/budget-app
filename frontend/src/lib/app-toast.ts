@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { toast as sonnerToast } from "sonner";
 import { pushNotification } from "@/lib/notification-store";
+import { TOAST_DURATION, toastDedupeId } from "@/lib/toast-config";
 
 function titleFromMessage(message: ReactNode): string {
   if (typeof message === "string" || typeof message === "number") return String(message);
@@ -23,29 +24,44 @@ function descriptionFromData(data?: Parameters<typeof sonnerToast.success>[1]): 
 /** Toast + in-app notification center (success / info / warning). */
 export const appToast = {
   success(message: ReactNode, data?: Parameters<typeof sonnerToast.success>[1]) {
+    const title = titleFromMessage(message);
     pushNotification({
       kind: "success",
-      title: titleFromMessage(message),
+      title,
       description: descriptionFromData(data),
     });
-    return sonnerToast.success(message, data);
+    return sonnerToast.success(message, {
+      ...data,
+      id: toastDedupeId("success", title),
+      duration: data?.duration ?? TOAST_DURATION.success,
+    });
   },
 
   info(message: ReactNode, data?: Parameters<typeof sonnerToast.info>[1]) {
+    const title = titleFromMessage(message);
     pushNotification({
       kind: "info",
-      title: titleFromMessage(message),
+      title,
       description: descriptionFromData(data),
     });
-    return sonnerToast.info(message, data);
+    return sonnerToast.info(message, {
+      ...data,
+      id: toastDedupeId("info", title),
+      duration: data?.duration ?? TOAST_DURATION.info,
+    });
   },
 
   warning(message: ReactNode, data?: Parameters<typeof sonnerToast.warning>[1]) {
+    const title = titleFromMessage(message);
     pushNotification({
       kind: "warning",
-      title: titleFromMessage(message),
+      title,
       description: descriptionFromData(data),
     });
-    return sonnerToast.warning(message, data);
+    return sonnerToast.warning(message, {
+      ...data,
+      id: toastDedupeId("warning", title),
+      duration: data?.duration ?? TOAST_DURATION.warning,
+    });
   },
 };

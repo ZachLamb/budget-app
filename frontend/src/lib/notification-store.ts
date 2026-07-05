@@ -16,12 +16,26 @@ export type AppNotification = {
 };
 
 const MAX_ITEMS = 80;
+const DEDUPE_WINDOW_MS = 4000;
 
 let notifications: AppNotification[] = [];
 const listeners = new Set<() => void>();
 
 function emit() {
   listeners.forEach((l) => l());
+}
+
+function findRecentDuplicate(
+  input: Omit<AppNotification, "id" | "createdAt" | "read">,
+): AppNotification | undefined {
+  const now = Date.now();
+  return notifications.find(
+    (n) =>
+      n.kind === input.kind &&
+      n.title === input.title &&
+      (n.description ?? "") === (input.description ?? "") &&
+      now - n.createdAt < DEDUPE_WINDOW_MS,
+  );
 }
 
 export function subscribe(cb: () => void) {
@@ -36,6 +50,9 @@ export function getNotificationSnapshot(): AppNotification[] {
 export function pushNotification(
   input: Omit<AppNotification, "id" | "createdAt" | "read"> & { id?: string },
 ): string {
+  const duplicate = findRecentDuplicate(input);
+  if (duplicate) return duplicate.id;
+
   const id = input.id ?? (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `n-${Date.now()}`);
   const n: AppNotification = {
     id,

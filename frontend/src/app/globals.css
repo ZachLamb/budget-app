@@ -135,3 +135,8 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Sonner — top-right stack; below modals (z-50) but above page chrome */
+[data-sonner-toaster] {
+  z-index: 45;
+}

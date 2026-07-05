@@ -7,7 +7,6 @@ import { reportsApi, type LlmSuggestion } from "@/lib/api/reports";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
 import { useFlatCategories, useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
-import { toastMaybeAiAvailability } from "@/lib/llm/ai-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,11 +103,8 @@ function RulesContent() {
         appToast.info("No uncategorized transactions to suggest for");
       }
     },
-    onError: (e) => {
-      if ((e as Error).name === "AbortError") return;
-      if (!toastMaybeAiAvailability("Failed to get AI category suggestions", e)) {
-        toastApiError("Failed to get suggestions", e);
-      }
+    onError: () => {
+      // Hook shows inline error + notification bell; block global mutation toast.
     },
   });
 
