@@ -22,6 +22,8 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
 import { PageHeader, QueryState, inlineErrorQueryMeta } from "@/components/page";
 import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
+import { AiRunStatus } from "@/components/llm/ai-run-status";
+import { cn } from "@/lib/utils";
 
 const MATCH_FIELDS = [
   { value: "payee", label: "Payee" },
@@ -103,6 +105,7 @@ function RulesContent() {
       }
     },
     onError: (e) => {
+      if ((e as Error).name === "AbortError") return;
       if (!toastMaybeAiAvailability("Failed to get AI category suggestions", e)) {
         toastApiError("Failed to get suggestions", e);
       }
@@ -131,10 +134,11 @@ function RulesContent() {
           <Button
             variant="outline"
             onClick={() => suggestMutation.mutate()}
-            disabled={suggestMutation.isPending}
-            aria-busy={suggestMutation.isPending}
+            disabled={categorizeAi.loading}
+            aria-busy={categorizeAi.loading}
           >
-            <Sparkles className="mr-2 h-4 w-4" /> AI Suggest
+            <Sparkles className={cn("mr-2 h-4 w-4", categorizeAi.loading && "animate-pulse")} />{" "}
+            {categorizeAi.loading ? "Suggesting…" : "AI Suggest"}
           </Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
@@ -200,6 +204,18 @@ function RulesContent() {
           ) : null}
         </div>
       )}
+
+      {categorizeAi.loading ? (
+        <AiRunStatus
+          progress={
+            categorizeAi.batchProgress && categorizeAi.batchProgress.total > 0
+              ? null
+              : categorizeAi.progress
+          }
+          batch={categorizeAi.batchProgress}
+          onCancel={categorizeAi.cancel}
+        />
+      ) : null}
 
       <Dialog open={suggestOpen} onOpenChange={setSuggestOpen}>
         <DialogContent className="max-w-2xl">
