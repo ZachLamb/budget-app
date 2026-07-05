@@ -1,3 +1,8 @@
+import asyncio
+
+from fastapi import HTTPException
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from app.config import get_settings
@@ -25,8 +30,48 @@ engine = create_async_engine(
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
+# Delay before the single connect retry. A dropped connection during
+# establishment (e.g. a briefly stalled Postgres — seen in prod when the DB
+# machine was memory-starved) is not caught by pool_pre_ping; a short pause
+# gives the server a beat to accept connections again.
+_CONNECT_RETRY_DELAY_S = 0.25
+
+
+def _is_connection_failure(exc: DBAPIError) -> bool:
+    return (
+        isinstance(exc, (OperationalError, InterfaceError))
+        or exc.connection_invalidated
+    )
+
+
+async def _ensure_live_connection(session: AsyncSession) -> None:
+    """Eagerly establish the session's connection, retrying once.
+
+    Runs BEFORE the request handler sees the session, so a retry can never
+    re-execute application statements. Persistent connect failure surfaces
+    as 503 (retryable) instead of a raw 500.
+    """
+    try:
+        await session.execute(text("SELECT 1"))
+        return
+    except DBAPIError as exc:
+        if not _is_connection_failure(exc):
+            raise
+    await session.rollback()
+    await asyncio.sleep(_CONNECT_RETRY_DELAY_S)
+    try:
+        await session.execute(text("SELECT 1"))
+    except DBAPIError as exc:
+        if not _is_connection_failure(exc):
+            raise
+        raise HTTPException(
+            503, "Database temporarily unavailable. Try again in a moment."
+        ) from exc
+
+
 async def get_db() -> AsyncSession:
     async with async_session() as session:
+        await _ensure_live_connection(session)
         try:
             yield session
             await session.commit()
