@@ -2,7 +2,9 @@
 
 Multi-persona audit (PM, UX, FE, BE, Architect, AI Engineer, Financial-Advisor SME, QA + meta-review) of the full app. Read-only pass; no changes made. Citations verified against the working tree at commit `740bbf3` (branch `fix/prod-console-csp-manifest-and-nano-lang` = main + CSP/Nano fixes).
 
-Standing context at audit time: prod Fly backend (`clarity-backend`) is a stale manual deploy missing all `/api/ai/facts/*` routes (live incident, fix = `cd backend && fly deploy`); PRs #42 (dependency upgrades) and #43 (CSP manifest-src + Nano output language) open.
+**Revision v2 (2026-07-05):** backend v16 deployed (facts routes now live; original audit context updated); added Critical DB-memory finding from live incident investigation; added Phase 0; added per-phase acceptance criteria. PRs #42/#43 merged.
+
+Standing context at audit time (v1): prod Fly backend was a stale manual deploy missing all `/api/ai/facts/*` routes — since resolved by the v16 deploy (13h before revision). Current live issue: intermittent 500s from Postgres memory starvation (see Critical below).
 
 ## Summary
 
@@ -38,7 +40,11 @@ Overall health is good: security fundamentals (household scoping, single-use tok
 
 ## Critical
 
-None after calibration. (The prod-backend staleness is the standing incident, remedied by deploy + the CI/CD item below.)
+- **[Ops/Meta] Prod Postgres (`clarity-db`) is memory-starved → intermittent 500s across all routes.** Evidence chain: user-reported 500 on `POST /api/categorization/suggest/candidates` (2026-07-05) → Fly logs show `asyncpg.exceptions.ConnectionDoesNotExistError: connection was closed in the middle of operation` raised inside `asyncpg connect_utils.__connect_addr` (i.e., while *establishing* a new connection — `pool_pre_ping` cannot help) → `fly checks list -a clarity-db` shows the `vm` check **critical**: "system spent 1.92s of the last 10 seconds waiting on memory" on a 256MB shared-1x machine running postgres-flex 17. Any request needing a fresh pool connection during a memory stall 500s; page loads that burst parallel requests (like the transactions/categorization screen) are the most exposed. The route code is not at fault.
+  **Fix (three layers):**
+  1. *Now (ops):* scale DB memory — `fly machine update d896267c3553e8 --vm-memory 1024 -a clarity-db` (256MB is below practical postgres-flex minimums). Verify the `vm` check goes green and stays green for a day. [S]
+  2. *Defense in depth (code):* retry-once on connection-establishment failure in `backend/app/database.py` `get_db` (catch `sqlalchemy.exc.DBAPIError` where `connection_invalidated` or wrapping `ConnectionDoesNotExistError`, one retry with ~250ms backoff before surfacing 503 — not 500). TEST PLAN: new `backend/tests/test_db_retry.py` with a fake connection factory failing once then succeeding. [M] [Regression risk: Med — touches every request's session acquisition; must not retry after partial writes (only retry when the failure occurred before any statement executed).]
+  3. *Never-blind-again (observability):* alerting on Fly health checks (Fly.io metrics → Grafana alert, or a scheduled GitHub Action hitting `fly checks list --json` and failing loudly). The `vm` check was critical with zero visibility — this audit's "observability blind spot" finding, demonstrated live. [S–M]
 
 ## High
 
@@ -91,14 +97,25 @@ None after calibration. (The prod-backend staleness is the standing incident, re
 
 ## Recommended sequence
 
-- **Phase 1 (must-fix now, ~2–3 days):** CI/CD deploy + e2e jobs; abort cluster (unmount abort, intent rethrow, test rewrite); condense-path test; debt-payoff fix + `test_debt_payoff.py`; delete dead chat proxy.
+- **Phase 0 (prod stabilization, hours — do before any feature work):** scale `clarity-db` memory to 1GB and verify the `vm` check stays green; set up Fly health-check alerting; smoke-verify AI features against the freshly deployed v16 backend (facts routes now live).
+  *Acceptance: `fly checks list -a clarity-db` all green for 24h; suggest-categories and AI chat succeed in prod; an intentional check failure produces an alert.*
+- **Phase 1 (must-fix now, ~2–3 days):** CI/CD deploy + e2e jobs; DB connect retry (Critical layer 2); abort cluster (unmount abort, intent rethrow, test rewrite); condense-path test; debt-payoff fix + `test_debt_payoff.py`; delete dead chat proxy.
+  *Acceptance: merged PR to main auto-deploys backend; e2e job red blocks a deliberately broken PR; full suites green vs baseline; new tests listed in the Test & regression plan all exist and pass.*
 - **Phase 2 (before next release, ~2 days):** onboarding routing for magic-link/OAuth; reports budget-account filter; transfer exclusion guard; splits cap; confirm-card data rendering; dead-schema pruning.
+  *Acceptance: new-user magic-link signup lands on /onboarding (e2e-verified); Reports and Budget tabs agree on a seeded non-budget-account fixture.*
 - **Phase 3 (soon, ~3–4 days):** FE↔BE contract test; Nano session-key household scoping; AI telemetry counters; page-smoke RTL tests; budget-assign + CSV-import e2e.
 - **Phase 4 (polish):** all Low items.
+
+### Plan-review notes (v2 self-critique)
+- v1 buried the operational reality: it had no phase for "make prod healthy" even though the audit's own top theme was release engineering. Phase 0 fixes that ordering error.
+- v1 phases lacked acceptance criteria — added, since "done" claims need verification gates.
+- v1's Critical section said "none" while a critical Fly health check was actively firing unobserved; the lesson (already in the blind-spots section) is now a concrete Phase 0 alerting item rather than an abstract observation.
+- The categorization-500 symptom is intentionally NOT a route-level finding: the evidence exonerates `categorization.py`. Fixing the symptom where the traceback surfaced would have been the wrong repair.
 
 ## Open questions
 
 1. Is Clarity intentionally USD-only? (If multi-currency is planned, its absence is Critical, not a nit.)
-2. What is the Fly Postgres backup/restore posture — and has a restore ever been tested?
+2. What is the Fly Postgres backup/restore posture — and has a restore ever been tested? (Now more urgent: the DB machine is a single 256MB node with a critical health check.)
 3. Should Reports intentionally include non-budget accounts, or match the Budget tab?
 4. Deploy cadence preference: auto-deploy backend on every main merge, or manual with a CI reminder check?
+5. OK with the small monthly cost increase of a 1GB Postgres VM (Phase 0), or prefer trying 512MB first?
