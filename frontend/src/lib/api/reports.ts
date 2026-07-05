@@ -67,10 +67,11 @@ export const reportsApi = {
   balanceHistory: (accountId: string) =>
     api.get<BalancePoint[]>(`/reports/accounts/${accountId}/balance-history`).then((r) => r.data),
 
-  getCategorizeCandidates: (params?: SuggestCategoriesParams) =>
+  getCategorizeCandidates: (params?: SuggestCategoriesParams, signal?: AbortSignal) =>
     api
       .post<CategorizeCandidatesResponse>("/categorization/suggest/candidates", params ?? {}, {
         timeout: LLM_HTTP_TIMEOUT_MS,
+        signal,
       })
       .then((r) => r.data),
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
@@ -71,6 +71,7 @@ describe("useCategorizeSuggestions – suggest() error routing", () => {
       await expect(result.current.suggest()).rejects.toThrow(/cancelled/i);
     });
     expect(result.current.error).toMatch(/cancelled/i);
+    expect(result.current.loading).toBe(false);
   });
 
   it("surfaces local inference failures", async () => {
@@ -81,5 +82,44 @@ describe("useCategorizeSuggestions – suggest() error routing", () => {
     await expect(
       act(() => result.current.suggest()),
     ).rejects.toThrow(/inference failed/i);
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("exposes progress while loading candidates", async () => {
+    let resolveCandidates!: (value: unknown) => void;
+    getCategorizeCandidatesMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCandidates = resolve;
+      }),
+    );
+
+    const { runStructuredJson } = await import("@/lib/llm/run-structured");
+    vi.mocked(runStructuredJson).mockResolvedValue({
+      data: [],
+      tier: 1,
+    });
+
+    const { result } = renderHook(() => useCategorizeSuggestions(), { wrapper: wrap });
+
+    act(() => {
+      void result.current.suggest();
+    });
+
+    await waitFor(() => {
+      expect(result.current.progress?.step).toBe("fetch");
+    });
+    expect(result.current.loading).toBe(true);
+
+    await act(async () => {
+      resolveCandidates({
+        categories: [{ id: "c1", name: "Food" }],
+        transactions: [{ id: "t1", payee: "Coffee Shop", amount: -5, date: "2026-01-01" }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    expect(result.current.progress).toBeNull();
   });
 });
