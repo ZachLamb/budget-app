@@ -7,7 +7,6 @@ import { reportsApi, type LlmSuggestion } from "@/lib/api/reports";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
 import { useFlatCategories, useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
-import { toastMaybeAiAvailability } from "@/lib/llm/ai-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +21,8 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
 import { PageHeader, QueryState, inlineErrorQueryMeta } from "@/components/page";
 import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
+import { AiRunStatus } from "@/components/llm/ai-run-status";
+import { cn } from "@/lib/utils";
 
 const MATCH_FIELDS = [
   { value: "payee", label: "Payee" },
@@ -102,10 +103,8 @@ function RulesContent() {
         appToast.info("No uncategorized transactions to suggest for");
       }
     },
-    onError: (e) => {
-      if (!toastMaybeAiAvailability("Failed to get AI category suggestions", e)) {
-        toastApiError("Failed to get suggestions", e);
-      }
+    onError: () => {
+      // Hook shows inline error + notification bell; block global mutation toast.
     },
   });
 
@@ -117,6 +116,8 @@ function RulesContent() {
       setSuggestOpen(false);
     },
   });
+
+  const categorizeBusy = categorizeAi.loading || suggestMutation.isPending;
 
   return (
     <div className="space-y-6">
@@ -131,10 +132,11 @@ function RulesContent() {
           <Button
             variant="outline"
             onClick={() => suggestMutation.mutate()}
-            disabled={suggestMutation.isPending}
-            aria-busy={suggestMutation.isPending}
+            disabled={categorizeBusy}
+            aria-busy={categorizeBusy}
           >
-            <Sparkles className="mr-2 h-4 w-4" /> AI Suggest
+            <Sparkles className={cn("mr-2 h-4 w-4", categorizeBusy && "animate-pulse")} />{" "}
+            {categorizeBusy ? "Suggesting…" : "AI Suggest"}
           </Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
@@ -200,6 +202,18 @@ function RulesContent() {
           ) : null}
         </div>
       )}
+
+      {categorizeBusy ? (
+        <AiRunStatus
+          progress={
+            categorizeAi.batchProgress && categorizeAi.batchProgress.total > 0
+              ? null
+              : categorizeAi.progress
+          }
+          batch={categorizeAi.batchProgress}
+          onCancel={categorizeAi.cancel}
+        />
+      ) : null}
 
       <Dialog open={suggestOpen} onOpenChange={setSuggestOpen}>
         <DialogContent className="max-w-2xl">

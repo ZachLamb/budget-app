@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
@@ -41,6 +41,10 @@ vi.mock("@/lib/llm/prompts/categorize", () => ({
   buildCategorizePrompt: vi.fn(() => "prompt"),
 }));
 
+vi.mock("@/lib/report-inline-error", () => ({
+  reportInlineError: vi.fn(),
+}));
+
 const { useCategorizeSuggestions } = await import("./use-categorize-suggestions");
 
 function wrap({ children }: { children: React.ReactNode }) {
@@ -71,6 +75,7 @@ describe("useCategorizeSuggestions – suggest() error routing", () => {
       await expect(result.current.suggest()).rejects.toThrow(/cancelled/i);
     });
     expect(result.current.error).toMatch(/cancelled/i);
+    expect(result.current.loading).toBe(false);
   });
 
   it("surfaces local inference failures", async () => {
@@ -81,5 +86,115 @@ describe("useCategorizeSuggestions – suggest() error routing", () => {
     await expect(
       act(() => result.current.suggest()),
     ).rejects.toThrow(/inference failed/i);
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("exposes progress while loading candidates", async () => {
+    let resolveCandidates!: (value: unknown) => void;
+    getCategorizeCandidatesMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCandidates = resolve;
+      }),
+    );
+
+    const { runStructuredJson } = await import("@/lib/llm/run-structured");
+    vi.mocked(runStructuredJson).mockResolvedValue({
+      data: [],
+      tier: 1,
+    });
+
+    const { result } = renderHook(() => useCategorizeSuggestions(), { wrapper: wrap });
+
+    act(() => {
+      void result.current.suggest();
+    });
+
+    await waitFor(() => {
+      expect(result.current.progress?.step).toBe("fetch");
+    });
+    expect(result.current.loading).toBe(true);
+
+    await act(async () => {
+      resolveCandidates({
+        categories: [{ id: "c1", name: "Food" }],
+        transactions: [{ id: "t1", payee: "Coffee Shop", amount: -5, date: "2026-01-01" }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    expect(result.current.progress).toBeNull();
+  });
+
+  it("cancel clears loading and aborts in-flight work", async () => {
+    getCategorizeCandidatesMock.mockReturnValue(new Promise(() => {}));
+
+    const { result } = renderHook(() => useCategorizeSuggestions(), { wrapper: wrap });
+
+    act(() => {
+      void result.current.suggest().catch(() => {});
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(true);
+    });
+
+    act(() => {
+      result.current.cancel();
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.progress).toBeNull();
+  });
+
+  it("superseding suggest keeps loading owned by the latest run", async () => {
+    let resolveFirst!: (value: unknown) => void;
+    getCategorizeCandidatesMock
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        categories: [{ id: "c1", name: "Food" }],
+        transactions: [{ id: "t2", payee: "Grocery", amount: -20, date: "2026-01-02" }],
+      });
+
+    const { runStructuredJson } = await import("@/lib/llm/run-structured");
+    vi.mocked(runStructuredJson).mockResolvedValue({
+      data: [{ transaction_id: "t2", category_id: "c1" }],
+      tier: 1,
+    });
+
+    const { result } = renderHook(() => useCategorizeSuggestions(), { wrapper: wrap });
+
+    act(() => {
+      void result.current.suggest().catch(() => {});
+    });
+
+    await waitFor(() => {
+      expect(result.current.progress?.step).toBe("fetch");
+    });
+
+    act(() => {
+      void result.current.suggest();
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(true);
+    });
+
+    await act(async () => {
+      resolveFirst({
+        categories: [{ id: "c1", name: "Food" }],
+        transactions: [{ id: "t1", payee: "Stale", amount: -5, date: "2026-01-01" }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    expect(result.current.tier).toBe(1);
   });
 });

@@ -28,7 +28,7 @@ import {
   type NotificationKind,
 } from "@/lib/notification-store";
 import { cn } from "@/lib/utils";
-import { toast as sonnerToast } from "sonner";
+import { appToast } from "@/lib/app-toast";
 
 function relativeTime(ts: number, nowMs: number): string {
   const s = Math.floor((nowMs - ts) / 1000);
@@ -135,8 +135,8 @@ function NotificationRow({ n, nowMs }: { n: AppNotification; nowMs: number }) {
                 onClick={(e) => {
                   e.stopPropagation();
                   void navigator.clipboard.writeText(n.detailClipboard!).then(
-                    () => sonnerToast.success("Copied details", { duration: 1500 }),
-                    () => sonnerToast.error("Could not copy", { duration: 2000 }),
+                    () => appToast.success("Copied details"),
+                    () => appToast.warning("Could not copy"),
                   );
                 }}
               >
@@ -318,7 +318,7 @@ export function NotificationBell({ className }: { className?: string }) {
         variant="destructive"
         onConfirm={() => {
           clearAllNotifications();
-          sonnerToast.success("Notifications cleared", { duration: 2000 });
+          appToast.success("Notifications cleared");
         }}
       />
     </>

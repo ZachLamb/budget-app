@@ -28,11 +28,11 @@ import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import { useFlatCategories, useIsClient, useDemoGuard } from "@/lib/hooks";
 import { toastApiError, toastPlainError } from "@/lib/toast-error";
-import { toastMaybeAiAvailability } from "@/lib/llm/ai-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import Link from "next/link";
 import { ExplainCharge } from "@/components/llm/explain-charge";
 import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
+import { AiRunStatus } from "@/components/llm/ai-run-status";
 import { PageHeader, inlineErrorQueryMeta } from "@/components/page";
 import { CategoryReviewDialog } from "@/components/transactions/category-review-dialog";
 import { TransactionFiltersBar } from "@/components/transactions/transaction-filters-bar";
@@ -180,10 +180,8 @@ function TransactionsContent() {
         appToast.info("No uncategorized transactions to suggest for.");
       }
     },
-    onError: (e) => {
-      if (!toastMaybeAiAvailability("Failed to get AI category suggestions", e)) {
-        toastApiError("Failed to get AI category suggestions", e);
-      }
+    onError: () => {
+      // Hook shows inline error + notification bell; block global mutation toast.
     },
   });
 
@@ -417,6 +415,8 @@ function TransactionsContent() {
   const getReviewCategoryId = (s: LlmSuggestion) =>
     categoryReviewOverrides[s.transaction_id] ?? s.suggested_category_id;
 
+  const categorizeBusy = categorizeAi.loading || suggestCategoriesMutation.isPending;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -428,12 +428,12 @@ function TransactionsContent() {
             variant="outline"
             size="sm"
             className="hidden sm:inline-flex"
-            disabled={suggestCategoriesMutation.isPending}
-            aria-busy={suggestCategoriesMutation.isPending}
+            disabled={categorizeBusy}
+            aria-busy={categorizeBusy}
             onClick={() => suggestCategoriesMutation.mutate()}
           >
-            <Sparkles className="mr-2 h-4 w-4" />
-            {suggestCategoriesMutation.isPending ? "Suggesting…" : "Suggest categories"}
+            <Sparkles className={cn("mr-2 h-4 w-4", categorizeBusy && "animate-pulse")} />
+            {categorizeBusy ? "Suggesting…" : "Suggest categories"}
           </Button>
           <Button variant="outline" size="sm" className="hidden sm:inline-flex" asChild>
             <Link
@@ -463,11 +463,11 @@ function TransactionsContent() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
-                disabled={suggestCategoriesMutation.isPending}
+                disabled={categorizeBusy}
                 onClick={() => suggestCategoriesMutation.mutate()}
               >
-                <Sparkles className="mr-2 h-4 w-4" />
-                {suggestCategoriesMutation.isPending ? "Suggesting…" : "Suggest categories"}
+                <Sparkles className={cn("mr-2 h-4 w-4", categorizeBusy && "animate-pulse")} />
+                {categorizeBusy ? "Suggesting…" : "Suggest categories"}
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link
@@ -558,6 +558,18 @@ function TransactionsContent() {
           ) : null}
         </div>
       )}
+
+      {categorizeBusy ? (
+        <AiRunStatus
+          progress={
+            categorizeAi.batchProgress && categorizeAi.batchProgress.total > 0
+              ? null
+              : categorizeAi.progress
+          }
+          batch={categorizeAi.batchProgress}
+          onCancel={categorizeAi.cancel}
+        />
+      ) : null}
 
       <Dialog open={importGateOpen} onOpenChange={setImportGateOpen}>
         <DialogContent className="sm:max-w-md">

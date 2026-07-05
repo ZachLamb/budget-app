@@ -1,6 +1,7 @@
 import { toast as sonnerToast } from "sonner";
 import { getApiErrorMessage } from "@/lib/hooks";
 import { pushNotification } from "@/lib/notification-store";
+import { TOAST_DURATION, toastDedupeId } from "@/lib/toast-config";
 
 type AxiosLike = {
   response?: { status?: number; statusText?: string; data?: unknown };
@@ -50,10 +51,16 @@ function copyAction(clipboardText: string) {
     onClick: () => {
       void navigator.clipboard.writeText(clipboardText).then(
         () => {
-          sonnerToast.success("Copied error details", { duration: 2000 });
+          sonnerToast.success("Copied error details", {
+            id: toastDedupeId("success", "Copied error details"),
+            duration: TOAST_DURATION.copy,
+          });
         },
         () => {
-          sonnerToast.error("Could not copy to clipboard", { duration: 2500 });
+          sonnerToast.error("Could not copy to clipboard", {
+            id: toastDedupeId("error", "Could not copy to clipboard"),
+            duration: TOAST_DURATION.copy + 500,
+          });
         },
       );
     },
@@ -75,8 +82,9 @@ export function toastErrorDiagnostic(
     detailClipboard: clipboard,
   });
   sonnerToast.error(title, {
+    id: toastDedupeId("error", `${title}:${detail}`),
     description: detail,
-    duration: options?.duration ?? 8000,
+    duration: options?.duration ?? TOAST_DURATION.error,
     action: copyAction(clipboard),
   });
 }
@@ -96,7 +104,8 @@ export function toastPlainError(message: string, options?: { duration?: number }
     detailClipboard: message,
   });
   sonnerToast.error(message, {
-    duration: options?.duration ?? 6000,
+    id: toastDedupeId("error", message),
+    duration: options?.duration ?? TOAST_DURATION.error - 2000,
     action: copyAction(message),
   });
 }

@@ -312,7 +312,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <AuthProvider>
         <ThemeProvider>
           {children}
-          <Toaster position="bottom-right" />
+          <Toaster />
         </ThemeProvider>
       </AuthProvider>
     </QueryClientProvider>
