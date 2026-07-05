@@ -1,0 +1,76 @@
+name: Deploy backend
+
+# Auto-deploys the FastAPI backend to Fly on merges to main that touch it.
+# Root cause this prevents: Vercel auto-deploys the frontend on every merge,
+# but the backend was deployed manually and drifted weeks behind — shipping
+# a frontend that called routes prod didn't have (2026-07 facts-404 incident).
+# Migrations apply automatically: the image entrypoint runs
+# `alembic upgrade head` before uvicorn.
+#
+# The deploy is gated on the backend test suite passing IN THIS WORKFLOW
+# (`needs: test`) rather than trusting that main is green — an admin merge
+# that bypasses required checks, or a green-PR-that-goes-red-on-merge, must
+# not ship to prod and auto-run migrations.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Backend tests (deploy gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Run pytest
+        run: python -m pytest tests/ -q
+
+  deploy:
+    name: fly deploy clarity-backend
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        working-directory: backend
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Verify health
+        run: |
+          for i in $(seq 1 10); do
+            body=$(curl -sf --max-time 10 https://clarity-backend.fly.dev/api/health || echo "{}")
+            echo "$body"
+            if echo "$body" | jq -e '.status == "ok" and .db == "ok"' >/dev/null; then
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Backend health check did not pass after deploy" >&2
+          exit 1

@@ -1,16 +1,28 @@
 name: E2E (smoke)
 
-# Nightly + manual. Not on every PR yet — e2e in PRs is expensive and we
-# don't want flakes blocking merges. Graduate to `pull_request` when the
-# suite has proven reliable. (Scheduled workflows run on the default branch.)
+# PRs (path-filtered to app code), nightly, and manual. Path filtering keeps
+# doc/config-only PRs fast; the smoke spec is the browser-level regression
+# gate that unit suites can't provide. (Scheduled runs use the default branch.)
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "frontend/src/**"
+      - "frontend/e2e/**"
+      - "frontend/package-lock.json"
+      - "backend/app/**"
+      - "docker-compose.yml"
   schedule:
     - cron: "0 6 * * *"
 
 jobs:
   e2e:
     name: Playwright smoke
+    # No secrets are used here (.env.demo is committed), but building and
+    # running arbitrary fork code on the runner is still not worth enabling:
+    # PR runs are restricted to same-repo branches. Fork PRs get covered by
+    # the nightly run after merge.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

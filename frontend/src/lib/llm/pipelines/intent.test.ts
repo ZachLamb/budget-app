@@ -50,4 +50,13 @@ describe("detectIntent", () => {
     vi.mocked(generateStructured).mockRejectedValueOnce(new Error("bad json"));
     expect(await detectIntent(provider(), "do something")).toBeNull();
   });
+
+  it("rethrows aborted instead of falling through to the answer pipeline", async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    vi.mocked(generateStructured).mockRejectedValueOnce(new Error("aborted mid-generate"));
+    await expect(
+      detectIntent(provider(), "log $40 at Costco", ctrl.signal),
+    ).rejects.toMatchObject({ code: "aborted" });
+  });
 });

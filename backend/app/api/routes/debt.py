@@ -281,7 +281,12 @@ async def calculate_payoff_plan(
                 payment += extra_pool
                 extra_pool = Decimal("0")
 
+            intended = payment
             payment = min(payment, bal + interest)
+            # A debt that pays off mid-month frees the unused remainder of
+            # its payment for the debts after it in this same month — the
+            # money doesn't sit idle until next month's freed_up recompute.
+            extra_pool += intended - payment
             principal = payment - interest
             balances_sim[did] = max(Decimal("0"), bal - principal)
 
@@ -294,6 +299,47 @@ async def calculate_payoff_plan(
                 payment=payment,
                 principal=principal,
             ))
+
+        # Trailing surplus: if a debt later in the order paid off after the
+        # priority debt was already processed, the freed remainder is still
+        # in the pool — apply it to the first still-active debt as extra
+        # principal in the SAME month instead of dropping it.
+        if extra_pool > 0:
+            for d in debts:
+                did2 = d["id"]
+                bal2 = balances_sim[did2]
+                if bal2 <= 0:
+                    continue
+                extra_payment = min(extra_pool, bal2)
+                balances_sim[did2] = bal2 - extra_payment
+                debt_total_paid[did2] += extra_payment
+                prev = debt_schedules[did2][-1]
+                if prev.month == month:
+                    # Normal case: fold the extra principal into this month's
+                    # already-recorded entry (every active debt was processed
+                    # above, so the last entry is always the current month).
+                    debt_schedules[did2][-1] = PayoffMonthDetail(
+                        month=prev.month,
+                        balance=balances_sim[did2],
+                        interest=prev.interest,
+                        payment=prev.payment + extra_payment,
+                        principal=prev.principal + extra_payment,
+                    )
+                else:
+                    # Guard against the invariant ever breaking (e.g. a future
+                    # change lets the main loop skip an active debt): record a
+                    # separate zero-interest entry instead of corrupting a
+                    # prior month's row.
+                    debt_schedules[did2].append(PayoffMonthDetail(
+                        month=month,
+                        balance=balances_sim[did2],
+                        interest=Decimal("0"),
+                        payment=extra_payment,
+                        principal=extra_payment,
+                    ))
+                extra_pool -= extra_payment
+                if extra_pool <= 0:
+                    break
 
     # Build response
     from datetime import date

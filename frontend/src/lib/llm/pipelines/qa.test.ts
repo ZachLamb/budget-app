@@ -30,6 +30,13 @@ vi.mock("./intent", () => ({
   prepareAction: vi.fn(),
 }));
 
+// The condense step is an uncontrolled LLM rewrite of the facts blob; the
+// mock deliberately "hallucinates" an amount so the tests below can prove
+// the grounded-amounts verifier still checks against the RAW facts.
+vi.mock("../specialized", () => ({
+  summarize: vi.fn(async () => "Condensed: the user spent $999.99 across many categories."),
+}));
+
 vi.mock("./steps", async (orig) => {
   const mod = await (orig as () => Promise<Record<string, unknown>>)();
   return {
@@ -69,6 +76,7 @@ vi.mock("./steps", async (orig) => {
 });
 
 import { detectIntent, prepareAction } from "./intent";
+import { summarize } from "../specialized";
 import { ground } from "./steps";
 import { runQaPipeline } from "./qa";
 
@@ -215,5 +223,50 @@ describe("runQaPipeline", () => {
       answer: "No category named 'Missing'. Create it first.",
       cited_facts: [],
     });
+  });
+});
+
+describe("condense path (facts above threshold)", () => {
+  function bigFacts() {
+    const categories = Array.from({ length: 120 }, (_, i) => ({
+      category_id: `c${i}`,
+      name: `Category number ${i}`,
+      budgeted: 100 + i,
+      actual: 50 + i,
+      remaining: 50,
+    }));
+    return {
+      ...contextFacts,
+      budget: { ...contextFacts.budget, categories },
+    };
+  }
+
+  function groundBig() {
+    vi.mocked(ground).mockImplementation(async (path: string) => {
+      if (path.startsWith("/ai/facts/search")) {
+        return { query_terms: [], matches: [] };
+      }
+      return bigFacts();
+    });
+  }
+
+  it("condenses oversized facts and still accepts a grounded answer", async () => {
+    groundBig();
+    vi.mocked(summarize).mockClear();
+    const out =
+      '{"answer":"Category number 5 has $105.00 budgeted.","cited_facts":["c5"]}';
+    const result = await runQaPipeline(ctx(out), {
+      question: "How is category 5 doing?",
+    });
+    expect(vi.mocked(summarize)).toHaveBeenCalledTimes(1);
+    expect(result.kind).toBe("answer");
+  });
+
+  it("rejects amounts the condenser hallucinated (verifier checks raw facts)", async () => {
+    groundBig();
+    const out = '{"answer":"You spent $999.99 overall.","cited_facts":["c5"]}';
+    await expect(
+      runQaPipeline(ctx(out), { question: "How am I doing overall?" }),
+    ).rejects.toMatchObject({ code: "verify_failed" });
   });
 });

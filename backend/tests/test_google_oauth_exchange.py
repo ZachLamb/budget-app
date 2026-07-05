@@ -61,9 +61,22 @@ async def _seed_login_code(user_id: str, *, issued_ts: float | None = None) -> s
 
 @pytest.mark.asyncio
 async def test_google_exchange_missing_cookie_returns_400() -> None:
-    """No cookie means no code to look up — 400 (matches old missing-body behavior)."""
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        r = await client.post("/api/auth/google/exchange")
+    """No cookie means no code to look up — 400 (matches old missing-body behavior).
+
+    get_db is overridden even though the handler never queries: the
+    dependency now eagerly verifies the connection (connect-retry guard),
+    so every request touches the session once.
+    """
+
+    async def _fake_get_db():
+        yield _FakeSession()
+
+    app.dependency_overrides[get_db] = _fake_get_db
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/auth/google/exchange")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
     assert r.status_code == 400, r.text
     assert "Invalid or expired" in r.json().get("detail", "")
 
@@ -71,12 +84,20 @@ async def test_google_exchange_missing_cookie_returns_400() -> None:
 @pytest.mark.asyncio
 async def test_google_exchange_unknown_cookie_returns_400() -> None:
     """A cookie the server never issued is rejected."""
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        cookies={"oauth_login_code": "definitely-not-a-valid-code-12345"},
-    ) as client:
-        r = await client.post("/api/auth/google/exchange")
+
+    async def _fake_get_db():
+        yield _FakeSession()
+
+    app.dependency_overrides[get_db] = _fake_get_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            cookies={"oauth_login_code": "definitely-not-a-valid-code-12345"},
+        ) as client:
+            r = await client.post("/api/auth/google/exchange")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
     assert r.status_code == 400, r.text
 
 

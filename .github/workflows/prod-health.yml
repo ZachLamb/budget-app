@@ -1,0 +1,46 @@
+name: Prod health alert
+
+# Every 30 minutes: fail loudly if any Fly health check on the backend or
+# the Postgres machine is not passing, or if /api/health degrades. A failing
+# run triggers GitHub's workflow-failure notification — this is the alert.
+# Added after the clarity-db `vm` check sat critical (memory starvation,
+# intermittent 500s) with zero visibility for an unknown period.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+jobs:
+  health:
+    name: Fly checks + API health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: API health endpoint
+        run: |
+          body=$(curl -sf --max-time 15 https://clarity-backend.fly.dev/api/health)
+          echo "$body"
+          echo "$body" | jq -e '.status == "ok" and .db == "ok"' >/dev/null \
+            || { echo "::error::/api/health degraded" >&2; exit 1; }
+
+      - name: Fly machine checks (backend + database)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_READONLY_TOKEN }}
+        run: |
+          # JSON shape: { "<machine_id>": [ {name, status, output, ...}, ... ] }
+          # Assert every check on every machine reports status == "passing" —
+          # never substring-grep the human-formatted table (check names or
+          # HTTP outputs legitimately contain words like "error").
+          fail=0
+          for app in clarity-backend clarity-db; do
+            echo "== $app =="
+            out=$(flyctl checks list -a "$app" --json) || { echo "::error::flyctl checks failed for $app"; fail=1; continue; }
+            echo "$out" | jq -r '.[][] | "\(.name): \(.status)"'
+            if ! echo "$out" | jq -e '[.[][] | .status] | length > 0 and all(. == "passing")' >/dev/null; then
+              echo "::error::$app has a non-passing health check"
+              fail=1
+            fi
+          done
+          exit $fail
