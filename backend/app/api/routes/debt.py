@@ -314,13 +314,29 @@ async def calculate_payoff_plan(
                 balances_sim[did2] = bal2 - extra_payment
                 debt_total_paid[did2] += extra_payment
                 prev = debt_schedules[did2][-1]
-                debt_schedules[did2][-1] = PayoffMonthDetail(
-                    month=prev.month,
-                    balance=balances_sim[did2],
-                    interest=prev.interest,
-                    payment=prev.payment + extra_payment,
-                    principal=prev.principal + extra_payment,
-                )
+                if prev.month == month:
+                    # Normal case: fold the extra principal into this month's
+                    # already-recorded entry (every active debt was processed
+                    # above, so the last entry is always the current month).
+                    debt_schedules[did2][-1] = PayoffMonthDetail(
+                        month=prev.month,
+                        balance=balances_sim[did2],
+                        interest=prev.interest,
+                        payment=prev.payment + extra_payment,
+                        principal=prev.principal + extra_payment,
+                    )
+                else:
+                    # Guard against the invariant ever breaking (e.g. a future
+                    # change lets the main loop skip an active debt): record a
+                    # separate zero-interest entry instead of corrupting a
+                    # prior month's row.
+                    debt_schedules[did2].append(PayoffMonthDetail(
+                        month=month,
+                        balance=balances_sim[did2],
+                        interest=Decimal("0"),
+                        payment=extra_payment,
+                        principal=extra_payment,
+                    ))
                 extra_pool -= extra_payment
                 if extra_pool <= 0:
                     break

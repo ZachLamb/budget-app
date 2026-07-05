@@ -37,7 +37,11 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 _CONNECT_RETRY_DELAY_S = 0.25
 
 
-def _is_connection_failure(exc: DBAPIError) -> bool:
+def _is_retryable_probe_failure(exc: DBAPIError) -> bool:
+    # Deliberately broad: the probe (`SELECT 1`) is trivial and idempotent,
+    # so retrying it after ANY OperationalError/InterfaceError is harmless —
+    # even ones that aren't strictly connection drops (e.g. statement
+    # timeouts, which the probe itself won't realistically hit).
     return (
         isinstance(exc, (OperationalError, InterfaceError))
         or exc.connection_invalidated
@@ -50,19 +54,25 @@ async def _ensure_live_connection(session: AsyncSession) -> None:
     Runs BEFORE the request handler sees the session, so a retry can never
     re-execute application statements. Persistent connect failure surfaces
     as 503 (retryable) instead of a raw 500.
+
+    Deliberate cost trade-off: this adds one DB round-trip per request and
+    begins the session's transaction at request start (including the few
+    routes that depend on get_db but never query). Accepted: the round-trip
+    is sub-millisecond against a healthy pool, and the alternative (retry at
+    first handler statement) risks re-executing application SQL.
     """
     try:
         await session.execute(text("SELECT 1"))
         return
     except DBAPIError as exc:
-        if not _is_connection_failure(exc):
+        if not _is_retryable_probe_failure(exc):
             raise
     await session.rollback()
     await asyncio.sleep(_CONNECT_RETRY_DELAY_S)
     try:
         await session.execute(text("SELECT 1"))
     except DBAPIError as exc:
-        if not _is_connection_failure(exc):
+        if not _is_retryable_probe_failure(exc):
             raise
         raise HTTPException(
             503, "Database temporarily unavailable. Try again in a moment."

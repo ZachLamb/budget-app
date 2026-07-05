@@ -18,6 +18,11 @@ on:
 jobs:
   e2e:
     name: Playwright smoke
+    # No secrets are used here (.env.demo is committed), but building and
+    # running arbitrary fork code on the runner is still not worth enabling:
+    # PR runs are restricted to same-repo branches. Fork PRs get covered by
+    # the nightly run after merge.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
