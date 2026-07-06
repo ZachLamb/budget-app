@@ -8,7 +8,6 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 
 _REMOVED = [
-    ("POST", "/api/llm/cloud"),
     ("POST", "/api/ai/insights"),
     ("POST", "/api/ai/budget-insights"),
     ("POST", "/api/ai/budget-suggestions"),

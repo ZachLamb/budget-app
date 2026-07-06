@@ -24,3 +24,4 @@ async def test_fetch_categorize_candidates_empty() -> None:
     out = await fetch_categorize_candidates(_FakeDb(), "hh-1")
     assert out["transactions"] == []
     assert out["categories"] == []
+    assert out["prefilled_suggestions"] == []

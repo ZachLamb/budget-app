@@ -53,9 +53,15 @@ export interface CategorizeCandidateCategory {
   name: string;
 }
 
+export interface CategorizePrefillSuggestion {
+  transaction_id: string;
+  category_id: string;
+}
+
 export interface CategorizeCandidatesResponse {
   transactions: CategorizeCandidateTransaction[];
   categories: CategorizeCandidateCategory[];
+  prefilled_suggestions?: CategorizePrefillSuggestion[];
 }
 
 export interface CategorizeSuggestion {

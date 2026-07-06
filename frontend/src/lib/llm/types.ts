@@ -3,9 +3,9 @@
  *
  * Tier 1 (Nano)    — Chrome built-in Gemini Nano. On-device, free.
  * Tier 2 (web-llm) — WebGPU + downloaded weights. On-device, ~700 MB / 2 GB.
+ * Tier 4 (cloud)   — opt-in self-hosted backend proxy; not a default provider.
  *
  * Tier 3 (WASM CPU) is intentionally not implemented — too slow to ship.
- * There is no cloud/server tier.
  */
 
 export type Tier = 1 | 2;

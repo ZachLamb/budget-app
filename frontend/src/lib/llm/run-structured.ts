@@ -7,6 +7,7 @@ import type { FeatureId } from "./features";
 import type { LLMProvider } from "./types";
 import type { RouterContext } from "./router";
 import { decide } from "./router";
+import { maxTokensFor } from "./max-tokens";
 import {
   demoStructuredResult,
   parseCategorizeSuggestions,
@@ -40,6 +41,11 @@ export interface RunStructuredOptions {
   maxTokens?: number;
 }
 
+export interface ResolvedStructuredProvider {
+  provider: LLMProvider;
+  tier: 1 | 2;
+}
+
 export interface RunStructuredResult<T> {
   data: T;
   tier: 1 | 2;
@@ -51,14 +57,10 @@ async function generateStructuredOnce(
   opts: RunStructuredOptions,
   forceNoSchema = false,
 ): Promise<string> {
-  // Schema-constrained output is Nano-only (tier 1 → `responseConstraint`).
-  // Tier 2 (web-llm) stays on the free-text + parseJsonResponse retry path.
-  // `forceNoSchema` lets callers fall back to free-text when the engine
-  // rejects the schema at generation time.
   const schema = !forceNoSchema && provider.tier === 1 ? schemaForFeature(feature) : undefined;
   return collectStream(provider, opts.prompt, {
     system: opts.system,
-    maxTokens: opts.maxTokens ?? 2048,
+    maxTokens: opts.maxTokens ?? maxTokensFor(feature),
     signal: opts.signal,
     schema,
   });
@@ -74,16 +76,20 @@ export async function runStructuredJson<T extends FsaStructuredResult | Categori
   feature: FeatureId,
   ctx: RouterContext,
   opts: RunStructuredOptions,
+  resolved?: ResolvedStructuredProvider,
 ): Promise<RunStructuredResult<T>> {
   if (isDemoMode) {
     const raw = demoStructuredResult(feature);
     return { data: parseForFeature(feature, raw) as T, tier: 2 };
   }
 
-  const decision = await decide(feature, ctx);
-  if (decision.kind !== "ready") {
-    throw new Error(decision.message);
-  }
+  const decision =
+    resolved ??
+    (await (async () => {
+      const d = await decide(feature, ctx);
+      if (d.kind !== "ready") throw new Error(d.message);
+      return { provider: d.provider, tier: d.tier as 1 | 2 };
+    })());
 
   const tryParse = async (provider: LLMProvider): Promise<T> => {
     // Schema-constrained generation can be REJECTED by the engine at
@@ -124,7 +130,10 @@ export async function runStructuredJson<T extends FsaStructuredResult | Categori
   };
 
   if (decision.tier === 1 || decision.tier === 2) {
-    return { data: await tryParse(decision.provider), tier: decision.tier };
+    return {
+      data: await tryParse(decision.provider),
+      tier: decision.tier,
+    };
   }
 
   throw new Error("Local structured AI is not available on this device.");
@@ -160,6 +169,14 @@ export async function runBatchedStructuredJson<T extends FsaStructuredResult>(
   let parseErrors = 0;
   let batchFailures = 0;
   const total = opts.batches.length;
+  const decision = await decide(feature, ctx);
+  if (decision.kind !== "ready") {
+    throw new Error(decision.message);
+  }
+  const resolved: ResolvedStructuredProvider = {
+    provider: decision.provider,
+    tier: decision.tier as 1 | 2,
+  };
 
   for (let i = 0; i < total; i++) {
     if (opts.signal?.aborted) break;
@@ -170,7 +187,7 @@ export async function runBatchedStructuredJson<T extends FsaStructuredResult>(
         prompt: opts.batches[i]!.prompt,
         signal: opts.signal,
         maxTokens: opts.maxTokens,
-      });
+      }, resolved);
       tier = one.tier;
       results.push(one.data);
     } catch (e) {

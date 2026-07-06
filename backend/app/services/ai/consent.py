@@ -32,6 +32,7 @@ _ALLOWED_FEATURES: frozenset[str] = frozenset(
         "free_form_qa",
         "financial_advice",
         "fsa_review",
+        "debt_rate_suggestions",
     }
 )
 

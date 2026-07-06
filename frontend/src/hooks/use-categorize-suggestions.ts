@@ -11,6 +11,7 @@ import { useLlm } from "@/lib/llm/useLlm";
 import { runStructuredJson } from "@/lib/llm/run-structured";
 import type { CategorizeSuggestion } from "@/lib/llm/contracts";
 import { CATEGORIZE_SYSTEM_PROMPT, buildCategorizePrompt } from "@/lib/llm/prompts/categorize";
+import { maxTokensFor } from "@/lib/llm/max-tokens";
 import type { PipelineProgress } from "@/lib/llm/pipelines/types";
 
 const CATEGORIZE_BATCH_SIZE = 15;
@@ -111,14 +112,23 @@ export function useCategorizeSuggestions() {
       if (!scope.isCurrent()) throw new DOMException("Aborted", "AbortError");
       if (payload.transactions.length === 0) return [];
 
+      const prefilled = mapSuggestions(
+        payload.prefilled_suggestions ?? [],
+        payload.categories,
+        payload.transactions,
+      );
+      const prefilledIds = new Set(prefilled.map((s) => s.transaction_id));
+      const needsLlm = payload.transactions.filter((t) => !prefilledIds.has(t.id));
+      if (needsLlm.length === 0) return prefilled;
+
       const ctx = llm.getContext("categorize_transaction");
-      const batches: typeof payload.transactions[] = [];
-      for (let i = 0; i < payload.transactions.length; i += CATEGORIZE_BATCH_SIZE) {
-        batches.push(payload.transactions.slice(i, i + CATEGORIZE_BATCH_SIZE));
+      const batches: typeof needsLlm[] = [];
+      for (let i = 0; i < needsLlm.length; i += CATEGORIZE_BATCH_SIZE) {
+        batches.push(needsLlm.slice(i, i + CATEGORIZE_BATCH_SIZE));
       }
 
       const total = batches.length;
-      const merged: LlmSuggestion[] = [];
+      const merged: LlmSuggestion[] = [...prefilled];
       let usedTier: 1 | 2 = 2;
 
       for (let i = 0; i < total; i++) {
@@ -142,7 +152,7 @@ export function useCategorizeSuggestions() {
           {
             system: CATEGORIZE_SYSTEM_PROMPT,
             prompt,
-            maxTokens: 2048,
+            maxTokens: maxTokensFor("categorize_transaction"),
             signal: scope.ac.signal,
           },
         );

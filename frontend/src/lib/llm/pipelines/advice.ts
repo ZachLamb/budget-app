@@ -1,6 +1,7 @@
 import { schemaForFeature } from "../schema";
 import { withNanoSlot } from "../session-pool";
-import { generateVerified, ground, type Check } from "./steps";
+import { runVerified } from "../cascade";
+import { ground, type Check } from "./steps";
 import type { ContextFacts } from "./qa";
 import type { PipelineContext } from "./types";
 
@@ -73,8 +74,9 @@ export async function runAdvicePipeline(
       `Facts: ${factsText}`;
 
     ctx.onProgress?.({ step: "generate", label: "Drafting advice…" });
-    const result = await generateVerified<AdviceResult>(
-      ctx.provider,
+    const result = await runVerified<AdviceResult>(
+      ctx,
+      "financial_advice",
       {
         system,
         prompt,
@@ -83,10 +85,6 @@ export async function runAdvicePipeline(
       },
       checks,
       {
-        signal: ctx.signal,
-        // The pipeline owns the disclaimer — overwrite whatever the model
-        // emitted and mark the result as a non-authoritative draft, before
-        // the verifier runs.
         transform: (draft) => ({
           ...draft,
           disclaimer: ADVICE_DISCLAIMER,

@@ -3,8 +3,11 @@ import { withNanoSlot } from "../session-pool";
 import { summarize } from "../specialized";
 import { amountsAreGrounded, collectAmountsCents } from "./grounded-amounts";
 import { detectIntent, prepareAction } from "./intent";
+import { isSpendLookupQuestion, tryHeuristicIntent } from "./intent-heuristic";
 import { buildQaPrompt, buildQaSystem, type SearchMatch } from "./qa-prompt";
-import { generateVerified, ground, type Check } from "./steps";
+import { trySpendFastPath } from "./qa-fast-path";
+import { runVerified } from "../cascade";
+import { ground, type Check } from "./steps";
 import type { PipelineContext } from "./types";
 
 export interface ContextFacts {
@@ -119,8 +122,9 @@ async function runAnswerPipeline(
   // Heartbeat: without this the "generate" label sits static for the whole
   // 10–60s on-device generation. Emit every ~120 streamed characters.
   let lastHeartbeat = 0;
-  const result = await generateVerified(
-    ctx.provider,
+  const result = await runVerified(
+    ctx,
+    "free_form_qa",
     {
       system,
       prompt,
@@ -137,7 +141,6 @@ async function runAnswerPipeline(
       },
     },
     checks,
-    { signal: ctx.signal, onProgress: ctx.onProgress },
   );
   return { kind: "answer", ...result };
 }
@@ -151,8 +154,19 @@ export async function runQaPipeline(
   params: QaParams,
 ): Promise<QaResult> {
   return withNanoSlot(async () => {
+    if (isSpendLookupQuestion(params.question)) {
+      ctx.onProgress?.({ step: "ground", label: "Looking up your spending…" });
+      const fast = await trySpendFastPath(ctx, params.question);
+      if (fast) {
+        ctx.onProgress?.({ step: "done", label: "Done" });
+        return fast;
+      }
+    }
+
     ctx.onProgress?.({ step: "ground", label: "Understanding your request…" });
-    const intent = await detectIntent(ctx.provider, params.question, ctx.signal);
+    const heuristic = tryHeuristicIntent(params.question);
+    const intent =
+      heuristic ?? (await detectIntent(ctx.provider, params.question, ctx.signal));
     if (intent) {
       ctx.onProgress?.({ step: "generate", label: "Preparing action…" });
       const prepared = await prepareAction(

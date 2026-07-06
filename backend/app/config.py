@@ -57,6 +57,20 @@ class Settings(BaseSettings):
     # Reserved for future server-side AI routes; on-device inference does not use this.
     ai_rate_limit_per_minute: int = 120
 
+    # Opt-in Tier 4 cloud backend (OpenAI-compatible, e.g. Ollama). Empty = disabled.
+    ollama_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("OLLAMA_URL", "LLM_BACKEND_URL"),
+    )
+    ollama_model: str = Field(
+        default="qwen2.5:7b",
+        validation_alias=AliasChoices("OLLAMA_MODEL", "LLM_BACKEND_MODEL"),
+    )
+    llm_backend_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("LLM_BACKEND_API_KEY",),
+    )
+
     # Fly.io API token for the Hosting health card. Read-only-ish PAT or
     # org-scoped token. Empty in dev → the route returns available=false
     # and the card renders a friendly "unavailable" placeholder rather
