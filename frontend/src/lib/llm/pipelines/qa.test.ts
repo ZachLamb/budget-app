@@ -270,3 +270,32 @@ describe("condense path (facts above threshold)", () => {
     ).rejects.toMatchObject({ code: "verify_failed" });
   });
 });
+
+describe("generation progress wiring", () => {
+  it("passes a token heartbeat and retry/verify progress into generateVerified", async () => {
+    const { generateVerified } = await import("./steps");
+    vi.mocked(ground).mockImplementation(async (path: string) =>
+      path.startsWith("/ai/facts/search") ? { query_terms: [], matches: [] } : contextFacts,
+    );
+    const onProgress = vi.fn();
+    const out = '{"answer":"You overspent on dining.","cited_facts":["c1"]}';
+    await runQaPipeline({ ...ctx(out), onProgress }, { question: "dining?" });
+
+    const call = vi.mocked(generateVerified).mock.calls.at(-1)!;
+    const spec = call[1] as { onToken?: (n: number) => void };
+    const opts = call[3] as { onProgress?: (p: { step: string; label: string }) => void };
+    expect(typeof spec.onToken).toBe("function");
+    expect(opts.onProgress).toBe(onProgress);
+
+    // The heartbeat throttles: first emission only after >=120 chars.
+    spec.onToken!(60);
+    expect(onProgress).not.toHaveBeenCalledWith(
+      expect.objectContaining({ label: expect.stringContaining("characters") }),
+    );
+    spec.onToken!(140);
+    expect(onProgress).toHaveBeenCalledWith({
+      step: "generate",
+      label: "Writing the answer… (140 characters)",
+    });
+  });
+});

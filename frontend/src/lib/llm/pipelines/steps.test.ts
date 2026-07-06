@@ -109,3 +109,51 @@ describe("ground error taxonomy", () => {
     });
   });
 });
+
+describe("generation progress reporting", () => {
+  it("generateStructured reports cumulative character counts per chunk", async () => {
+    const chunks = ['{"a"', ":1}"];
+    const provider: LLMProvider = {
+      name: "nano",
+      tier: 1,
+      privacy: "local",
+      async *generate() {
+        for (const c of chunks) yield c;
+      },
+    };
+    const seen: number[] = [];
+    await generateStructured(provider, {
+      system: "s",
+      prompt: "p",
+      schema: { type: "object" },
+      onToken: (n) => seen.push(n),
+    });
+    expect(seen).toEqual([4, 7]);
+  });
+
+  it("generateVerified emits retry and verify progress", async () => {
+    const { generateVerified } = await import("./steps");
+    let call = 0;
+    const provider: LLMProvider = {
+      name: "nano",
+      tier: 1,
+      privacy: "local",
+      async *generate() {
+        call += 1;
+        yield call === 1 ? "not json" : '{"a":1}';
+      },
+    };
+    const steps: string[] = [];
+    const result = await generateVerified(
+      provider,
+      { system: "s", prompt: "p", schema: { type: "object" } },
+      [],
+      { onProgress: (p) => steps.push(`${p.step}:${p.label}`) },
+    );
+    expect(result).toEqual({ a: 1 });
+    // Attempt 1 parse fails silently; attempt 2 announces the rewrite, then
+    // the successful parse announces verification.
+    expect(steps.some((s) => s.startsWith("generate:") && /attempt 2/i.test(s))).toBe(true);
+    expect(steps.some((s) => s.startsWith("verify:"))).toBe(true);
+  });
+});

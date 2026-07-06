@@ -2,6 +2,7 @@ import api from "@/lib/api/client";
 import { parseJsonResponse } from "../contracts";
 import { OnDeviceError } from "../errors";
 import type { GenerateOptions, LLMProvider } from "../types";
+import type { PipelineProgress } from "./types";
 
 /**
  * Fetch a grounded fact payload from a backend fact endpoint. The path is
@@ -29,6 +30,9 @@ export interface GenerateStructuredSpec {
   temperature?: number;
   topK?: number;
   signal?: AbortSignal;
+  /** Called with the cumulative character count after each streamed chunk —
+   * lets the UI show a heartbeat during the otherwise silent generation. */
+  onToken?: (charCount: number) => void;
 }
 
 /**
@@ -48,7 +52,10 @@ export async function generateStructured<T = unknown>(
     signal: spec.signal,
   };
   let out = "";
-  for await (const chunk of provider.generate(spec.prompt, opts)) out += chunk;
+  for await (const chunk of provider.generate(spec.prompt, opts)) {
+    out += chunk;
+    spec.onToken?.(out.length);
+  }
   try {
     return parseJsonResponse(out) as T;
   } catch {
@@ -81,6 +88,9 @@ export interface GenerateVerifiedOptions<T> {
   signal?: AbortSignal;
   /** Post-process the parsed draft before verification (e.g. force fields). */
   transform?: (draft: T) => T;
+  /** Progress for retry/verify phases (generation heartbeat comes from
+   * `spec.onToken`). */
+  onProgress?: (p: PipelineProgress) => void;
 }
 
 /**
@@ -102,8 +112,18 @@ export async function generateVerified<T>(
     if (opts.signal?.aborted) {
       throw new OnDeviceError("aborted", "Cancelled.");
     }
+    if (attempt > 0) {
+      opts.onProgress?.({
+        step: "generate",
+        label: `Rewriting the answer (attempt ${attempt + 1} of ${retries + 1})…`,
+      });
+    }
     try {
       const generated = (await generateStructured<T>(provider, spec)) as T;
+      opts.onProgress?.({
+        step: "verify",
+        label: "Checking the answer against your numbers…",
+      });
       const draft = opts.transform ? opts.transform(generated) : generated;
       return verify(draft, checks);
     } catch (e) {
