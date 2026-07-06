@@ -4,6 +4,10 @@
 
 import type { DetectedIntent } from "./intent";
 
+/** Planning/advice phrasing — not imperative action commands. */
+const ADVISORY_PHRASING =
+  /\b(should\s+i|would\s+it|would\s+i|recommend|what\s+if|is\s+it\s+wise|can\s+i\s+afford|could\s+i)\b/i;
+
 const ACTION_PATTERNS: {
   action_type: string;
   patterns: RegExp[];
@@ -12,15 +16,17 @@ const ACTION_PATTERNS: {
   {
     action_type: "add_transaction",
     patterns: [
-      /\badd\s+(?:a\s+)?(?:\$)?([\d,.]+)\s+(?:dollar\s+)?(?:transaction|charge|expense)?\s*(?:for|at|to)?\s+(.+)/i,
+      /\badd\s+(?:a\s+)?(?:\$)?([\d,.]+)\s+(?:dollar\s+)?(?:transaction|charge|expense)\s+(?:for|at)\s+(.+)/i,
+      /\badd\s+(?:a\s+)?(?:\$)?([\d,.]+)\s+(?:for|at)\s+(.+)/i,
       /\brecord\s+(?:a\s+)?(?:\$)?([\d,.]+)\s+.+?\b(?:at|from|for)\s+(.+)/i,
     ],
     extract: (q) => {
       const m =
         q.match(
-          /\b(?:add|record)\s+(?:a\s+)?(?:\$)?([\d,.]+)\s+(?:dollar\s+)?(?:transaction|charge|expense)?\s*(?:for|at|to)?\s+(.+)/i,
+          /\badd\s+(?:a\s+)?(?:\$)?([\d,.]+)\s+(?:dollar\s+)?(?:transaction|charge|expense)\s+(?:for|at)\s+(.+)/i,
         ) ??
-        q.match(/\b(?:add|record)\s+(?:a\s+)?(?:\$)?([\d,.]+)\s+.+?\b(?:at|from|for)\s+(.+)/i);
+        q.match(/\badd\s+(?:a\s+)?(?:\$)?([\d,.]+)\s+(?:for|at)\s+(.+)/i) ??
+        q.match(/\brecord\s+(?:a\s+)?(?:\$)?([\d,.]+)\s+.+?\b(?:at|from|for)\s+(.+)/i);
       if (!m) return {};
       const amount = parseFloat(m[1]!.replace(/,/g, ""));
       const payee = m[2]!.trim().replace(/[.?!]+$/, "");
@@ -60,6 +66,7 @@ const ACTION_PATTERNS: {
 export function tryHeuristicIntent(question: string): DetectedIntent | null {
   const q = question.trim();
   if (q.length < 8) return null;
+  if (ADVISORY_PHRASING.test(q)) return null;
 
   for (const spec of ACTION_PATTERNS) {
     if (!spec.patterns.some((p) => p.test(q))) continue;

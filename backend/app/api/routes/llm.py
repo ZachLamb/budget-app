@@ -117,6 +117,10 @@ async def cloud_generate(
                 yield _sse({"error": "Cloud model returned an empty response."})
             else:
                 yield _sse({"done": True})
+        except llm_client.LlmStreamError:
+            status_code = 502
+            logger.warning("cloud_generate stream failed")
+            yield _sse({"error": "Cloud AI stream interrupted or unavailable."})
         except Exception as e:
             status_code = 500
             logger.warning("cloud_generate failed: %s", type(e).__name__)

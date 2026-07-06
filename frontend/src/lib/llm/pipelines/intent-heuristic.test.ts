@@ -21,6 +21,18 @@ describe("tryHeuristicIntent", () => {
   it("returns null for vague questions", () => {
     expect(tryHeuristicIntent("How am I doing?")).toBeNull();
   });
+
+  it("returns null for advisory planning questions", () => {
+    expect(tryHeuristicIntent("Should I add $500 to savings?")).toBeNull();
+  });
+
+  it("detects add with for/at payee shorthand", () => {
+    const intent = tryHeuristicIntent("Add $20 for coffee");
+    expect(intent).toMatchObject({
+      action_type: "add_transaction",
+      data: { amount: 20, payee_name: "coffee" },
+    });
+  });
 });
 
 describe("isSpendLookupQuestion", () => {

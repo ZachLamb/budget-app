@@ -185,8 +185,8 @@ async def fetch_categorize_candidates(
         )
         suggestion = _prefill_for_transaction(
             t.id,
-            payee,
-            notes or "",
+            payee_raw,
+            t.notes or "",
             amount,
             t.payee_id,
             rules,

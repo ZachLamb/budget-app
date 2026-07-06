@@ -16,6 +16,10 @@ _CONNECT_TIMEOUT = 2.0
 _STREAM_TIMEOUT = 120.0
 
 
+class LlmStreamError(Exception):
+    """Upstream LLM stream failed or ended before a complete response."""
+
+
 def is_configured() -> bool:
     settings = get_settings()
     return bool(settings.demo_mode or settings.ollama_url)
@@ -67,12 +71,13 @@ async def stream_complete(
         yield '{"answer":"[Demo cloud response]"}'
         return
     if not settings.ollama_url:
-        return
+        raise LlmStreamError("Cloud AI backend is not configured.")
 
     url = _backend_url("/v1/chat/completions")
     payload = _build_payload(prompt, system, max_tokens=max_tokens, stream=True)
     headers = {**_build_headers(), "Accept": "text/event-stream"}
 
+    yielded = False
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(_STREAM_TIMEOUT, connect=_CONNECT_TIMEOUT)
@@ -97,7 +102,13 @@ async def stream_complete(
                     delta = choices[0].get("delta") or {}
                     chunk = delta.get("content")
                     if isinstance(chunk, str) and chunk:
+                        yielded = True
                         yield chunk
     except httpx.HTTPError as e:
         logger.warning("LLM cloud stream failed: %s", type(e).__name__)
-        return
+        if yielded:
+            raise LlmStreamError("Cloud AI stream interrupted.") from e
+        raise LlmStreamError("Cloud AI backend is unreachable.") from e
+
+    if not yielded:
+        raise LlmStreamError("Cloud model returned an empty response.")

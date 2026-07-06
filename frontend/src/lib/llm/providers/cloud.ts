@@ -24,6 +24,11 @@ interface ConsentRow {
 let consentCache: { at: number; features: Set<string> } | null = null;
 const CONSENT_TTL_MS = 60_000;
 
+/** Drop cached consent so the next check reflects a recent grant/revoke. */
+export function invalidateCloudConsentCache(): void {
+  consentCache = null;
+}
+
 async function loadCloudConsents(): Promise<Set<string>> {
   const now = Date.now();
   if (consentCache && now - consentCache.at < CONSENT_TTL_MS) {
@@ -48,6 +53,16 @@ async function loadCloudConsents(): Promise<Set<string>> {
 export async function hasCloudConsent(feature: FeatureId): Promise<boolean> {
   const features = await loadCloudConsents();
   return features.has(feature);
+}
+
+export async function grantCloudConsent(feature: FeatureId): Promise<void> {
+  await api.post("/llm/consent", { feature, tier: 4 });
+  invalidateCloudConsentCache();
+}
+
+export async function revokeCloudConsent(feature: FeatureId): Promise<void> {
+  await api.delete(`/llm/consent/${feature}`);
+  invalidateCloudConsentCache();
 }
 
 /** Non-streaming collect of SSE chunks from the cloud proxy. */
@@ -83,7 +98,7 @@ export async function streamCloudGenerate(params: CloudGenerateParams): Promise<
     const payload = line.slice(5).trim();
     if (!payload || payload === "[DONE]") continue;
     try {
-      const j = JSON.parse(payload) as { content?: string; error?: string };
+      const j = JSON.parse(payload) as { content?: string; error?: string; done?: boolean };
       if (j.error) throw new Error(j.error);
       if (j.content) out += j.content;
     } catch (e) {
