@@ -116,6 +116,9 @@ async function runAnswerPipeline(
   const prompt = buildQaPrompt(params.question, [...known], factsText, matches);
 
   ctx.onProgress?.({ step: "generate", label: "Answering…" });
+  // Heartbeat: without this the "generate" label sits static for the whole
+  // 10–60s on-device generation. Emit every ~120 streamed characters.
+  let lastHeartbeat = 0;
   const result = await generateVerified(
     ctx.provider,
     {
@@ -123,9 +126,18 @@ async function runAnswerPipeline(
       prompt,
       schema: schemaForFeature("free_form_qa")!,
       signal: ctx.signal,
+      onToken: (chars) => {
+        if (chars - lastHeartbeat >= 120) {
+          lastHeartbeat = chars;
+          ctx.onProgress?.({
+            step: "generate",
+            label: `Writing the answer… (${chars} characters)`,
+          });
+        }
+      },
     },
     checks,
-    { signal: ctx.signal },
+    { signal: ctx.signal, onProgress: ctx.onProgress },
   );
   return { kind: "answer", ...result };
 }
