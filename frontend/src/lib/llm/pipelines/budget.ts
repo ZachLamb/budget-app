@@ -1,6 +1,7 @@
 import { schemaForFeature } from "../schema";
 import { withNanoSlot } from "../session-pool";
-import { generateVerified, ground, type Check } from "./steps";
+import { runVerified } from "../cascade";
+import { ground, type Check } from "./steps";
 import type { PipelineContext } from "./types";
 
 export interface BudgetFacts {
@@ -65,8 +66,9 @@ export async function runBudgetPipeline(
       `Facts: ${JSON.stringify({ month: facts.month, overBudget })}`;
 
     ctx.onProgress?.({ step: "generate", label: "Writing recommendations…" });
-    const result = await generateVerified<BudgetResult>(
-      ctx.provider,
+    const result = await runVerified<BudgetResult>(
+      ctx,
+      "budget_recommendations",
       {
         system,
         prompt,
@@ -74,7 +76,6 @@ export async function runBudgetPipeline(
         signal: ctx.signal,
       },
       checks,
-      { signal: ctx.signal },
     );
     ctx.onProgress?.({ step: "done", label: "Done" });
     return result;

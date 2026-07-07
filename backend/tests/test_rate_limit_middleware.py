@@ -38,6 +38,7 @@ def _build_app(*, trusted_proxies: str = "127.0.0.1") -> Starlette:
             Route("/api/auth/login", _ok, methods=["POST", "GET"]),
             Route("/api/auth/passkey/authenticate/start", _ok, methods=["POST"]),
             Route("/api/ai/insights", _ok, methods=["POST"]),
+            Route("/api/llm/cloud", _ok, methods=["POST"]),
         ]
     )
     # Fresh store per app so tests don't cross-contaminate.
@@ -77,6 +78,25 @@ async def test_ai_post_returns_429_after_cap_on_single_ip() -> None:
         assert resp.status_code == 429
         assert resp.headers.get("Retry-After") == "60"
         assert "Too many requests" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_llm_cloud_post_returns_429_after_cap() -> None:
+    app = _build_app()
+    cap = _rule_cap("/api/llm/cloud")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        for _ in range(cap):
+            resp = await client.post(
+                "/api/llm/cloud",
+                headers={"x-forwarded-for": "4.4.4.4"},
+            )
+            assert resp.status_code == 200
+        resp = await client.post(
+            "/api/llm/cloud",
+            headers={"x-forwarded-for": "4.4.4.4"},
+        )
+        assert resp.status_code == 429
 
 
 @pytest.mark.asyncio

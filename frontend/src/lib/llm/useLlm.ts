@@ -28,6 +28,7 @@ import { runGoalPipeline } from "./pipelines/goal";
 import { runQaPipeline } from "./pipelines/qa";
 import { runAdvicePipeline } from "./pipelines/advice";
 import { runRatesPipeline } from "./pipelines/rates";
+import { resolveCascadeProviders } from "./cascade";
 
 /** Heavy features served by on-device pipelines (Nano-only in v1). */
 export const HEAVY_FEATURES: ReadonlySet<FeatureId> = new Set<FeatureId>([
@@ -149,12 +150,11 @@ export function useLlm(): UseLlm {
       }
       if (isDemoMode) return demoStructuredResult(feature);
 
-      const decision = await routerDecide(feature, buildContext());
-      if (decision.kind !== "ready") throw new Error(decision.message);
-
       const cap = capability ?? (await getCapability());
+      const cascade = await resolveCascadeProviders(feature, buildContext(), cap);
       const pctx: PipelineContext = {
-        provider: decision.provider,
+        provider: cascade.primary,
+        cascade,
         capability: cap,
         signal: opts?.signal,
         onProgress: opts?.onProgress,

@@ -1,6 +1,7 @@
 import { schemaForFeature } from "../schema";
 import { withNanoSlot } from "../session-pool";
-import { generateVerified, ground, type Check } from "./steps";
+import { runVerified } from "../cascade";
+import { ground, type Check } from "./steps";
 import type { PipelineContext } from "./types";
 
 export interface GoalFacts {
@@ -75,8 +76,9 @@ export async function runGoalPipeline(
       `Facts: ${JSON.stringify(candidates)}`;
 
     ctx.onProgress?.({ step: "generate", label: "Building a plan…" });
-    const result = await generateVerified<GoalResult>(
-      ctx.provider,
+    const result = await runVerified<GoalResult>(
+      ctx,
+      "goal_planning",
       {
         system,
         prompt,
@@ -84,7 +86,6 @@ export async function runGoalPipeline(
         signal: ctx.signal,
       },
       checks,
-      { signal: ctx.signal },
     );
     ctx.onProgress?.({ step: "done", label: "Done" });
     return result;

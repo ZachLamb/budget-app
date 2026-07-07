@@ -1,6 +1,7 @@
 import { schemaForFeature } from "../schema";
 import { withNanoSlot } from "../session-pool";
-import { generateVerified, ground, type Check } from "./steps";
+import { runVerified } from "../cascade";
+import { ground, type Check } from "./steps";
 import type { PipelineContext } from "./types";
 
 export interface DebtFact {
@@ -82,8 +83,9 @@ export async function runRatesPipeline(
       `Facts: ${JSON.stringify(eligible)}`;
 
     ctx.onProgress?.({ step: "generate", label: "Estimating rates…" });
-    const result = await generateVerified<RateResult>(
-      ctx.provider,
+    const result = await runVerified<RateResult>(
+      ctx,
+      "debt_rate_suggestions",
       {
         system,
         prompt,
@@ -91,7 +93,6 @@ export async function runRatesPipeline(
         signal: ctx.signal,
       },
       checks,
-      { signal: ctx.signal },
     );
     ctx.onProgress?.({ step: "done", label: "Done" });
     return result;
