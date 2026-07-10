@@ -127,3 +127,33 @@ async def test_category_name_validation(fixture):
         assert ok.json()["name"] == "Groceries"
         update = await client.put(f"/api/categories/{ok.json()['id']}", headers=headers, json={"name": ""})
         assert update.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_new_groups_append_in_creation_order(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        for name in ("Alpha", "Beta", "Gamma"):
+            resp = await client.post("/api/categories/groups", headers=headers, json={"name": name})
+            assert resp.status_code == 201
+        listing = await client.get("/api/categories/groups", headers=headers)
+    body = listing.json()
+    assert [g["name"] for g in body] == ["Alpha", "Beta", "Gamma"]
+    assert [g["sort_order"] for g in body] == [0, 1, 2]
+
+
+@pytest.mark.asyncio
+async def test_new_categories_append_in_creation_order(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        grp = await client.post("/api/categories/groups", headers=headers, json={"name": "Everyday"})
+        gid = grp.json()["id"]
+        for name in ("Groceries", "Dining", "Fun"):
+            resp = await client.post("/api/categories", headers=headers, json={"group_id": gid, "name": name})
+            assert resp.status_code == 201
+        listing = await client.get("/api/categories/groups", headers=headers)
+    cats = listing.json()[0]["categories"]
+    assert [c["name"] for c in cats] == ["Groceries", "Dining", "Fun"]
+    assert [c["sort_order"] for c in cats] == [0, 1, 2]

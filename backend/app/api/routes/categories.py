@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
@@ -23,7 +23,7 @@ async def list_category_groups(
         select(CategoryGroup)
         .where(CategoryGroup.household_id == household_id)
         .options(selectinload(CategoryGroup.categories))
-        .order_by(CategoryGroup.sort_order)
+        .order_by(CategoryGroup.sort_order, CategoryGroup.created_at)
     )
     return [CategoryGroupResponse.model_validate(g) for g in result.scalars().all()]
 
@@ -34,7 +34,14 @@ async def create_category_group(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):
-    group = CategoryGroup(household_id=household_id, **data.model_dump())
+    payload = data.model_dump()
+    if payload.get("sort_order") is None:
+        result = await db.execute(
+            select(func.max(CategoryGroup.sort_order)).where(CategoryGroup.household_id == household_id)
+        )
+        max_sort = result.scalar()
+        payload["sort_order"] = 0 if max_sort is None else max_sort + 1
+    group = CategoryGroup(household_id=household_id, **payload)
     db.add(group)
     await db.flush()
     # Fresh object post-flush: async lazy-load of .categories would raise MissingGreenlet during serialization; refresh loads the (empty) collection.
@@ -89,7 +96,14 @@ async def create_category(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Category group not found")
 
-    category = Category(**data.model_dump())
+    payload = data.model_dump()
+    if payload.get("sort_order") is None:
+        result = await db.execute(
+            select(func.max(Category.sort_order)).where(Category.group_id == data.group_id)
+        )
+        max_sort = result.scalar()
+        payload["sort_order"] = 0 if max_sort is None else max_sort + 1
+    category = Category(**payload)
     db.add(category)
     await db.flush()
     return CategoryResponse.model_validate(category)

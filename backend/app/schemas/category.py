@@ -16,7 +16,7 @@ def clean_name(value: Optional[str]) -> Optional[str]:
 
 class CategoryGroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    sort_order: int = 0
+    sort_order: Optional[int] = None
     is_income: bool = False
 
     @field_validator("name")
@@ -39,7 +39,7 @@ class CategoryGroupUpdate(BaseModel):
 class CategoryCreate(BaseModel):
     group_id: str
     name: str = Field(min_length=1, max_length=255)
-    sort_order: int = 0
+    sort_order: Optional[int] = None
     goal_type: str = "none"
     goal_amount: Optional[Decimal] = None
     goal_target_date: Optional[date] = None
