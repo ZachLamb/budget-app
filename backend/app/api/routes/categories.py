@@ -59,7 +59,6 @@ async def update_category_group(
         raise HTTPException(status_code=404, detail="Category group not found")
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(group, field, value)
-    await db.flush()
     return CategoryGroupResponse.model_validate(group)
 
 
