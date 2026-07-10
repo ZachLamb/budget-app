@@ -30,15 +30,11 @@ import { QueryState, inlineErrorQueryMeta } from "@/components/page";
 import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 import { AI_SETTINGS_PATH } from "@/lib/llm/ai-settings-link";
 import { userMessageFor } from "@/lib/llm/errors";
-import { toastApiError } from "@/lib/toast-error";
 import { PageHeader } from "@/components/page";
 import { SetupChecklist } from "@/components/setup-checklist";
 import { NextBestAction } from "@/components/next-best-action";
 import { CycleReviewSection } from "@/components/cycle-review-section";
-import { useQueryClient, useMutation } from "@tanstack/react-query";
 import Link from "next/link";
-import { appToast } from "@/lib/app-toast";
-import { shouldShowMobileSyncBanner } from "@/lib/ux-plan-logic";
 import { AI_COPY } from "@/lib/ai-copy";
 import { aiApi } from "@/lib/api/ai";
 
@@ -329,7 +325,6 @@ function DashboardContent() {
   const prevMonth = navigateMonth(currentMonth, -1);
   const isClient = useIsClient();
   const chartColors = useChartColors(8);
-  const queryClient = useQueryClient();
   const { ref: chartsSectionRef, inView: chartsInView } = useInView();
 
   const { data: accounts = [] } = useQuery({
@@ -343,14 +338,6 @@ function DashboardContent() {
     enabled: isClient,
   });
 
-  const syncMutation = useMutation({
-    mutationFn: syncApi.trigger,
-    onSuccess: () => {
-      appToast.success("Sync started");
-      queryClient.invalidateQueries({ queryKey: ["syncStatus"] });
-    },
-    onError: (e) => toastApiError("Failed to start sync", e),
-  });
   const { data: recentTxns } = useQuery({
     queryKey: ["transactions", "recent"],
     queryFn: () => transactionsApi.list({ page_size: 8 }),
@@ -468,12 +455,6 @@ function DashboardContent() {
     })
     .slice(0, 5);
 
-  const showDesktopStaleHint =
-    accounts.length > 0 &&
-    syncStatus?.is_stale &&
-    !syncStatus?.syncing &&
-    !shouldShowMobileSyncBanner(syncStatus?.last_sync ?? undefined);
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -495,20 +476,6 @@ function DashboardContent() {
                 <Link href="/settings" className="text-primary underline-offset-4 hover:underline">
                   Pay schedule
                 </Link>
-              </span>
-            )}
-            {showDesktopStaleHint && (
-              <span className="hidden md:block mt-1">
-                Figures may not include your latest bank activity.{" "}
-                <Button
-                  type="button"
-                  variant="link"
-                  className="h-auto p-0 text-sm font-medium"
-                  disabled={syncMutation.isPending}
-                  onClick={() => syncMutation.mutate()}
-                >
-                  Sync now
-                </Button>
               </span>
             )}
           </>

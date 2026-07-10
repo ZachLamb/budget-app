@@ -12,6 +12,7 @@ import { settingsApi } from "@/lib/api/settings";
 import { syncApi } from "@/lib/api/sync";
 import { recurringApi } from "@/lib/api/recurring";
 import { cycleCommitmentsApi } from "@/lib/api/cycle-commitments";
+import { deriveCycleSteps, getCycleVisit, CYCLE_TRACKED_PATHS } from "@/lib/cycle-progress";
 import { formatCurrency, getMonthString } from "@/lib/format";
 import { useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
@@ -49,8 +50,10 @@ export function NextBestAction({ className }: { className?: string }) {
     queryFn: () => transactionsApi.list({ uncategorized: true, page: 1, page_size: 1 }),
     enabled: isClient && accounts.length > 0,
   });
+  // Same key as the dashboard's budget query so the cache is shared and the
+  // endpoint isn't fetched twice on page load.
   const { data: budget } = useQuery({
-    queryKey: ["budget", month, "nba"],
+    queryKey: ["budget", month],
     queryFn: () => budgetApi.getMonth(month),
     enabled: isClient && accounts.length > 0,
   });
@@ -161,11 +164,17 @@ export function NextBestAction({ className }: { className?: string }) {
       };
     }
 
-    if (
-      payScheduleReady &&
-      paySchedule?.pay_frequency &&
-      (paySchedule.review_step ?? 0) < 3
-    ) {
+    const activeCommitments = cycleCommitments.filter((c) => c.status === "active");
+    const cycleSteps = deriveCycleSteps({
+      cycleStart: paySchedule?.cycle?.date_from ?? null,
+      serverObserved: paySchedule?.review?.observed ?? false,
+      serverDiagnosed: paySchedule?.review?.diagnosed ?? false,
+      observedAt: getCycleVisit(CYCLE_TRACKED_PATHS.observe),
+      diagnosedAt: getCycleVisit(CYCLE_TRACKED_PATHS.diagnose),
+      decidedThisCycle: cycleCommitments.length > 0 || (paySchedule?.review?.decide_ack ?? false),
+    });
+
+    if (payScheduleReady && paySchedule?.pay_frequency && !cycleSteps.allDone) {
       return {
         title: "Continue your pay-cycle review",
         detail: "Walk observe → diagnose → decide for this window, then add commitments if helpful.",
@@ -174,11 +183,10 @@ export function NextBestAction({ className }: { className?: string }) {
       };
     }
 
-    const activeCommitments = cycleCommitments.filter((c) => c.status === "active");
     if (
       payScheduleReady &&
       paySchedule?.pay_frequency &&
-      (paySchedule.review_step ?? 0) >= 3 &&
+      cycleSteps.allDone &&
       activeCommitments.length > 0
     ) {
       return {
@@ -223,6 +231,9 @@ export function NextBestAction({ className }: { className?: string }) {
     <Card
       className={cn(
         "border-dashed border-amber-200/80 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20",
+        // The mobile sync banner already owns stale-sync messaging on small
+        // screens — showing this card too would double the same nudge.
+        action.primaryVariant === "sync" && "hidden md:block",
         className,
       )}
     >

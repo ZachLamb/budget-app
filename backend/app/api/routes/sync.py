@@ -34,11 +34,31 @@ async def get_sync_status(
     )
     last_sync = result.scalar_one_or_none()
 
-    is_stale = True
+    household_result = await db.execute(
+        select(Household).where(Household.id == household_id)
+    )
+    household = household_result.scalar_one_or_none()
+    bank_connected = bool(household and household.simplefin_access_url)
+
     now = datetime.now(timezone.utc)
-    if last_sync and last_sync.completed_at:
+    if not bank_connected:
+        # No bank linked → nothing to sync, so "staleness" is meaningless.
+        # Prevents nagging users who only add accounts manually or via CSV.
+        is_stale = False
+    elif last_sync and last_sync.completed_at:
+        settings = get_settings()
+        # Don't fight the configured auto-sync cadence: only flag stale once the
+        # data is older than the sync interval plus a grace margin. A 30-minute
+        # threshold against a 4-hour interval would nag ~87% of the time.
+        interval_minutes = (household.sync_interval_hours or 0) * 60
+        threshold_minutes = max(
+            settings.sync_stale_minutes, interval_minutes + settings.sync_stale_minutes
+        )
         age_minutes = (now - _as_utc(last_sync.completed_at)).total_seconds() / 60
-        is_stale = age_minutes > get_settings().sync_stale_minutes
+        is_stale = age_minutes > threshold_minutes
+    else:
+        # Bank linked but no completed sync yet → prompt the first sync.
+        is_stale = True
 
     # A sync stuck in_progress for >10 minutes is a crashed background task — treat as failed
     if last_sync and last_sync.status == "in_progress":

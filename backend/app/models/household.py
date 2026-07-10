@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, date, timezone
 from decimal import Decimal
 from typing import Optional, List
-from sqlalchemy import String, DateTime, Date, Integer, Boolean, Numeric, SmallInteger
+from sqlalchemy import String, DateTime, Date, Integer, Boolean, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -23,7 +23,13 @@ class Household(Base):
     pay_last_confirmed_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, default=None)
     budget_framing: Mapped[str] = mapped_column(String(20), default="strict", server_default="strict")
 
-    cycle_review_step: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
+    # Per-cycle review signals; all cleared when the pay window rolls forward
+    # (anchored by cycle_review_cycle_start). Observed/diagnosed are stamped
+    # when the user actually visits Transactions / Recurring; decide_ack is an
+    # explicit "nothing to change this cycle".
+    cycle_observed_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True, default=None)
+    cycle_diagnosed_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True, default=None)
+    cycle_decide_ack: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     cycle_review_cycle_start: Mapped[Optional[date]] = mapped_column(Date, nullable=True, default=None)
 
     users: Mapped[List["User"]] = relationship(back_populates="household")
