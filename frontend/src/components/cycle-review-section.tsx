@@ -23,14 +23,38 @@ import { useIsClient, useDemoGuard } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
 import { appToast } from "@/lib/app-toast";
 import { cn } from "@/lib/utils";
-import { ListChecks, Check, Circle, ChevronRight } from "lucide-react";
+import { ListChecks, Check, Circle, ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { deriveCycleSteps, getCycleVisit, CYCLE_TRACKED_PATHS } from "@/lib/cycle-progress";
 
-const STEPS = [
-  { n: 0, label: "Observe", hint: "Scan spending for this pay window on the dashboard and Activity." },
-  { n: 1, label: "Diagnose", hint: "Review recurring charges and subscription cancel help." },
-  { n: 2, label: "Decide", hint: "Write 1–3 concrete intentions for before next pay." },
-  { n: 3, label: "Done", hint: "You’ve walked the cycle for this window." },
+type Step = {
+  key: "observed" | "diagnosed" | "decided";
+  label: string;
+  hint: string;
+  href?: string;
+  linkLabel?: string;
+};
+
+const STEPS: Step[] = [
+  {
+    key: "observed",
+    label: "Observe",
+    hint: "Look over what you spent this pay window — completes once you open Transactions.",
+    href: "/transactions",
+    linkLabel: "Open Transactions",
+  },
+  {
+    key: "diagnosed",
+    label: "Diagnose",
+    hint: "Review recurring charges and subscriptions — completes once you open Recurring.",
+    href: "/recurring",
+    linkLabel: "Review recurring",
+  },
+  {
+    key: "decided",
+    label: "Decide",
+    hint: "Add a commitment below for before your next pay — or mark that nothing needs to change.",
+  },
 ];
 
 export function CycleReviewSection({ className }: { className?: string }) {
@@ -52,13 +76,12 @@ export function CycleReviewSection({ className }: { className?: string }) {
     enabled: isClient,
   });
 
-  const reviewMutation = useMutation({
+  const ackMutation = useMutation({
     mutationFn: settingsApi.updateCycleReview,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["paySchedule"] });
-      appToast.success("Review progress saved");
+    onSuccess: (data) => {
+      queryClient.setQueryData(["paySchedule"], data);
     },
-    onError: (e) => toastApiError("Could not update review step", e),
+    onError: (e) => toastApiError("Could not update the checklist", e),
   });
 
   const createMut = useMutation({
@@ -80,9 +103,19 @@ export function CycleReviewSection({ className }: { className?: string }) {
 
   if (!isClient || !paySchedule) return null;
 
-  const step = Math.min(3, Math.max(0, paySchedule.review_step ?? 0));
   const active = commitments.filter((c: CycleCommitment) => c.status === "active");
   const hasSchedule = Boolean(paySchedule.pay_frequency);
+
+  const cycleStart = paySchedule.cycle.date_from;
+  const decidedByAck = paySchedule.review?.decide_ack ?? false;
+  const steps = deriveCycleSteps({
+    cycleStart,
+    serverObserved: paySchedule.review?.observed ?? false,
+    serverDiagnosed: paySchedule.review?.diagnosed ?? false,
+    observedAt: getCycleVisit(CYCLE_TRACKED_PATHS.observe),
+    diagnosedAt: getCycleVisit(CYCLE_TRACKED_PATHS.diagnose),
+    decidedThisCycle: commitments.length > 0 || decidedByAck,
+  });
 
   return (
     <Card id="cycle-review" className={cn(className)}>
@@ -92,7 +125,8 @@ export function CycleReviewSection({ className }: { className?: string }) {
           This pay cycle
         </CardTitle>
         <CardDescription>
-          Observe → diagnose → decide. Resets when your pay window rolls forward.
+          Observe → diagnose → decide. Progress updates automatically as you review this window; it
+          resets when your pay window rolls forward.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -111,58 +145,82 @@ export function CycleReviewSection({ className }: { className?: string }) {
           </p>
         ) : (
           <>
-            <div className="flex flex-wrap gap-2">
-              {STEPS.slice(0, 3).map((s) => {
-                const done = step > s.n;
-                const current = step === s.n;
+            <ul className="space-y-2.5">
+              {STEPS.map((s) => {
+                const done = steps[s.key];
                 return (
-                  <div
-                    key={s.n}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs",
-                      current && "border-primary bg-primary/5",
-                      done && "opacity-70",
-                    )}
-                  >
+                  <li key={s.key} className="flex items-start gap-2">
                     {done ? (
-                      <Check className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-green-600" aria-hidden />
                     ) : (
-                      <Circle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                     )}
-                    <span className="font-medium">{s.label}</span>
-                  </div>
+                    <div className="min-w-0 flex-1">
+                      <p className={cn("text-sm font-medium", done && "text-muted-foreground")}>
+                        {s.label}
+                        {done ? <span className="ml-1.5 text-xs font-normal text-green-600">done</span> : null}
+                      </p>
+                      {!done ? (
+                        <p className="text-xs text-muted-foreground">{s.hint}</p>
+                      ) : null}
+                      {!done && s.href ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="mt-1.5 h-7 gap-1 text-xs"
+                          asChild
+                        >
+                          <Link href={s.href}>
+                            {s.linkLabel}
+                            <ArrowRight className="h-3 w-3" />
+                          </Link>
+                        </Button>
+                      ) : null}
+                      {!done && s.key === "decided" ? (
+                        <button
+                          type="button"
+                          className="mt-1.5 block text-xs text-primary underline-offset-4 hover:underline disabled:opacity-50"
+                          disabled={ackMutation.isPending || isDemo}
+                          title={isDemo ? "Demo is read-only" : undefined}
+                          onClick={() => ackMutation.mutate({ decide_ack: true })}
+                        >
+                          Nothing to change this cycle
+                        </button>
+                      ) : null}
+                    </div>
+                  </li>
                 );
               })}
-            </div>
-            <p className="text-sm text-muted-foreground">{STEPS[step]?.hint}</p>
+            </ul>
+
+            {steps.allDone ? (
+              <p className="text-sm text-green-700 dark:text-green-400">
+                Nice — you’ve walked the full cycle for this window.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                These tick off on their own as you review — no buttons to click through.
+              </p>
+            )}
+
+            {decidedByAck && commitments.length === 0 ? (
+              <button
+                type="button"
+                className="text-xs text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+                disabled={ackMutation.isPending || isDemo}
+                title={isDemo ? "Demo is read-only" : undefined}
+                onClick={() => ackMutation.mutate({ decide_ack: false })}
+              >
+                Undo “nothing to change”
+              </button>
+            ) : null}
+
             {isDemo ? (
               <p className="text-xs text-muted-foreground">
                 Demo is read-only — sign up to track your own pay cycle and commitments.
               </p>
             ) : null}
-            {step < 3 ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="gap-1"
-                  disabled={reviewMutation.isPending || isDemo}
-                  title={isDemo ? "Demo is read-only" : undefined}
-                  onClick={() => reviewMutation.mutate(Math.min(3, step + 1))}
-                >
-                  Complete “{STEPS[step]?.label}”
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </Button>
-                {step === 1 && (
-                  <Button type="button" size="sm" variant="outline" asChild>
-                    <Link href="/recurring">Recurring &amp; suggestions</Link>
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-green-700 dark:text-green-400">Nice — cycle review complete for this window.</p>
-            )}
 
             <div className="border-t pt-4 space-y-3">
               <p className="text-sm font-medium">Commitments (max 3 active)</p>

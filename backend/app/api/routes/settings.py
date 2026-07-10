@@ -234,16 +234,26 @@ class PayCycleDto(BaseModel):
     is_fallback_30d: bool
 
 
+class CycleReviewDto(BaseModel):
+    observed: bool = False
+    diagnosed: bool = False
+    decide_ack: bool = False
+
+
 class PayScheduleResponse(BaseModel):
     pay_frequency: Optional[str] = None
     pay_last_confirmed_date: Optional[date] = None
     budget_framing: str = "strict"
     cycle: PayCycleDto
-    review_step: int = 0
+    review: CycleReviewDto = CycleReviewDto()
 
 
 class CycleReviewUpdate(BaseModel):
-    step: int = Field(..., ge=0, le=3)
+    """Partial update — only fields the client sends are applied."""
+
+    observed: Optional[bool] = None
+    diagnosed: Optional[bool] = None
+    decide_ack: Optional[bool] = None
 
 
 class PayScheduleUpdate(BaseModel):
@@ -253,10 +263,12 @@ class PayScheduleUpdate(BaseModel):
 
 
 def _sync_cycle_review_anchor(h: Household, c: PayCycleResolved) -> bool:
-    """Reset review step when the resolved pay-cycle start date changes."""
+    """Reset review signals when the resolved pay-cycle start date changes."""
     if h.cycle_review_cycle_start != c.date_from:
         h.cycle_review_cycle_start = c.date_from
-        h.cycle_review_step = 0
+        h.cycle_observed_at = None
+        h.cycle_diagnosed_at = None
+        h.cycle_decide_ack = False
         return True
     return False
 
@@ -266,11 +278,6 @@ def _pay_schedule_to_response(h: Household, c: Optional[PayCycleResolved] = None
     framing = (h.budget_framing or "strict").strip().lower()
     if framing not in _VALID_BUDGET_FRAMING:
         framing = "strict"
-    step = int(h.cycle_review_step or 0)
-    if step < 0:
-        step = 0
-    if step > 3:
-        step = 3
     return PayScheduleResponse(
         pay_frequency=h.pay_frequency,
         pay_last_confirmed_date=h.pay_last_confirmed_date,
@@ -282,7 +289,11 @@ def _pay_schedule_to_response(h: Household, c: Optional[PayCycleResolved] = None
             label=resolved.label,
             is_fallback_30d=resolved.is_fallback_30d,
         ),
-        review_step=step,
+        review=CycleReviewDto(
+            observed=h.cycle_observed_at is not None,
+            diagnosed=h.cycle_diagnosed_at is not None,
+            decide_ack=bool(h.cycle_decide_ack),
+        ),
     )
 
 
@@ -373,14 +384,22 @@ async def update_cycle_review(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):
-    """Advance pay-cycle review steps (0–3); resets when the resolved cycle start changes."""
+    """Record pay-cycle review signals; they reset when the resolved cycle start changes."""
     result = await db.execute(select(Household).where(Household.id == household_id))
     household = result.scalar_one_or_none()
     if not household:
         raise HTTPException(404, "Household not found")
     c = resolve_pay_cycle(utc_today(), household.pay_frequency, household.pay_last_confirmed_date)
     _sync_cycle_review_anchor(household, c)
-    household.cycle_review_step = body.step
+
+    today = utc_today()
+    if "observed" in body.model_fields_set and body.observed is not None:
+        household.cycle_observed_at = today if body.observed else None
+    if "diagnosed" in body.model_fields_set and body.diagnosed is not None:
+        household.cycle_diagnosed_at = today if body.diagnosed else None
+    if "decide_ack" in body.model_fields_set and body.decide_ack is not None:
+        household.cycle_decide_ack = body.decide_ack
+
     await db.commit()
     await db.refresh(household)
     return _pay_schedule_to_response(household, c)

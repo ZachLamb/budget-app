@@ -43,12 +43,19 @@ export type PayScheduleFrequency =
   | "semimonthly"
   | "irregular";
 
+/** Server-recorded review signals for the current pay cycle. */
+export interface CycleReviewSignals {
+  observed: boolean;
+  diagnosed: boolean;
+  decide_ack: boolean;
+}
+
 export interface PaySchedule {
   pay_frequency: PayScheduleFrequency | null;
   pay_last_confirmed_date: string | null;
   budget_framing: string;
   cycle: PayCycleDto;
-  review_step?: number;
+  review?: CycleReviewSignals;
 }
 
 export type PayScheduleUpdate = {
@@ -76,6 +83,6 @@ export const settingsApi = {
   updatePaySchedule: (data: PayScheduleUpdate) =>
     api.put<PaySchedule>("/settings/pay-schedule", data).then((r) => r.data),
 
-  updateCycleReview: (step: number) =>
-    api.put<PaySchedule>("/settings/cycle-review", { step }).then((r) => r.data),
+  updateCycleReview: (signals: Partial<CycleReviewSignals>) =>
+    api.put<PaySchedule>("/settings/cycle-review", signals).then((r) => r.data),
 };
