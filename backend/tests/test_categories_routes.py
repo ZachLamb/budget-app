@@ -80,6 +80,18 @@ async def _seed_household(session) -> tuple[str, dict]:
     return hid, {"Authorization": f"Bearer {_token_for(uid)}"}
 
 
+async def _seed_catalog(session, hid: str):
+    """One expense group with two categories, committed."""
+    group = CategoryGroup(id=str(uuid.uuid4()), household_id=hid, name="Everyday", sort_order=0)
+    session.add(group)
+    await session.flush()
+    cat_a = Category(id=str(uuid.uuid4()), group_id=group.id, name="Groceries", sort_order=0)
+    cat_b = Category(id=str(uuid.uuid4()), group_id=group.id, name="Dining", sort_order=1)
+    session.add_all([cat_a, cat_b])
+    await session.commit()
+    return group, cat_a, cat_b
+
+
 def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
@@ -157,3 +169,46 @@ async def test_new_categories_append_in_creation_order(fixture):
     cats = listing.json()[0]["categories"]
     assert [c["name"] for c in cats] == ["Groceries", "Dining", "Fun"]
     assert [c["sort_order"] for c in cats] == [0, 1, 2]
+
+
+@pytest.mark.asyncio
+async def test_usage_counts_by_category(fixture):
+    session, _ = fixture
+    hid, headers = await _seed_household(session)
+    group, cat_a, cat_b = await _seed_catalog(session, hid)
+    account = Account(
+        id=str(uuid.uuid4()), household_id=hid, name="Checking",
+        account_type="checking", is_budget_account=True,
+    )
+    session.add(account)
+    session.add(Transaction(account_id=account.id, category_id=cat_a.id, date=date(2026, 7, 1), amount=Decimal("-10")))
+    session.add(Transaction(account_id=account.id, category_id=cat_a.id, date=date(2026, 7, 2), amount=Decimal("-20")))
+    session.add(BudgetAssignment(household_id=hid, category_id=cat_a.id, month="2026-07", assigned_amount=Decimal("100")))
+    session.add(AutoCategorizationRule(
+        household_id=hid, match_field="payee", match_type="contains", match_value="mart", category_id=cat_b.id,
+    ))
+    session.add(Payee(household_id=hid, name="Safeway", default_category_id=cat_a.id))
+    session.add(RecurringTransaction(
+        household_id=hid, amount=Decimal("-15"), category_id=cat_b.id,
+        frequency="monthly", next_date=date(2026, 8, 1),
+    ))
+    await session.commit()
+
+    async with _client() as client:
+        resp = await client.get("/api/categories/usage", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body[cat_a.id] == {"transactions": 2, "budget_entries": 1, "rules": 0, "payees": 1, "recurring": 0}
+    assert body[cat_b.id] == {"transactions": 0, "budget_entries": 0, "rules": 1, "payees": 0, "recurring": 1}
+
+
+@pytest.mark.asyncio
+async def test_usage_isolated_per_household(fixture):
+    session, _ = fixture
+    hid_a, _ = await _seed_household(session)
+    await _seed_catalog(session, hid_a)
+    _, headers_b = await _seed_household(session)
+    async with _client() as client:
+        resp = await client.get("/api/categories/usage", headers=headers_b)
+    assert resp.status_code == 200
+    assert resp.json() == {}

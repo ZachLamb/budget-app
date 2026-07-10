@@ -5,10 +5,18 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.api.deps import get_household_id
-from app.models import CategoryGroup, Category
+from app.models import (
+    AutoCategorizationRule,
+    BudgetAssignment,
+    Category,
+    CategoryGroup,
+    Payee,
+    RecurringTransaction,
+    Transaction,
+)
 from app.schemas.category import (
     CategoryGroupCreate, CategoryGroupUpdate, CategoryGroupResponse,
-    CategoryCreate, CategoryUpdate, CategoryResponse,
+    CategoryCreate, CategoryUpdate, CategoryResponse, CategoryUsageResponse,
 )
 
 router = APIRouter()
@@ -26,6 +34,40 @@ async def list_category_groups(
         .order_by(CategoryGroup.sort_order, CategoryGroup.created_at)
     )
     return [CategoryGroupResponse.model_validate(g) for g in result.scalars().all()]
+
+
+async def _usage_counts(db: AsyncSession, category_ids: list[str]) -> dict[str, CategoryUsageResponse]:
+    """Per-category reference counts across everything that points at a category."""
+    usage = {cid: CategoryUsageResponse() for cid in category_ids}
+    if not category_ids:
+        return usage
+    sources = (
+        ("transactions", Transaction.category_id),
+        ("budget_entries", BudgetAssignment.category_id),
+        ("rules", AutoCategorizationRule.category_id),
+        ("payees", Payee.default_category_id),
+        ("recurring", RecurringTransaction.category_id),
+    )
+    for field, column in sources:
+        result = await db.execute(
+            select(column, func.count()).where(column.in_(category_ids)).group_by(column)
+        )
+        for cid, count in result.all():
+            setattr(usage[cid], field, count)
+    return usage
+
+
+@router.get("/usage", response_model=dict[str, CategoryUsageResponse])
+async def category_usage(
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Category.id)
+        .join(CategoryGroup, Category.group_id == CategoryGroup.id)
+        .where(CategoryGroup.household_id == household_id)
+    )
+    return await _usage_counts(db, [row[0] for row in result.all()])
 
 
 @router.post("/groups", response_model=CategoryGroupResponse, status_code=201)

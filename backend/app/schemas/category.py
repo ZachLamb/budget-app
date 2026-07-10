@@ -87,3 +87,11 @@ class CategoryGroupResponse(BaseModel):
     categories: list[CategoryResponse] = []
 
     model_config = {"from_attributes": True}
+
+
+class CategoryUsageResponse(BaseModel):
+    transactions: int = 0
+    budget_entries: int = 0
+    rules: int = 0
+    payees: int = 0
+    recurring: int = 0
