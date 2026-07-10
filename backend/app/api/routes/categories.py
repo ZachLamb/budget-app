@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update as sql_update
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
@@ -55,6 +55,23 @@ async def _usage_counts(db: AsyncSession, category_ids: list[str]) -> dict[str, 
         for cid, count in result.all():
             setattr(usage[cid], field, count)
     return usage
+
+
+_BLOCKER_LABELS = (
+    ("budget_entries", "budget entry", "budget entries"),
+    ("rules", "rule", "rules"),
+    ("payees", "payee default", "payee defaults"),
+    ("recurring", "recurring item", "recurring items"),
+)
+
+
+def _blocker_phrases(usage: CategoryUsageResponse) -> list[str]:
+    phrases = []
+    for field, singular, plural in _BLOCKER_LABELS:
+        count = getattr(usage, field)
+        if count:
+            phrases.append(f"{count} {singular if count == 1 else plural}")
+    return phrases
 
 
 @router.get("/usage", response_model=dict[str, CategoryUsageResponse])
@@ -195,4 +212,15 @@ async def delete_category(
     category = result.scalar_one_or_none()
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
+    usage = (await _usage_counts(db, [category_id]))[category_id]
+    phrases = _blocker_phrases(usage)
+    if phrases:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete '{category.name}': used by {' and '.join(phrases)}. Remove those first.",
+        )
+    # Transactions may reference the category; uncategorize them instead of failing.
+    await db.execute(
+        sql_update(Transaction).where(Transaction.category_id == category_id).values(category_id=None)
+    )
     await db.delete(category)

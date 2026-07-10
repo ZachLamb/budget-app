@@ -212,3 +212,52 @@ async def test_usage_isolated_per_household(fixture):
         resp = await client.get("/api/categories/usage", headers=headers_b)
     assert resp.status_code == 200
     assert resp.json() == {}
+
+
+@pytest.mark.asyncio
+async def test_delete_category_blocked_by_rule(fixture):
+    session, _ = fixture
+    hid, headers = await _seed_household(session)
+    _, cat_a, _ = await _seed_catalog(session, hid)
+    session.add(AutoCategorizationRule(
+        household_id=hid, match_field="payee", match_type="contains", match_value="x", category_id=cat_a.id,
+    ))
+    await session.commit()
+    async with _client() as client:
+        resp = await client.delete(f"/api/categories/{cat_a.id}", headers=headers)
+        assert resp.status_code == 409
+        assert "1 rule" in resp.json()["detail"]
+        listing = await client.get("/api/categories/groups", headers=headers)
+    names = [c["name"] for g in listing.json() for c in g["categories"]]
+    assert "Groceries" in names  # still there
+
+
+@pytest.mark.asyncio
+async def test_delete_category_uncategorizes_transactions(fixture):
+    session, _ = fixture
+    hid, headers = await _seed_household(session)
+    _, cat_a, _ = await _seed_catalog(session, hid)
+    account = Account(
+        id=str(uuid.uuid4()), household_id=hid, name="Checking",
+        account_type="checking", is_budget_account=True,
+    )
+    session.add(account)
+    txn = Transaction(account_id=account.id, category_id=cat_a.id, date=date(2026, 7, 1), amount=Decimal("-10"))
+    session.add(txn)
+    await session.commit()
+    async with _client() as client:
+        resp = await client.delete(f"/api/categories/{cat_a.id}", headers=headers)
+    assert resp.status_code == 204
+    await session.refresh(txn)
+    assert txn.category_id is None
+
+
+@pytest.mark.asyncio
+async def test_delete_category_cross_household_404(fixture):
+    session, _ = fixture
+    hid_a, _ = await _seed_household(session)
+    _, cat_a, _ = await _seed_catalog(session, hid_a)
+    _, headers_b = await _seed_household(session)
+    async with _client() as client:
+        resp = await client.delete(f"/api/categories/{cat_a.id}", headers=headers_b)
+    assert resp.status_code == 404
