@@ -140,6 +140,27 @@ async def delete_category_group(
     group = result.scalar_one_or_none()
     if not group:
         raise HTTPException(status_code=404, detail="Category group not found")
+
+    result = await db.execute(select(Category).where(Category.group_id == group_id))
+    categories = result.scalars().all()
+    usage = await _usage_counts(db, [c.id for c in categories])
+    blocked = []
+    for category in categories:
+        phrases = _blocker_phrases(usage[category.id])
+        if phrases:
+            blocked.append(f"'{category.name}' is used by {' and '.join(phrases)}")
+    if blocked:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete group '{group.name}': {'; '.join(blocked)}. Remove those first.",
+        )
+    category_ids = [c.id for c in categories]
+    if category_ids:
+        await db.execute(
+            sql_update(Transaction).where(Transaction.category_id.in_(category_ids)).values(category_id=None)
+        )
+        for category in categories:
+            await db.delete(category)
     await db.delete(group)
 
 

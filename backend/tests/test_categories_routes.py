@@ -261,3 +261,41 @@ async def test_delete_category_cross_household_404(fixture):
     async with _client() as client:
         resp = await client.delete(f"/api/categories/{cat_a.id}", headers=headers_b)
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_group_with_categories_succeeds(fixture):
+    """Regression: this 500'd before — no cascade rules on the FK."""
+    session, _ = fixture
+    hid, headers = await _seed_household(session)
+    group, cat_a, _ = await _seed_catalog(session, hid)
+    account = Account(
+        id=str(uuid.uuid4()), household_id=hid, name="Checking",
+        account_type="checking", is_budget_account=True,
+    )
+    session.add(account)
+    txn = Transaction(account_id=account.id, category_id=cat_a.id, date=date(2026, 7, 1), amount=Decimal("-10"))
+    session.add(txn)
+    await session.commit()
+    async with _client() as client:
+        resp = await client.delete(f"/api/categories/groups/{group.id}", headers=headers)
+        assert resp.status_code == 204
+        listing = await client.get("/api/categories/groups", headers=headers)
+    assert listing.json() == []
+    await session.refresh(txn)
+    assert txn.category_id is None
+
+
+@pytest.mark.asyncio
+async def test_delete_group_blocked_by_child_usage(fixture):
+    session, _ = fixture
+    hid, headers = await _seed_household(session)
+    group, cat_a, _ = await _seed_catalog(session, hid)
+    session.add(BudgetAssignment(household_id=hid, category_id=cat_a.id, month="2026-07", assigned_amount=Decimal("50")))
+    await session.commit()
+    async with _client() as client:
+        resp = await client.delete(f"/api/categories/groups/{group.id}", headers=headers)
+        assert resp.status_code == 409
+        assert "Groceries" in resp.json()["detail"]
+        listing = await client.get("/api/categories/groups", headers=headers)
+    assert len(listing.json()) == 1  # nothing deleted
