@@ -17,6 +17,7 @@ from app.models import (
 from app.schemas.category import (
     CategoryGroupCreate, CategoryGroupUpdate, CategoryGroupResponse,
     CategoryCreate, CategoryUpdate, CategoryResponse, CategoryUsageResponse,
+    GroupOrderUpdate, CategoryOrderUpdate,
 )
 
 router = APIRouter()
@@ -85,6 +86,39 @@ async def category_usage(
         .where(CategoryGroup.household_id == household_id)
     )
     return await _usage_counts(db, [row[0] for row in result.all()])
+
+
+@router.put("/groups/order", status_code=204)
+async def reorder_groups(
+    data: GroupOrderUpdate,
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(CategoryGroup).where(CategoryGroup.household_id == household_id))
+    groups = {g.id: g for g in result.scalars().all()}
+    if sorted(data.ordered_ids) != sorted(groups):
+        raise HTTPException(status_code=400, detail="ordered_ids must contain every group id exactly once")
+    for index, gid in enumerate(data.ordered_ids):
+        groups[gid].sort_order = index
+
+
+@router.put("/order", status_code=204)
+async def reorder_categories(
+    data: CategoryOrderUpdate,
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(CategoryGroup).where(CategoryGroup.id == data.group_id, CategoryGroup.household_id == household_id)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Category group not found")
+    result = await db.execute(select(Category).where(Category.group_id == data.group_id))
+    categories = {c.id: c for c in result.scalars().all()}
+    if sorted(data.ordered_ids) != sorted(categories):
+        raise HTTPException(status_code=400, detail="ordered_ids must contain every category id in the group exactly once")
+    for index, cid in enumerate(data.ordered_ids):
+        categories[cid].sort_order = index
 
 
 @router.post("/groups", response_model=CategoryGroupResponse, status_code=201)

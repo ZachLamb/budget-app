@@ -299,3 +299,61 @@ async def test_delete_group_blocked_by_child_usage(fixture):
         assert "Groceries" in resp.json()["detail"]
         listing = await client.get("/api/categories/groups", headers=headers)
     assert len(listing.json()) == 1  # nothing deleted
+
+
+@pytest.mark.asyncio
+async def test_reorder_groups(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        ids = []
+        for name in ("Alpha", "Beta", "Gamma"):
+            resp = await client.post("/api/categories/groups", headers=headers, json={"name": name})
+            ids.append(resp.json()["id"])
+        resp = await client.put("/api/categories/groups/order", headers=headers,
+                                json={"ordered_ids": list(reversed(ids))})
+        assert resp.status_code == 204
+        listing = await client.get("/api/categories/groups", headers=headers)
+    assert [g["name"] for g in listing.json()] == ["Gamma", "Beta", "Alpha"]
+
+
+@pytest.mark.asyncio
+async def test_reorder_groups_requires_full_set(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        a = (await client.post("/api/categories/groups", headers=headers, json={"name": "A"})).json()["id"]
+        await client.post("/api/categories/groups", headers=headers, json={"name": "B"})
+        partial = await client.put("/api/categories/groups/order", headers=headers, json={"ordered_ids": [a]})
+        assert partial.status_code == 400
+        dupes = await client.put("/api/categories/groups/order", headers=headers, json={"ordered_ids": [a, a]})
+        assert dupes.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_reorder_categories_within_group(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        gid = (await client.post("/api/categories/groups", headers=headers, json={"name": "G"})).json()["id"]
+        ids = []
+        for name in ("One", "Two"):
+            resp = await client.post("/api/categories", headers=headers, json={"group_id": gid, "name": name})
+            ids.append(resp.json()["id"])
+        resp = await client.put("/api/categories/order", headers=headers,
+                                json={"group_id": gid, "ordered_ids": list(reversed(ids))})
+        assert resp.status_code == 204
+        listing = await client.get("/api/categories/groups", headers=headers)
+    assert [c["name"] for c in listing.json()[0]["categories"]] == ["Two", "One"]
+
+
+@pytest.mark.asyncio
+async def test_reorder_categories_foreign_group_404(fixture):
+    session, _ = fixture
+    hid_a, _ = await _seed_household(session)
+    group, cat_a, cat_b = await _seed_catalog(session, hid_a)
+    _, headers_b = await _seed_household(session)
+    async with _client() as client:
+        resp = await client.put("/api/categories/order", headers=headers_b,
+                                json={"group_id": group.id, "ordered_ids": [cat_b.id, cat_a.id]})
+    assert resp.status_code == 404

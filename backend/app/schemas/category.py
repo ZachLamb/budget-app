@@ -95,3 +95,12 @@ class CategoryUsageResponse(BaseModel):
     rules: int = 0
     payees: int = 0
     recurring: int = 0
+
+
+class GroupOrderUpdate(BaseModel):
+    ordered_ids: list[str] = Field(min_length=1)
+
+
+class CategoryOrderUpdate(BaseModel):
+    group_id: str
+    ordered_ids: list[str] = Field(min_length=1)
