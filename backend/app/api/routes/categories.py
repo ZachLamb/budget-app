@@ -37,6 +37,7 @@ async def create_category_group(
     group = CategoryGroup(household_id=household_id, **data.model_dump())
     db.add(group)
     await db.flush()
+    await db.refresh(group, ["categories"])
     return CategoryGroupResponse.model_validate(group)
 
 
@@ -57,6 +58,8 @@ async def update_category_group(
         raise HTTPException(status_code=404, detail="Category group not found")
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(group, field, value)
+    await db.flush()
+    await db.refresh(group, ["categories"])
     return CategoryGroupResponse.model_validate(group)
 
 
