@@ -21,11 +21,21 @@ export interface CategoryGroup {
   categories: Category[];
 }
 
+export interface CategoryUsage {
+  transactions: number;
+  budget_entries: number;
+  rules: number;
+  payees: number;
+  recurring: number;
+}
+
+export type CategoryUsageMap = Record<string, CategoryUsage>;
+
 export const categoriesApi = {
   listGroups: () => api.get<CategoryGroup[]>("/categories/groups").then((r) => r.data),
   createGroup: (data: { name: string; sort_order?: number; is_income?: boolean }) =>
     api.post<CategoryGroup>("/categories/groups", data).then((r) => r.data),
-  updateGroup: (id: string, data: Partial<{ name: string; sort_order: number }>) =>
+  updateGroup: (id: string, data: Partial<{ name: string; sort_order: number; is_income: boolean }>) =>
     api.put<CategoryGroup>(`/categories/groups/${id}`, data).then((r) => r.data),
   deleteGroup: (id: string) => api.delete(`/categories/groups/${id}`),
   create: (data: { group_id: string; name: string; sort_order?: number }) =>
@@ -33,4 +43,8 @@ export const categoriesApi = {
   update: (id: string, data: Partial<{ name: string; group_id: string }>) =>
     api.put<Category>(`/categories/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/categories/${id}`),
+  usage: () => api.get<CategoryUsageMap>("/categories/usage").then((r) => r.data),
+  reorderGroups: (ordered_ids: string[]) => api.put("/categories/groups/order", { ordered_ids }),
+  reorderCategories: (group_id: string, ordered_ids: string[]) =>
+    api.put("/categories/order", { group_id, ordered_ids }),
 };
