@@ -32,11 +32,12 @@ function CategoriesContent() {
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
   const [deleteCatId, setDeleteCatId] = useState<string | null>(null);
   const [newGroup, setNewGroup] = useState("");
+  const [newGroupIncome, setNewGroupIncome] = useState(false);
 
   const queryClient = useQueryClient();
   const isClient = useIsClient();
   const groupInputRef = useRef<HTMLInputElement>(null);
-  const { isExpanded, toggle } = useCollapsedGroups();
+  const { isExpanded, toggle, collapseAll, expandAll } = useCollapsedGroups();
 
   const { data: groups = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ["categoryGroups"],
@@ -62,6 +63,7 @@ function CategoriesContent() {
       invalidate();
       appToast.success("Group created");
       setNewGroup("");
+      setNewGroupIncome(false);
     },
     onError: (e) => toastApiError("Failed to create group", e),
   });
@@ -132,16 +134,30 @@ function CategoriesContent() {
   const submitNewGroup = () => {
     const name = newGroup.trim();
     if (!name || createGroupMutation.isPending) return;
-    createGroupMutation.mutate({ name });
+    createGroupMutation.mutate({ name, is_income: newGroupIncome });
   };
 
   const groupPendingDelete = groups.find((g) => g.id === deleteGroupId);
   const groupConsequence = describeGroupDelete(groupPendingDelete, usage);
   const catConsequence = describeCategoryDelete(deleteCatId ? usage?.[deleteCatId] : undefined);
+  const anyCollapsed = groups.some((g) => !isExpanded(g.id));
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Categories" description="Organize income and spending with groups and categories." />
+      <PageHeader
+        title="Categories"
+        description="Organize income and spending with groups and categories."
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={groups.length === 0}
+            onClick={() => (anyCollapsed ? expandAll() : collapseAll(groups.map((g) => g.id)))}
+          >
+            {anyCollapsed ? "Expand all" : "Collapse all"}
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader>
@@ -155,6 +171,15 @@ function CategoriesContent() {
                 if (e.key === "Enter") submitNewGroup();
               }}
             />
+            <label className="flex items-center gap-1.5 whitespace-nowrap text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-primary"
+                checked={newGroupIncome}
+                onChange={(e) => setNewGroupIncome(e.target.checked)}
+              />
+              Income
+            </label>
             <Button
               size="sm"
               aria-label="Create group"
