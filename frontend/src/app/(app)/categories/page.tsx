@@ -107,6 +107,7 @@ function CategoriesContent() {
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
+    // dnd-kit types data.current as unknown; the only producers are our two useSortable call sites, which set exactly these shapes.
     const data = active.data.current as
       | { type: "group" }
       | { type: "category"; groupId: string }

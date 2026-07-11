@@ -348,6 +348,19 @@ async def test_reorder_categories_within_group(fixture):
 
 
 @pytest.mark.asyncio
+async def test_delete_group_cross_household_404(fixture):
+    session, _ = fixture
+    hid_a, headers_a = await _seed_household(session)
+    group, _, _ = await _seed_catalog(session, hid_a)
+    _, headers_b = await _seed_household(session)
+    async with _client() as client:
+        resp = await client.delete(f"/api/categories/groups/{group.id}", headers=headers_b)
+        assert resp.status_code == 404
+        listing = await client.get("/api/categories/groups", headers=headers_a)
+    assert any(g["id"] == group.id for g in listing.json())
+
+
+@pytest.mark.asyncio
 async def test_reorder_categories_foreign_group_404(fixture):
     session, _ = fixture
     hid_a, _ = await _seed_household(session)
