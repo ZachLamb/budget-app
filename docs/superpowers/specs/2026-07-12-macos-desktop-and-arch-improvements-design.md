@@ -25,14 +25,18 @@
 ### 2B — Move LLM Prompt Logic Server-Side
 
 **Problem:** Cascade logic, prompt templates, schema validation, and retry logic live in browser TypeScript (`frontend/src/lib/llm/`). The macOS app would have to reimplement all of it in Swift.  
-**Fix:** FastAPI gains higher-level intent endpoints:
-- `POST /api/ai/categorize` — accepts raw transactions, returns categorization JSON
-- `POST /api/ai/chat` — accepts budget context query, streams conversational response
-- `POST /api/ai/parse-document` — accepts extracted text from PDF/CSV, returns structured transactions
+**Fix:** FastAPI gains an inference-context endpoint family that returns constructed prompts to clients, which run inference locally and return structured results:
 
-Each endpoint accepts an optional `x-local-llm-url` header. When present, the backend relays the prompt to the caller's local Ollama/LM Studio instance instead of its own configured backend. This lets the macOS app keep inference local while the backend handles prompt engineering.
+- `POST /api/ai/inference-context/categorize` — accepts raw transactions, returns `{system, prompt, schema}` the client sends to its local LLM
+- `POST /api/ai/inference-context/chat` — accepts a budget query + grounded facts, returns prompt for local inference
+- `POST /api/ai/inference-context/parse-document` — accepts extracted text, returns prompt for local parsing
 
-Backend retains the cascade: caller-provided local LLM → backend Ollama → cloud (with consent check).
+Flow:  
+1. Client POSTs raw data → gets back `{system, prompt, response_schema}`  
+2. Client sends prompt to local LLM (Ollama, Nano, WebLLM — wherever)  
+3. Client POSTs structured result to existing `/api/ai/execute-action`
+
+This mirrors the existing web app's prepare→infer→execute pattern but moves step 1 server-side. The backend never makes outbound requests to client-supplied URLs (no SSRF surface). For cloud fallback (Tier 3), the client sends `"tier": "cloud"` in step 3 and the backend handles cloud inference itself using its own configured endpoint.
 
 ### 2C — OpenAPI Codegen
 
@@ -156,8 +160,10 @@ macOS App                        FastAPI Backend              PostgreSQL
 AuthManager ──── Bearer JWT ────► /api/auth/* 
 SyncCoordinator ─────────────────► /api/transactions (paginated fetch)
                  ◄──── SSE ───── /api/realtime/events
-InferenceManager (Tier 1) ───────────────────────────────── (local only)
-InferenceManager (Tier 3) ──── x-local-llm-url ──►  /api/ai/categorize
+InferenceManager ────────────► /api/ai/inference-context/categorize
+                 ◄── {system,prompt,schema} ─────────────────────────
+InferenceManager runs local LLM (Tier 1/2) or sends tier:cloud (Tier 3)
+InferenceManager ────── structured result ──► /api/ai/execute-action
 GRDB local cache ◄── SyncCoordinator writes
 SwiftUI views ◄──── @Observable repos reading GRDB
 ```
