@@ -8,7 +8,7 @@ vi.mock("@/lib/api/categories", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/categories")>();
   return {
     ...actual,
-    categoriesApi: { ...actual.categoriesApi, create: vi.fn() },
+    categoriesApi: { ...actual.categoriesApi, create: vi.fn(), updateGroup: vi.fn() },
   };
 });
 
@@ -30,6 +30,7 @@ function renderGroup(over: Partial<Parameters<typeof GroupItem>[0]> = {}) {
     <QueryClientProvider client={qc}>
       <GroupItem
         group={group}
+        groups={[group]}
         expanded
         onToggle={() => {}}
         onRequestDelete={() => {}}

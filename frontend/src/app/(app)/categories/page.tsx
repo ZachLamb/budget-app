@@ -118,6 +118,7 @@ function CategoriesContent() {
               <GroupItem
                 key={group.id}
                 group={group}
+                groups={groups}
                 expanded={isExpanded(group.id)}
                 onToggle={() => toggle(group.id)}
                 onRequestDelete={() => setDeleteGroupId(group.id)}
