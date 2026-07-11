@@ -34,6 +34,18 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      # npm ci must run before `docker compose up`: the frontend service
+      # bind-mounts ./frontend with an anonymous /app/node_modules volume,
+      # and if the host node_modules doesn't exist yet Docker creates the
+      # mountpoint as root — the later npm ci then fails with EACCES.
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright browsers (chromium only)
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
       - name: Seed demo env
         # docker compose reads `.env` by default. `.env.demo` is the
         # committed, safe set of values for a throwaway demo stack.
@@ -70,14 +82,6 @@ jobs:
           echo "frontend did not come up in time"
           docker compose logs frontend backend
           exit 1
-
-      - name: Install frontend deps
-        working-directory: frontend
-        run: npm ci
-
-      - name: Install Playwright browsers (chromium only)
-        working-directory: frontend
-        run: npx playwright install --with-deps chromium
 
       - name: Run e2e
         working-directory: frontend
