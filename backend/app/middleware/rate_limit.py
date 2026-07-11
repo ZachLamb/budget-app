@@ -37,6 +37,9 @@ _RULES: List[Tuple[str, int, int]] = [
     # On-device era: facts + FSA candidate routes only (no server LLM).
     ("/api/ai/", 20, 60),
     ("/api/ai/facts/", 30, 60),
+    # Inference-context routes return prompt templates for client-side LLM inference.
+    # Higher cap than /api/ai/ since these are lightweight (no server LLM call).
+    ("/api/ai/inference-context/", 30, 60),
     # Opt-in cloud generate holds a worker for up to 120s — same cap as /api/ai/.
     ("/api/llm/cloud", 20, 60),
     # Magic-link request — cap per IP to limit abusive email spam against
