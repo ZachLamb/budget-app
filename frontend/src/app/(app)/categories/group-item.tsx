@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { categoriesApi, type CategoryGroup } from "@/lib/api/categories";
+import { categoriesApi, type CategoryGroup, type CategoryUsageMap } from "@/lib/api/categories";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,7 @@ import { CategoryItem } from "./category-item";
 export function GroupItem({
   group,
   groups,
+  usage,
   expanded,
   onToggle,
   onRequestDelete,
@@ -28,6 +29,7 @@ export function GroupItem({
 }: {
   group: CategoryGroup;
   groups: CategoryGroup[];
+  usage?: CategoryUsageMap;
   expanded: boolean;
   onToggle: () => void;
   onRequestDelete: () => void;
@@ -158,7 +160,7 @@ export function GroupItem({
             <p className="px-3 py-1.5 text-sm text-muted-foreground">No categories yet.</p>
           )}
           {group.categories.map((cat) => (
-            <CategoryItem key={cat.id} category={cat} groups={groups} onRequestDelete={onRequestDeleteCategory} />
+            <CategoryItem key={cat.id} category={cat} groups={groups} usage={usage?.[cat.id]} onRequestDelete={onRequestDeleteCategory} />
           ))}
           <div className="flex items-center gap-2 pt-1">
             <Input

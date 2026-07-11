@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { categoriesApi, type Category, type CategoryGroup } from "@/lib/api/categories";
+import { categoriesApi, type Category, type CategoryGroup, type CategoryUsage } from "@/lib/api/categories";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -23,10 +23,12 @@ import { toastApiError } from "@/lib/toast-error";
 export function CategoryItem({
   category,
   groups,
+  usage,
   onRequestDelete,
 }: {
   category: Category;
   groups: CategoryGroup[];
+  usage?: CategoryUsage;
   onRequestDelete: (id: string) => void;
 }) {
   const queryClient = useQueryClient();
@@ -85,7 +87,14 @@ export function CategoryItem({
           }}
         />
       ) : (
-        <span className="text-sm">{category.name}</span>
+        <span className="flex items-baseline gap-2 text-sm">
+          {category.name}
+          {usage && usage.transactions > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {usage.transactions} txn{usage.transactions === 1 ? "" : "s"}
+            </span>
+          )}
+        </span>
       )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

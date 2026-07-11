@@ -95,4 +95,21 @@ describe("CategoryItem", () => {
     await clickMenuItem("Delete");
     expect(onRequestDelete).toHaveBeenCalledWith("c1");
   });
+
+  it("shows a muted transaction-count hint", () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={qc}>
+        <CategoryItem
+          category={category}
+          groups={groups}
+          usage={{ transactions: 14, budget_entries: 0, rules: 0, payees: 0, recurring: 0 }}
+          onRequestDelete={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("14 txns")).toBeInTheDocument();
+  });
 });

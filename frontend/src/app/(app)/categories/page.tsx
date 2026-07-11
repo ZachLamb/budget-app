@@ -15,6 +15,7 @@ import { SkeletonTable } from "@/components/skeleton-table";
 import { toastApiError } from "@/lib/toast-error";
 import { GroupItem } from "./group-item";
 import { useCollapsedGroups } from "./use-collapsed-groups";
+import { describeCategoryDelete, describeGroupDelete } from "./delete-consequences";
 
 function CategoriesContent() {
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
@@ -31,6 +32,12 @@ function CategoriesContent() {
     queryFn: categoriesApi.listGroups,
     enabled: isClient,
     meta: inlineErrorQueryMeta,
+  });
+
+  const { data: usage } = useQuery({
+    queryKey: ["categoryUsage"],
+    queryFn: categoriesApi.usage,
+    enabled: isClient,
   });
 
   const invalidate = () => {
@@ -71,6 +78,10 @@ function CategoriesContent() {
     if (!name || createGroupMutation.isPending) return;
     createGroupMutation.mutate({ name });
   };
+
+  const groupPendingDelete = groups.find((g) => g.id === deleteGroupId);
+  const groupConsequence = describeGroupDelete(groupPendingDelete, usage);
+  const catConsequence = describeCategoryDelete(deleteCatId ? usage?.[deleteCatId] : undefined);
 
   return (
     <div className="space-y-6">
@@ -119,6 +130,7 @@ function CategoriesContent() {
                 key={group.id}
                 group={group}
                 groups={groups}
+                usage={usage}
                 expanded={isExpanded(group.id)}
                 onToggle={() => toggle(group.id)}
                 onRequestDelete={() => setDeleteGroupId(group.id)}
@@ -132,14 +144,16 @@ function CategoriesContent() {
         open={!!deleteGroupId}
         onOpenChange={(open) => { if (!open) setDeleteGroupId(null); }}
         title="Delete Category Group"
-        description="This will permanently delete this group and all its categories."
+        description={groupConsequence.message}
+        confirmDisabled={groupConsequence.blocked}
         onConfirm={() => { if (deleteGroupId) deleteGroupMutation.mutate(deleteGroupId); }}
       />
       <ConfirmDialog
         open={!!deleteCatId}
         onOpenChange={(open) => { if (!open) setDeleteCatId(null); }}
         title="Delete Category"
-        description="This will permanently delete this category."
+        description={catConsequence.message}
+        confirmDisabled={catConsequence.blocked}
         onConfirm={() => { if (deleteCatId) deleteCatMutation.mutate(deleteCatId); }}
       />
     </div>

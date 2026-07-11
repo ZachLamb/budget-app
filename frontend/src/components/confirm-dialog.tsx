@@ -24,6 +24,7 @@ interface ConfirmDialogProps {
   variant?: "destructive" | "default";
   loading?: boolean;
   closeOnConfirm?: boolean;
+  confirmDisabled?: boolean;
   onConfirm: () => void;
 }
 
@@ -37,6 +38,7 @@ export function ConfirmDialog({
   variant = "destructive",
   loading = false,
   closeOnConfirm = true,
+  confirmDisabled = false,
   onConfirm,
 }: ConfirmDialogProps) {
   const handleOpenChange = (next: boolean) => {
@@ -65,7 +67,7 @@ export function ConfirmDialog({
           <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleConfirm}
-            disabled={loading}
+            disabled={loading || confirmDisabled}
             className={cn(
               variant === "destructive" && buttonVariants({ variant: "destructive" }),
             )}
