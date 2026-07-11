@@ -32,6 +32,7 @@ _RULES: List[Tuple[str, int, int]] = [
     ("/api/auth/demo-login", 20, 60),
     ("/api/auth/register", 10, 60),
     ("/api/auth/google/exchange", 30, 60),
+    ("/api/auth/native/token", 10, 60),
     ("/api/auth/passkey/", 80, 60),
     # On-device era: facts + FSA candidate routes only (no server LLM).
     ("/api/ai/", 20, 60),

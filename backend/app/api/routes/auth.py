@@ -14,6 +14,7 @@ from urllib.parse import urlencode, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel, Field
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -940,6 +941,33 @@ async def google_callback(
         return _oauth_complete_redirect(frontend_url, "/login?error=server_error", is_secure=oauth_cookie_secure)
 
 
+async def _fetch_google_user_info(code: str, redirect_uri: str) -> dict:
+    """Exchange a Google auth code for user info. Raises HTTPException on failure."""
+    settings = get_settings()
+    async with httpx.AsyncClient() as client:
+        token_resp = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": settings.google_client_id,
+                "client_secret": settings.google_client_secret,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
+        )
+    if not token_resp.is_success:
+        raise HTTPException(status_code=400, detail="Google token exchange failed")
+    id_token = token_resp.json().get("id_token")
+    if not id_token:
+        raise HTTPException(status_code=400, detail="No id_token from Google")
+    # Decode without verification (Google already signed it; we validated via exchange)
+    import jwt as _jwt
+    try:
+        return _jwt.decode(id_token, options={"verify_signature": False})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not decode Google id_token")
+
+
 @router.post("/google/exchange", response_model=TokenResponse)
 async def google_oauth_exchange(
     request: Request,
@@ -978,3 +1006,86 @@ async def google_oauth_exchange(
     )
     token = _create_token(user)
     return _token_response(response, token, user)
+
+
+# --- Native client auth ---
+
+
+class NativeTokenRequest(BaseModel):
+    grant_type: str = Field(..., min_length=1, max_length=64)
+    code: str = Field(..., min_length=1, max_length=2048)
+    redirect_uri: str = Field(..., min_length=1, max_length=512)
+
+
+class NativeTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+
+@router.post("/native/token", response_model=NativeTokenResponse)
+async def native_token(
+    data: NativeTokenRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Exchange a Google auth code for a Bearer JWT — for native (non-browser) clients.
+
+    Unlike /google/exchange (which uses an httpOnly cookie dance designed for
+    browsers), this endpoint accepts the auth code directly in the JSON body
+    and returns the JWT in the response body for storage in the OS Keychain.
+
+    The redirect_uri must match the NATIVE_CLIENT_REDIRECT_URIS allowlist to
+    prevent code injection from an attacker-controlled redirect target.
+    """
+    if data.grant_type != "google_code":
+        raise HTTPException(status_code=400, detail="Unsupported grant_type")
+
+    settings = get_settings()
+
+    allowed = {u.strip() for u in settings.native_client_redirect_uris.split(",") if u.strip()}
+    if data.redirect_uri not in allowed:
+        raise HTTPException(status_code=400, detail="redirect_uri not in allowed list")
+
+    if not settings.google_client_id:
+        raise HTTPException(status_code=503, detail="Google OAuth not configured")
+
+    user_info = await _fetch_google_user_info(data.code, data.redirect_uri)
+    email = user_info.get("email", "").lower().strip()
+    google_id = user_info.get("sub", "")
+    name = user_info.get("name", email)
+
+    if not email or not google_id:
+        raise HTTPException(status_code=400, detail="Incomplete user info from Google")
+
+    result = await db.execute(
+        select(User).where(
+            (User.google_id == google_id) | (User.email == email)
+        )
+    )
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        household = Household(name=f"{name}'s Household")
+        db.add(household)
+        await db.flush()
+        user = User(
+            email=email,
+            name=name,
+            google_id=google_id,
+            household_id=household.id,
+            role="owner",
+            status="pending",
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        apply_admin_bootstrap(user)
+        if user.status == "approved":
+            await db.commit()
+    elif user.google_id is None:
+        user.google_id = google_id
+        await db.commit()
+
+    check_approved(user)
+    token = _create_token(user)
+    return NativeTokenResponse(access_token=token, user=UserResponse.model_validate(user))
