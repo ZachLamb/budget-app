@@ -19,7 +19,7 @@ class CategoryGroup(Base):
     is_income: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    categories: Mapped[list["Category"]] = relationship(back_populates="group", order_by="Category.sort_order")
+    categories: Mapped[list["Category"]] = relationship(back_populates="group", order_by="[Category.sort_order, Category.created_at]")
 
     __table_args__ = (
         Index("ix_category_groups_household_sort", "household_id", "sort_order"),

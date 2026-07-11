@@ -1,105 +1,164 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { categoriesApi, type CategoryGroup } from "@/lib/api/categories";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus } from "lucide-react";
 import { appToast } from "@/lib/app-toast";
 import { useIsClient } from "@/lib/hooks";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PageHeader, QueryState, inlineErrorQueryMeta } from "@/components/page";
 import { SkeletonTable } from "@/components/skeleton-table";
 import { toastApiError } from "@/lib/toast-error";
-
-const EXPAND_STORAGE_KEY = "categories_expanded_groups";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { GroupItem } from "./group-item";
+import { useCollapsedGroups } from "./use-collapsed-groups";
+import { describeCategoryDelete, describeGroupDelete } from "./delete-consequences";
+import { moveGroup, moveCategory } from "./reorder";
 
 function CategoriesContent() {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
   const [deleteCatId, setDeleteCatId] = useState<string | null>(null);
   const [newGroup, setNewGroup] = useState("");
-  const [newCats, setNewCats] = useState<Record<string, string>>({});
+  const [newGroupIncome, setNewGroupIncome] = useState(false);
 
   const queryClient = useQueryClient();
   const isClient = useIsClient();
   const groupInputRef = useRef<HTMLInputElement>(null);
-  const { data: groups = [], isLoading, isError, error, refetch, isFetched } = useQuery({
+  const { isExpanded, toggle, collapseAll, expandAll } = useCollapsedGroups();
+
+  const { data: groups = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ["categoryGroups"],
     queryFn: categoriesApi.listGroups,
     enabled: isClient,
     meta: inlineErrorQueryMeta,
   });
 
-  useEffect(() => {
-    if (!isFetched || groups.length === 0) return;
-    queueMicrotask(() => {
-      if (groups.length <= 5) {
-        setExpanded(new Set(groups.map((g) => g.id)));
-        return;
-      }
-      try {
-        const raw = sessionStorage.getItem(EXPAND_STORAGE_KEY);
-        if (raw) setExpanded(new Set(JSON.parse(raw) as string[]));
-      } catch {
-        /* ignore */
-      }
-    });
-  }, [isFetched, groups]);
+  const { data: usage } = useQuery({
+    queryKey: ["categoryUsage"],
+    queryFn: categoriesApi.usage,
+    enabled: isClient,
+  });
 
-  useEffect(() => {
-    if (groups.length <= 5) return;
-    sessionStorage.setItem(EXPAND_STORAGE_KEY, JSON.stringify([...expanded]));
-  }, [expanded, groups.length]);
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["categoryGroups"] });
+    queryClient.invalidateQueries({ queryKey: ["categoryUsage"] });
+  };
 
   const createGroupMutation = useMutation({
     mutationFn: categoriesApi.createGroup,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["categoryGroups"] });
+      invalidate();
       appToast.success("Group created");
       setNewGroup("");
+      setNewGroupIncome(false);
     },
     onError: (e) => toastApiError("Failed to create group", e),
-  });
-
-  const createCatMutation = useMutation({
-    mutationFn: categoriesApi.create,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["categoryGroups"] });
-      appToast.success("Category created");
-    },
-    onError: (e) => toastApiError("Failed to create category", e),
   });
 
   const deleteGroupMutation = useMutation({
     mutationFn: categoriesApi.deleteGroup,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["categoryGroups"] });
+      invalidate();
       appToast.success("Group deleted");
     },
+    onError: (e) => toastApiError("Failed to delete group", e),
   });
 
   const deleteCatMutation = useMutation({
     mutationFn: categoriesApi.delete,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["categoryGroups"] });
+      invalidate();
       appToast.success("Category deleted");
     },
+    onError: (e) => toastApiError("Failed to delete category", e),
   });
 
-  const toggleExpand = (id: string) => {
-    const next = new Set(expanded);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setExpanded(next);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const reorderGroupsMutation = useMutation({
+    mutationFn: categoriesApi.reorderGroups,
+    onError: (e) => toastApiError("Failed to reorder groups", e),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["categoryGroups"] }),
+  });
+
+  const reorderCatsMutation = useMutation({
+    mutationFn: ({ group_id, ordered_ids }: { group_id: string; ordered_ids: string[] }) =>
+      categoriesApi.reorderCategories(group_id, ordered_ids),
+    onError: (e) => toastApiError("Failed to reorder categories", e),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["categoryGroups"] }),
+  });
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    // dnd-kit types data.current as unknown; the only producers are our two useSortable call sites, which set exactly these shapes.
+    const data = active.data.current as
+      | { type: "group" }
+      | { type: "category"; groupId: string }
+      | undefined;
+    if (!data) return;
+    if (data.type === "group") {
+      const next = moveGroup(groups, String(active.id), String(over.id));
+      if (!next) return;
+      queryClient.setQueryData(["categoryGroups"], next);
+      reorderGroupsMutation.mutate(next.map((g) => g.id));
+    } else {
+      const next = moveCategory(groups, data.groupId, String(active.id), String(over.id));
+      if (!next) return;
+      queryClient.setQueryData(["categoryGroups"], next);
+      const target = next.find((g) => g.id === data.groupId);
+      if (target) {
+        reorderCatsMutation.mutate({
+          group_id: data.groupId,
+          ordered_ids: target.categories.map((c) => c.id),
+        });
+      }
+    }
   };
+
+  const submitNewGroup = () => {
+    const name = newGroup.trim();
+    if (!name || createGroupMutation.isPending) return;
+    createGroupMutation.mutate({ name, is_income: newGroupIncome });
+  };
+
+  const groupPendingDelete = groups.find((g) => g.id === deleteGroupId);
+  const groupConsequence = describeGroupDelete(groupPendingDelete, usage);
+  const catConsequence = describeCategoryDelete(deleteCatId ? usage?.[deleteCatId] : undefined);
+  const anyCollapsed = groups.some((g) => !isExpanded(g.id));
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Categories" description="Organize income and spending with groups and categories." />
+      <PageHeader
+        title="Categories"
+        description="Organize income and spending with groups and categories."
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={groups.length === 0}
+            onClick={() => (anyCollapsed ? expandAll() : collapseAll(groups.map((g) => g.id)))}
+          >
+            {anyCollapsed ? "Expand all" : "Collapse all"}
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader>
@@ -110,15 +169,23 @@ function CategoriesContent() {
               value={newGroup}
               onChange={(e) => setNewGroup(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && newGroup.trim()) {
-                  createGroupMutation.mutate({ name: newGroup.trim() });
-                }
+                if (e.key === "Enter") submitNewGroup();
               }}
             />
+            <label className="flex items-center gap-1.5 whitespace-nowrap text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-primary"
+                checked={newGroupIncome}
+                onChange={(e) => setNewGroupIncome(e.target.checked)}
+              />
+              Income
+            </label>
             <Button
               size="sm"
-              disabled={!newGroup.trim()}
-              onClick={() => createGroupMutation.mutate({ name: newGroup.trim() })}
+              aria-label="Create group"
+              disabled={!newGroup.trim() || createGroupMutation.isPending}
+              onClick={submitNewGroup}
             >
               <Plus className="h-4 w-4" />
             </Button>
@@ -140,72 +207,22 @@ function CategoriesContent() {
             }
             loadingFallback={<SkeletonTable rows={4} columns={2} />}
           >
-            {groups.map((group: CategoryGroup) => (
-              <div key={group.id} className="rounded-lg border">
-                <div
-                  className="flex cursor-pointer items-center justify-between p-3 hover:bg-accent"
-                  onClick={() => toggleExpand(group.id)}
-                >
-                  <div className="flex items-center gap-2">
-                    {expanded.has(group.id) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    <span className="font-medium">{group.name}</span>
-                    {group.is_income && <Badge variant="outline" className="text-xs">Income</Badge>}
-                    <span className="text-xs text-muted-foreground">{group.categories.length} categories</span>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                    onClick={(e) => { e.stopPropagation(); setDeleteGroupId(group.id); }}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-                {expanded.has(group.id) && (
-                  <div className="border-t px-3 pb-3 pt-2 space-y-1">
-                    {group.categories.map((cat) => (
-                      <div key={cat.id} className="flex items-center justify-between rounded px-3 py-1.5 hover:bg-muted">
-                        <span className="text-sm">{cat.name}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                          onClick={() => setDeleteCatId(cat.id)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ))}
-                    <div className="flex items-center gap-2 pt-1">
-                      <Input
-                        className="h-8 text-sm"
-                        placeholder="Add category..."
-                        value={newCats[group.id] || ""}
-                        onChange={(e) => setNewCats({ ...newCats, [group.id]: e.target.value })}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && newCats[group.id]?.trim()) {
-                            createCatMutation.mutate({ group_id: group.id, name: newCats[group.id].trim() });
-                            setNewCats({ ...newCats, [group.id]: "" });
-                          }
-                        }}
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8"
-                        disabled={!newCats[group.id]?.trim()}
-                        onClick={() => {
-                          createCatMutation.mutate({ group_id: group.id, name: newCats[group.id].trim() });
-                          setNewCats({ ...newCats, [group.id]: "" });
-                        }}
-                      >
-                        <Plus className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={groups.map((g) => g.id)} strategy={verticalListSortingStrategy}>
+                {groups.map((group: CategoryGroup) => (
+                  <GroupItem
+                    key={group.id}
+                    group={group}
+                    groups={groups}
+                    usage={usage}
+                    expanded={isExpanded(group.id)}
+                    onToggle={() => toggle(group.id)}
+                    onRequestDelete={() => setDeleteGroupId(group.id)}
+                    onRequestDeleteCategory={setDeleteCatId}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           </QueryState>
         </CardContent>
       </Card>
@@ -213,14 +230,16 @@ function CategoriesContent() {
         open={!!deleteGroupId}
         onOpenChange={(open) => { if (!open) setDeleteGroupId(null); }}
         title="Delete Category Group"
-        description="This will permanently delete this group and all its categories."
+        description={groupConsequence.message}
+        confirmDisabled={groupConsequence.blocked}
         onConfirm={() => { if (deleteGroupId) deleteGroupMutation.mutate(deleteGroupId); }}
       />
       <ConfirmDialog
         open={!!deleteCatId}
         onOpenChange={(open) => { if (!open) setDeleteCatId(null); }}
         title="Delete Category"
-        description="This will permanently delete this category."
+        description={catConsequence.message}
+        confirmDisabled={catConsequence.blocked}
         onConfirm={() => { if (deleteCatId) deleteCatMutation.mutate(deleteCatId); }}
       />
     </div>
