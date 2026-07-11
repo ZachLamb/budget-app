@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import csv
 import io
 from decimal import Decimal
@@ -147,8 +146,10 @@ async def create_transaction(
     )
     db.add(txn)
     await db.flush()
-    asyncio.create_task(emit_event(household_id, "transaction.created"))
-    return await _enrich_transaction(db, txn)
+    enriched = await _enrich_transaction(db, txn)
+    await db.commit()
+    await emit_event(household_id, "transaction.created")
+    return enriched
 
 
 @router.get("/{transaction_id}", response_model=TransactionResponse)
@@ -192,8 +193,10 @@ async def update_transaction(
 
     for field, value in updates.items():
         setattr(txn, field, value)
-    asyncio.create_task(emit_event(household_id, "transaction.updated"))
-    return await _enrich_transaction(db, txn)
+    enriched = await _enrich_transaction(db, txn)
+    await db.commit()
+    await emit_event(household_id, "transaction.updated")
+    return enriched
 
 
 @router.delete("/{transaction_id}", status_code=204)
@@ -211,7 +214,8 @@ async def delete_transaction(
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
     await db.delete(txn)
-    asyncio.create_task(emit_event(household_id, "transaction.deleted"))
+    await db.commit()
+    await emit_event(household_id, "transaction.deleted")
 
 
 @router.get("/export/csv")
@@ -342,8 +346,10 @@ async def split_transaction(
         db.add(sub)
 
     await db.flush()
-    asyncio.create_task(emit_event(household_id, "transaction.updated"))
-    return await _enrich_transaction(db, txn)
+    enriched = await _enrich_transaction(db, txn)
+    await db.commit()
+    await emit_event(household_id, "transaction.updated")
+    return enriched
 
 
 @router.get("/{transaction_id}/splits", response_model=list[TransactionResponse])
@@ -412,5 +418,7 @@ async def create_transfer(
     db.add(outgoing)
     db.add(incoming)
     await db.flush()
-    asyncio.create_task(emit_event(household_id, "transaction.created"))
-    return await _enrich_transaction(db, outgoing)
+    enriched = await _enrich_transaction(db, outgoing)
+    await db.commit()
+    await emit_event(household_id, "transaction.created")
+    return enriched

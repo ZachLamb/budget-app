@@ -113,8 +113,8 @@ async def test_emit_event_delivers_to_subscriber():
 
 
 @pytest.mark.asyncio
-async def test_keepalive_sent_on_timeout():
-    """After 25s timeout, the generator yields a keepalive comment."""
+async def test_subscribe_first_chunk_is_connected():
+    """subscribe() yields ': connected\\n\\n' as its first chunk."""
     received: list[str] = []
 
     async def consume_one():
