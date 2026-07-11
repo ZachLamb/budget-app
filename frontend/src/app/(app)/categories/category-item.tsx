@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { categoriesApi, type Category, type CategoryGroup } from "@/lib/api/categories";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,16 @@ export function CategoryItem({
   const queryClient = useQueryClient();
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(category.name);
-  const skipNextBlurRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!renaming) return;
+    const t = setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [renaming]);
 
   const updateMutation = useMutation({
     mutationFn: (data: Partial<{ name: string; group_id: string }>) =>
@@ -46,10 +55,6 @@ export function CategoryItem({
   });
 
   const commitRename = () => {
-    if (skipNextBlurRef.current) {
-      skipNextBlurRef.current = false;
-      return;
-    }
     const name = draft.trim();
     if (!name || name === category.name) {
       setRenaming(false);
@@ -65,15 +70,14 @@ export function CategoryItem({
     <div className="flex items-center justify-between gap-2 rounded px-3 py-1.5 hover:bg-muted">
       {renaming ? (
         <Input
-          autoFocus
+          ref={inputRef}
           className="h-7 text-sm"
           value={draft}
           aria-label={`Rename category ${category.name}`}
           onChange={(e) => setDraft(e.target.value)}
-          onFocus={() => { skipNextBlurRef.current = true; }}
           onBlur={commitRename}
           onKeyDown={(e) => {
-            if (e.key === "Enter") { skipNextBlurRef.current = false; commitRename(); }
+            if (e.key === "Enter") { commitRename(); }
             if (e.key === "Escape") {
               setRenaming(false);
               setDraft(category.name);
@@ -94,7 +98,7 @@ export function CategoryItem({
             <MoreHorizontal className="h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()}>
           <DropdownMenuItem
             onSelect={() => {
               setDraft(category.name);

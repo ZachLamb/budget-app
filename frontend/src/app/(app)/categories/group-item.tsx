@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { categoriesApi, type CategoryGroup } from "@/lib/api/categories";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,16 @@ export function GroupItem({
   const [newCat, setNewCat] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(group.name);
-  const skipNextBlurRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!renaming) return;
+    const t = setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [renaming]);
 
   const updateGroupMutation = useMutation({
     mutationFn: (data: Partial<{ name: string; is_income: boolean }>) =>
@@ -51,10 +60,6 @@ export function GroupItem({
   });
 
   const commitRename = () => {
-    if (skipNextBlurRef.current) {
-      skipNextBlurRef.current = false;
-      return;
-    }
     const name = draft.trim();
     if (!name || name === group.name) {
       setRenaming(false);
@@ -85,15 +90,14 @@ export function GroupItem({
       <div className="flex items-center justify-between p-3 hover:bg-accent/50">
         {renaming ? (
           <Input
-            autoFocus
+            ref={inputRef}
             className="h-7 flex-1 text-sm font-medium"
             value={draft}
             aria-label={`Rename group ${group.name}`}
             onChange={(e) => setDraft(e.target.value)}
-            onFocus={() => { skipNextBlurRef.current = true; }}
             onBlur={commitRename}
             onKeyDown={(e) => {
-              if (e.key === "Enter") { skipNextBlurRef.current = false; commitRename(); }
+              if (e.key === "Enter") { commitRename(); }
               if (e.key === "Escape") {
                 setRenaming(false);
                 setDraft(group.name);
@@ -126,7 +130,7 @@ export function GroupItem({
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()}>
             <DropdownMenuItem
               onSelect={() => {
                 setDraft(group.name);
