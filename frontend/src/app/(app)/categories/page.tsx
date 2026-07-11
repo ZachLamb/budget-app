@@ -13,9 +13,20 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PageHeader, QueryState, inlineErrorQueryMeta } from "@/components/page";
 import { SkeletonTable } from "@/components/skeleton-table";
 import { toastApiError } from "@/lib/toast-error";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { GroupItem } from "./group-item";
 import { useCollapsedGroups } from "./use-collapsed-groups";
 import { describeCategoryDelete, describeGroupDelete } from "./delete-consequences";
+import { moveGroup, moveCategory } from "./reorder";
 
 function CategoriesContent() {
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
@@ -73,6 +84,51 @@ function CategoriesContent() {
     onError: (e) => toastApiError("Failed to delete category", e),
   });
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const reorderGroupsMutation = useMutation({
+    mutationFn: categoriesApi.reorderGroups,
+    onError: (e) => toastApiError("Failed to reorder groups", e),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["categoryGroups"] }),
+  });
+
+  const reorderCatsMutation = useMutation({
+    mutationFn: ({ group_id, ordered_ids }: { group_id: string; ordered_ids: string[] }) =>
+      categoriesApi.reorderCategories(group_id, ordered_ids),
+    onError: (e) => toastApiError("Failed to reorder categories", e),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["categoryGroups"] }),
+  });
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const data = active.data.current as
+      | { type: "group" }
+      | { type: "category"; groupId: string }
+      | undefined;
+    if (!data) return;
+    if (data.type === "group") {
+      const next = moveGroup(groups, String(active.id), String(over.id));
+      if (!next) return;
+      queryClient.setQueryData(["categoryGroups"], next);
+      reorderGroupsMutation.mutate(next.map((g) => g.id));
+    } else {
+      const next = moveCategory(groups, data.groupId, String(active.id), String(over.id));
+      if (!next) return;
+      queryClient.setQueryData(["categoryGroups"], next);
+      const target = next.find((g) => g.id === data.groupId);
+      if (target) {
+        reorderCatsMutation.mutate({
+          group_id: data.groupId,
+          ordered_ids: target.categories.map((c) => c.id),
+        });
+      }
+    }
+  };
+
   const submitNewGroup = () => {
     const name = newGroup.trim();
     if (!name || createGroupMutation.isPending) return;
@@ -125,18 +181,22 @@ function CategoriesContent() {
             }
             loadingFallback={<SkeletonTable rows={4} columns={2} />}
           >
-            {groups.map((group: CategoryGroup) => (
-              <GroupItem
-                key={group.id}
-                group={group}
-                groups={groups}
-                usage={usage}
-                expanded={isExpanded(group.id)}
-                onToggle={() => toggle(group.id)}
-                onRequestDelete={() => setDeleteGroupId(group.id)}
-                onRequestDeleteCategory={setDeleteCatId}
-              />
-            ))}
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={groups.map((g) => g.id)} strategy={verticalListSortingStrategy}>
+                {groups.map((group: CategoryGroup) => (
+                  <GroupItem
+                    key={group.id}
+                    group={group}
+                    groups={groups}
+                    usage={usage}
+                    expanded={isExpanded(group.id)}
+                    onToggle={() => toggle(group.id)}
+                    onRequestDelete={() => setDeleteGroupId(group.id)}
+                    onRequestDeleteCategory={setDeleteCatId}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           </QueryState>
         </CardContent>
       </Card>

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { DndContext } from "@dnd-kit/core";
 import { CategoryItem } from "./category-item";
 import { categoriesApi, type Category, type CategoryGroup } from "@/lib/api/categories";
 
@@ -38,7 +39,9 @@ function renderItem(onRequestDelete = vi.fn()) {
   });
   render(
     <QueryClientProvider client={qc}>
-      <CategoryItem category={category} groups={groups} onRequestDelete={onRequestDelete} />
+      <DndContext>
+        <CategoryItem category={category} groups={groups} onRequestDelete={onRequestDelete} />
+      </DndContext>
     </QueryClientProvider>,
   );
   return { onRequestDelete };
@@ -102,12 +105,14 @@ describe("CategoryItem", () => {
     });
     render(
       <QueryClientProvider client={qc}>
-        <CategoryItem
-          category={category}
-          groups={groups}
-          usage={{ transactions: 14, budget_entries: 0, rules: 0, payees: 0, recurring: 0 }}
-          onRequestDelete={vi.fn()}
-        />
+        <DndContext>
+          <CategoryItem
+            category={category}
+            groups={groups}
+            usage={{ transactions: 14, budget_entries: 0, rules: 0, payees: 0, recurring: 0 }}
+            onRequestDelete={vi.fn()}
+          />
+        </DndContext>
       </QueryClientProvider>,
     );
     expect(screen.getByText("14 txns")).toBeInTheDocument();

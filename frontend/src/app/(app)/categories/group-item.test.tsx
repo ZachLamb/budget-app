@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { DndContext } from "@dnd-kit/core";
 import { GroupItem } from "./group-item";
 import { categoriesApi, type CategoryGroup } from "@/lib/api/categories";
 
@@ -28,15 +29,17 @@ function renderGroup(over: Partial<Parameters<typeof GroupItem>[0]> = {}) {
   });
   return render(
     <QueryClientProvider client={qc}>
-      <GroupItem
-        group={group}
-        groups={[group]}
-        expanded
-        onToggle={() => {}}
-        onRequestDelete={() => {}}
-        onRequestDeleteCategory={() => {}}
-        {...over}
-      />
+      <DndContext>
+        <GroupItem
+          group={group}
+          groups={[group]}
+          expanded
+          onToggle={() => {}}
+          onRequestDelete={() => {}}
+          onRequestDeleteCategory={() => {}}
+          {...over}
+        />
+      </DndContext>
     </QueryClientProvider>,
   );
 }

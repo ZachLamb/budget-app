@@ -16,7 +16,10 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, GripVertical } from "lucide-react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { cn } from "@/lib/utils";
 import { appToast } from "@/lib/app-toast";
 import { toastApiError } from "@/lib/toast-error";
 
@@ -31,6 +34,11 @@ export function CategoryItem({
   usage?: CategoryUsage;
   onRequestDelete: (id: string) => void;
 }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: category.id,
+    data: { type: "category", groupId: category.group_id },
+  });
+
   const queryClient = useQueryClient();
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(category.name);
@@ -69,7 +77,20 @@ export function CategoryItem({
   const otherGroups = groups.filter((g) => g.id !== category.group_id);
 
   return (
-    <div className="flex items-center justify-between gap-2 rounded px-3 py-1.5 hover:bg-muted">
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn("flex items-center justify-between gap-2 rounded px-3 py-1.5 hover:bg-muted", isDragging && "opacity-70")}
+    >
+      <button
+        type="button"
+        className="cursor-grab touch-none p-0.5 text-muted-foreground"
+        aria-label={`Reorder category ${category.name}`}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
       {renaming ? (
         <Input
           ref={inputRef}

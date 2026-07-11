@@ -13,7 +13,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, MoreHorizontal, ChevronDown, ChevronRight, GripVertical } from "lucide-react";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { cn } from "@/lib/utils";
 import { appToast } from "@/lib/app-toast";
 import { toastApiError } from "@/lib/toast-error";
 import { CategoryItem } from "./category-item";
@@ -35,6 +38,11 @@ export function GroupItem({
   onRequestDelete: () => void;
   onRequestDeleteCategory: (id: string) => void;
 }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: group.id,
+    data: { type: "group" },
+  });
+
   const queryClient = useQueryClient();
   const [newCat, setNewCat] = useState("");
   const [renaming, setRenaming] = useState(false);
@@ -88,8 +96,21 @@ export function GroupItem({
   };
 
   return (
-    <div className="rounded-lg border">
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn("rounded-lg border bg-background", isDragging && "opacity-70")}
+    >
       <div className="flex items-center justify-between p-3 hover:bg-accent/50">
+        <button
+          type="button"
+          className="cursor-grab touch-none p-1 text-muted-foreground"
+          aria-label={`Reorder group ${group.name}`}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
         {renaming ? (
           <Input
             ref={inputRef}
@@ -159,9 +180,11 @@ export function GroupItem({
           {group.categories.length === 0 && (
             <p className="px-3 py-1.5 text-sm text-muted-foreground">No categories yet.</p>
           )}
-          {group.categories.map((cat) => (
-            <CategoryItem key={cat.id} category={cat} groups={groups} usage={usage?.[cat.id]} onRequestDelete={onRequestDeleteCategory} />
-          ))}
+          <SortableContext items={group.categories.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+            {group.categories.map((cat) => (
+              <CategoryItem key={cat.id} category={cat} groups={groups} usage={usage?.[cat.id]} onRequestDelete={onRequestDeleteCategory} />
+            ))}
+          </SortableContext>
           <div className="flex items-center gap-2 pt-1">
             <Input
               className="h-8 text-sm"
