@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode, urlparse
 
 import httpx
+import jwt as _jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from fastapi.responses import RedirectResponse
@@ -944,7 +945,7 @@ async def google_callback(
 async def _fetch_google_user_info(code: str, redirect_uri: str) -> dict:
     """Exchange a Google auth code for user info. Raises HTTPException on failure."""
     settings = get_settings()
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
         token_resp = await client.post(
             "https://oauth2.googleapis.com/token",
             data={
@@ -961,11 +962,13 @@ async def _fetch_google_user_info(code: str, redirect_uri: str) -> dict:
     if not id_token:
         raise HTTPException(status_code=400, detail="No id_token from Google")
     # Decode without verification (Google already signed it; we validated via exchange)
-    import jwt as _jwt
     try:
-        return _jwt.decode(id_token, options={"verify_signature": False})
+        claims = _jwt.decode(id_token, options={"verify_signature": False})
     except Exception:
         raise HTTPException(status_code=400, detail="Could not decode Google id_token")
+    if claims.get("email_verified") is not True:
+        raise HTTPException(status_code=400, detail="Google account email is not verified")
+    return claims
 
 
 @router.post("/google/exchange", response_model=TokenResponse)
