@@ -53,6 +53,8 @@ jobs:
         run: npm ci
       - name: Dependency audit (npm)
         run: npm audit --audit-level=high
+      - name: Generate API types (from snapshot)
+        run: bash scripts/generate-api-types.sh
       - name: Lint
         run: npm run lint
       - name: Typecheck
