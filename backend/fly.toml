@@ -15,6 +15,12 @@ primary_region = "iad"
 
 [build]
   # No special args; Dockerfile is auto-detected.
+  #
+  # Rate limiting: backed by Upstash Redis when UPSTASH_REDIS_REST_URL +
+  # UPSTASH_REDIS_REST_TOKEN are set as Fly secrets. Without them each
+  # machine has an independent in-memory bucket — wrong for multi-replica.
+  # Set via: fly secrets set UPSTASH_REDIS_REST_URL=... UPSTASH_REDIS_REST_TOKEN=...
+  # Also set TRUSTED_PROXIES to your Fly proxy CIDR so X-Forwarded-For is trusted.
 
 [http_service]
   internal_port = 8000
