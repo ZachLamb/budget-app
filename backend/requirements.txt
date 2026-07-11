@@ -14,5 +14,5 @@ apscheduler>=3.10.4
 PyJWT>=2.13.0
 bcrypt>=5.0.0,<6
 # Direct use: Fernet column encryption (services.crypto). Also a webauthn dep.
-cryptography>=43.0
+cryptography>=49.0.0
 webauthn>=3.0.0
