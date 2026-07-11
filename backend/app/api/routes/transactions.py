@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 from decimal import Decimal
@@ -14,6 +15,7 @@ from datetime import date
 from app.database import get_db
 from app.api.deps import get_household_id
 from app.models import Transaction, Account, Payee, Category
+from app.services.realtime import emit_event
 from app.schemas.transaction import TransactionCreate, TransactionUpdate, TransactionResponse, TransactionListResponse
 from app.utils import escape_like, validate_category_ownership, validate_payee_ownership
 
@@ -145,6 +147,7 @@ async def create_transaction(
     )
     db.add(txn)
     await db.flush()
+    asyncio.create_task(emit_event(household_id, "transaction.created"))
     return await _enrich_transaction(db, txn)
 
 
@@ -189,6 +192,7 @@ async def update_transaction(
 
     for field, value in updates.items():
         setattr(txn, field, value)
+    asyncio.create_task(emit_event(household_id, "transaction.updated"))
     return await _enrich_transaction(db, txn)
 
 
@@ -207,6 +211,7 @@ async def delete_transaction(
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
     await db.delete(txn)
+    asyncio.create_task(emit_event(household_id, "transaction.deleted"))
 
 
 @router.get("/export/csv")
@@ -337,6 +342,7 @@ async def split_transaction(
         db.add(sub)
 
     await db.flush()
+    asyncio.create_task(emit_event(household_id, "transaction.updated"))
     return await _enrich_transaction(db, txn)
 
 
@@ -406,4 +412,5 @@ async def create_transfer(
     db.add(outgoing)
     db.add(incoming)
     await db.flush()
+    asyncio.create_task(emit_event(household_id, "transaction.created"))
     return await _enrich_transaction(db, outgoing)

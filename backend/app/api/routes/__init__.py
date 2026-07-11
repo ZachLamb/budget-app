@@ -6,6 +6,7 @@ from app.api.routes import (
     llm, me, hosting, magic_link, admin, facts,
 )
 from app.api.routes.inference_context import router as inference_context_router
+from app.api.routes.realtime import router as realtime_router
 
 router = APIRouter()
 router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -36,3 +37,4 @@ router.include_router(
     prefix="/ai/inference-context",
     tags=["ai-inference-context"],
 )
+router.include_router(realtime_router, prefix="/realtime", tags=["realtime"])

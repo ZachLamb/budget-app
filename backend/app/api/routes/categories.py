@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update as sql_update
@@ -5,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.api.deps import get_household_id
+from app.services.realtime import emit_event
 from app.models import (
     AutoCategorizationRule,
     BudgetAssignment,
@@ -139,6 +142,7 @@ async def create_category_group(
     await db.flush()
     # Fresh object post-flush: async lazy-load of .categories would raise MissingGreenlet during serialization; refresh loads the (empty) collection.
     await db.refresh(group, ["categories"])
+    asyncio.create_task(emit_event(household_id, "category.updated"))
     return CategoryGroupResponse.model_validate(group)
 
 
@@ -159,6 +163,7 @@ async def update_category_group(
         raise HTTPException(status_code=404, detail="Category group not found")
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(group, field, value)
+    asyncio.create_task(emit_event(household_id, "category.updated"))
     return CategoryGroupResponse.model_validate(group)
 
 
@@ -196,6 +201,7 @@ async def delete_category_group(
         for category in categories:
             await db.delete(category)
     await db.delete(group)
+    asyncio.create_task(emit_event(household_id, "category.updated"))
 
 
 @router.post("", response_model=CategoryResponse, status_code=201)
@@ -220,6 +226,7 @@ async def create_category(
     category = Category(**payload)
     db.add(category)
     await db.flush()
+    asyncio.create_task(emit_event(household_id, "category.updated"))
     return CategoryResponse.model_validate(category)
 
 
@@ -250,6 +257,7 @@ async def update_category(
             raise HTTPException(status_code=404, detail="Category group not found")
     for field, value in updates.items():
         setattr(category, field, value)
+    asyncio.create_task(emit_event(household_id, "category.updated"))
     return CategoryResponse.model_validate(category)
 
 
@@ -279,3 +287,4 @@ async def delete_category(
         sql_update(Transaction).where(Transaction.category_id == category_id).values(category_id=None)
     )
     await db.delete(category)
+    asyncio.create_task(emit_event(household_id, "category.updated"))
