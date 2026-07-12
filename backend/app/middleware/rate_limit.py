@@ -22,7 +22,7 @@ from starlette.responses import Response
 from app.config import get_settings
 from app.middleware.rate_limit_store import RateLimitStore, build_store
 
-# (path prefix, max_hits, window_seconds) — GET-only routes that need rate limiting.
+# (path prefix, max_hits, window_seconds) — GET-only routes that need limiting.
 # SSE connections are long-lived and each holds an asyncio queue in memory; cap
 # the connection rate per IP so a single account can't exhaust server memory.
 _GET_RULES: List[Tuple[str, int, int]] = [
@@ -39,14 +39,10 @@ _RULES: List[Tuple[str, int, int]] = [
     ("/api/auth/demo-login", 20, 60),
     ("/api/auth/register", 10, 60),
     ("/api/auth/google/exchange", 30, 60),
-    ("/api/auth/native/token", 10, 60),
     ("/api/auth/passkey/", 80, 60),
     # On-device era: facts + FSA candidate routes only (no server LLM).
     ("/api/ai/", 20, 60),
     ("/api/ai/facts/", 30, 60),
-    # Inference-context routes return prompt templates for client-side LLM inference.
-    # Higher cap than /api/ai/ since these are lightweight (no server LLM call).
-    ("/api/ai/inference-context/", 30, 60),
     # Opt-in cloud generate holds a worker for up to 120s — same cap as /api/ai/.
     ("/api/llm/cloud", 20, 60),
     # Magic-link request — cap per IP to limit abusive email spam against
