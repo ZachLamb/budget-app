@@ -84,6 +84,14 @@ jobs:
           docker compose logs frontend backend
           exit 1
 
+      - name: Warm up Turbopack routes
+        # Turbopack compiles each route on first request. Pre-warming the
+        # dashboard route ('/') before the test avoids the 2-3s compile
+        # delay that can push the Playwright 'toHaveURL' assertion past its
+        # timeout on a cold CI container.
+        run: |
+          curl -fsS http://localhost:3001/ > /dev/null || true
+
       - name: Run e2e
         working-directory: frontend
         run: npm run test:e2e
