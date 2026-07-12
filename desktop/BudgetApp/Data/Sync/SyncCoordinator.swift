@@ -16,6 +16,10 @@ final class SyncCoordinator {
         self.api = api
     }
 
+    func updateToken(_ token: String?) async {
+        await api.setToken(token)
+    }
+
     func syncAll() async {
         guard !isSyncing else { return }
         isSyncing = true
@@ -36,8 +40,8 @@ final class SyncCoordinator {
         struct TxnListResponse: Decodable { let transactions: [RemoteTransaction] }
         let resp: TxnListResponse = try await api.get("api/transactions?limit=500")
         let locals = resp.transactions.map(LocalTransaction.fromRemote)
-        try db.write { db in
-            for t in locals {
+        try await db.write { db in
+            for var t in locals {
                 try t.save(db)
             }
         }
@@ -47,8 +51,8 @@ final class SyncCoordinator {
         struct BudgetResponse: Decodable { let categories: [RemoteBudgetCategory] }
         let resp: BudgetResponse = try await api.get("api/budget/current")
         let locals = resp.categories.map(LocalBudgetCategory.fromRemote)
-        try db.write { db in
-            for c in locals {
+        try await db.write { db in
+            for var c in locals {
                 try c.save(db)
             }
         }

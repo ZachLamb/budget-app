@@ -1,7 +1,32 @@
 import { toast as sonnerToast } from "sonner";
-import { getApiErrorMessage } from "@/lib/hooks";
 import { pushNotification } from "@/lib/notification-store";
 import { TOAST_DURATION, toastDedupeId } from "@/lib/toast-config";
+
+type AxiosLikeDetail =
+  | string
+  | Array<{ msg?: string; loc?: (string | number)[] }>;
+
+type AxiosLikeError = {
+  response?: { data?: { detail?: AxiosLikeDetail } };
+};
+
+function axiosDetail(error: unknown): AxiosLikeDetail | undefined {
+  if (error === null || typeof error !== "object" || !("response" in error)) return undefined;
+  const r = (error as AxiosLikeError).response?.data?.detail;
+  return r;
+}
+
+export function getApiErrorMessage(error: unknown, fallback: string): string {
+  const detail = axiosDetail(error);
+  if (detail === undefined) return fallback;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0];
+    const msg = first?.msg ?? first?.loc?.join(" ") ?? JSON.stringify(first);
+    return String(msg);
+  }
+  return fallback;
+}
 
 type AxiosLike = {
   response?: { status?: number; statusText?: string; data?: unknown };

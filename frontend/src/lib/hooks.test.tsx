@@ -1,23 +1,28 @@
 /**
  * useDemoGuard is the single place the UI consults to decide whether to
- * render destructive affordances. The test below locks in two invariants:
+ * render read-only affordances. Two sources feed it:
  *
- *  1. The server's view wins once the query resolves — protects against a
- *     frontend built without NEXT_PUBLIC_DEMO_MODE from rendering "full
- *     capabilities" UI while the backend is demo and will 403 everything.
- *  2. Until the query resolves, we fall back to the build-time flag so
- *     there's no flash of wrong state on first paint.
+ *  - `isDemo`: per-user flag (user.is_demo_user). False for admins even on a
+ *    demo-enabled backend, so admins keep full write access.
+ *  - `serverDemoMode`: server-wide flag from /api/config. Used by the login
+ *    page to show "Try the Demo" button. Falls back to build-time flag until
+ *    the query resolves.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const getMock = vi.fn();
+const useAuthMock = vi.fn();
 
 vi.mock("@/lib/api/config", () => ({
   configApi: {
     get: (...args: unknown[]) => getMock(...args),
   },
+}));
+
+vi.mock("@/lib/providers", () => ({
+  useAuth: () => useAuthMock(),
 }));
 
 // Build-time flag reads from process.env at module import; emulate the
@@ -35,10 +40,37 @@ function wrap({ children }: { children: React.ReactNode }) {
 
 beforeEach(() => {
   getMock.mockReset();
+  useAuthMock.mockReturnValue({ user: null });
 });
 
 describe("useDemoGuard", () => {
-  it("reports demo=true when the server says demo_mode is true", async () => {
+  it("isDemo=true when the logged-in user is the demo account", async () => {
+    getMock.mockResolvedValueOnce({
+      demo_mode: true,
+      auth_methods: { password: true, passkey: true, google: false },
+    });
+    useAuthMock.mockReturnValue({ user: { is_demo_user: true, email: "demo@snacksbudget.app" } });
+
+    const { result } = renderHook(() => useDemoGuard(), { wrapper: wrap });
+
+    expect(result.current.isDemo).toBe(true);
+    expect(result.current.readOnlyMessage).toMatch(/demo is read-only/i);
+  });
+
+  it("isDemo=false for an admin on a demo-enabled backend", async () => {
+    getMock.mockResolvedValueOnce({
+      demo_mode: true,
+      auth_methods: { password: true, passkey: true, google: false },
+    });
+    useAuthMock.mockReturnValue({ user: { is_demo_user: false, email: "admin@example.com" } });
+
+    const { result } = renderHook(() => useDemoGuard(), { wrapper: wrap });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.isDemo).toBe(false);
+  });
+
+  it("serverDemoMode reflects the server flag once the query resolves", async () => {
     getMock.mockResolvedValueOnce({
       demo_mode: true,
       auth_methods: { password: true, passkey: true, google: false },
@@ -46,34 +78,17 @@ describe("useDemoGuard", () => {
 
     const { result } = renderHook(() => useDemoGuard(), { wrapper: wrap });
 
-    await waitFor(() => {
-      expect(result.current.isDemo).toBe(true);
-    });
-    expect(result.current.loading).toBe(false);
-    expect(result.current.readOnlyMessage).toMatch(/demo is read-only/i);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.serverDemoMode).toBe(true);
   });
 
-  it("reports demo=false when the server says demo_mode is false", async () => {
-    getMock.mockResolvedValueOnce({
-      demo_mode: false,
-      auth_methods: { password: true, passkey: true, google: true },
-    });
-
-    const { result } = renderHook(() => useDemoGuard(), { wrapper: wrap });
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-    expect(result.current.isDemo).toBe(false);
-  });
-
-  it("falls back to the build-time flag while the query is still loading", () => {
+  it("falls back to build-time flag for isDemo while no user is loaded", () => {
     getMock.mockReturnValue(new Promise(() => {})); // pending forever
+    useAuthMock.mockReturnValue({ user: null });
 
     const { result } = renderHook(() => useDemoGuard(), { wrapper: wrap });
 
-    // Before the server responds, the hook should reflect the build-time
-    // flag (mocked false here) rather than `undefined`.
+    // build-time flag is mocked false; user is null → falls back to build-time
     expect(result.current.isDemo).toBe(false);
     expect(result.current.loading).toBe(true);
   });
