@@ -12,6 +12,7 @@ on:
       - "frontend/package-lock.json"
       - "backend/app/**"
       - "docker-compose.yml"
+      - ".env.demo"
   schedule:
     - cron: "0 6 * * *"
 
