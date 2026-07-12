@@ -84,9 +84,9 @@ describe("parseContentDispositionFilename", () => {
   it("extracts a quoted filename", () => {
     expect(
       parseContentDispositionFilename(
-        'attachment; filename="clarity-export-abc123-2026-05-10.json"',
+        'attachment; filename="snacksbudget-export-abc123-2026-05-10.json"',
       ),
-    ).toBe("clarity-export-abc123-2026-05-10.json");
+    ).toBe("snacksbudget-export-abc123-2026-05-10.json");
   });
 
   it("extracts an unquoted filename", () => {
@@ -181,7 +181,7 @@ describe("<PrivacyDataCard /> export", () => {
     const blob = new Blob([JSON.stringify({ ok: true })], { type: "application/json" });
     exportDataMock.mockResolvedValueOnce({
       blob,
-      filename: "clarity-export-u1-2026-05-10.json",
+      filename: "snacksbudget-export-u1-2026-05-10.json",
     });
 
     // jsdom doesn't implement createObjectURL/revokeObjectURL.

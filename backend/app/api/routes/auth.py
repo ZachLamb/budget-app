@@ -92,7 +92,7 @@ async def demo_login(response: Response, db: AsyncSession = Depends(get_db)):
     """One-click login as the demo user. Only available when DEMO_MODE=true."""
     if not get_settings().demo_mode:
         raise HTTPException(status_code=404, detail="Not found")
-    result = await db.execute(select(User).where(User.email == "demo@claritybudget.app"))
+    result = await db.execute(select(User).where(User.email == "demo@snacksbudget.app"))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=503, detail="Demo data not ready")
