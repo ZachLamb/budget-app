@@ -223,7 +223,7 @@ export function MobileHeader() {
           <SheetTitle className="sr-only">Navigation</SheetTitle>
           <div className="flex items-center gap-2 border-b px-6 py-4">
             <Wallet className="h-6 w-6 text-primary" />
-            <span className="text-lg font-semibold">Snack's Budget</span>
+            <span className="text-lg font-semibold">Snack&apos;s Budget</span>
           </div>
           <div className="flex flex-col h-[calc(100%-57px)]">
             <NavContent onNavigate={() => setOpen(false)} />
@@ -244,7 +244,7 @@ export function Navigation() {
       <div className="flex items-center justify-between gap-2 border-b px-4 py-4">
         <div className="flex min-w-0 items-center gap-2">
           <Wallet className="h-6 w-6 shrink-0 text-primary" />
-          <span className="truncate text-lg font-semibold">Snack's Budget</span>
+          <span className="truncate text-lg font-semibold">Snack&apos;s Budget</span>
         </div>
         <NotificationBell />
       </div>
