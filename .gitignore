@@ -31,3 +31,4 @@ caddy_config/
 # Created by local vercel-build-check; never commit
 /node_modules
 /public
+desktop/Snack's Budget/
