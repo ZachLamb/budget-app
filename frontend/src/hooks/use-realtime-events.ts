@@ -29,7 +29,6 @@ export function useRealtimeEvents(
 
       es.onmessage = (event: MessageEvent) => {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           const payload = JSON.parse(event.data as string);
           // Treat LLM/external output as untrusted — only extract the string
           // type field; don't forward arbitrary structure.
