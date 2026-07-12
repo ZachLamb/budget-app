@@ -52,7 +52,7 @@ function WelcomeStep({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
         <Wallet className="h-10 w-10 text-primary" />
       </div>
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold">Welcome to Clarity</h1>
+        <h1 className="text-3xl font-bold">Welcome to Snack&apos;s Budget</h1>
         <p className="text-muted-foreground text-lg">Private budgeting and debt planning in a few minutes.</p>
       </div>
       <div className="text-left space-y-3 max-w-sm mx-auto">

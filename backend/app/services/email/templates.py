@@ -29,10 +29,10 @@ def magic_link(
         as a copy-paste string — only as the clickable link. Reduces the
         chance a user pastes it somewhere unsafe.
     """
-    subject = "Sign in to Clarity"
+    subject = "Sign in to Snack's Budget"
 
     text_parts = [
-        "Sign in to Clarity",
+        "Sign in to Snack's Budget",
         "",
         f"Click this link to sign in (expires in {ttl_minutes} minutes):",
         sign_in_url,
@@ -53,7 +53,7 @@ def magic_link(
 <body style="margin:0;padding:0;background:#f7f7f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;">
   <table cellpadding="0" cellspacing="0" border="0" align="center" width="100%" style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;border:1px solid #e5e7eb;">
     <tr><td style="padding:32px 32px 24px;">
-      <h1 style="margin:0 0 16px;font-size:22px;line-height:1.3;">Sign in to Clarity</h1>
+      <h1 style="margin:0 0 16px;font-size:22px;line-height:1.3;">Sign in to Snack's Budget</h1>
       <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#444;">
         Click the button below to sign in. The link is valid for {ttl_minutes} minutes
         and can only be used once.
@@ -62,7 +62,7 @@ def magic_link(
         <a href="{sign_in_url}"
            style="display:inline-block;padding:12px 24px;background:#111;color:#fff;
                   text-decoration:none;border-radius:8px;font-weight:600;font-size:15px;">
-          Sign in to Clarity
+          Sign in to Snack's Budget
         </a>
       </p>
       <p style="margin:0 0 12px;font-size:13px;color:#666;line-height:1.5;">

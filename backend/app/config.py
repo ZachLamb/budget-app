@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # from. Empty means "derive from FRONTEND_URL's hostname" (see
     # app.api.routes.auth.get_webauthn_rp_id) with a final localhost fallback.
     webauthn_rp_id: str = ""
-    webauthn_rp_name: str = "Budget App"
+    webauthn_rp_name: str = "Snack's Budget"
     webauthn_debug: bool = False  # if True, GET /api/auth/passkey/debug is enabled
 
     # Demo mode: seeds fake data, enables read-only guard
@@ -162,14 +162,18 @@ def get_settings() -> Settings:
     # seeds fake data and mocks AI; if it ever lands in prod the user sees
     # someone else's "data" and the AI returns canned responses. Hard fail.
     if settings.demo_mode and _looks_like_production():
-        raise RuntimeError(
-            "DEMO_MODE=true is set, but a production environment marker is "
-            "also set (one of VERCEL_ENV, RAILWAY_ENVIRONMENT, FLY_APP_NAME, "
-            "RENDER, NODE_ENV, APP_ENV, ENVIRONMENT). Refusing to start. "
-            "Demo mode seeds fake data and mocks AI — it must never run in "
-            "production. If this is intentional, unset the prod marker; "
-            "otherwise unset DEMO_MODE."
-        )
+        import os
+        if not os.environ.get("DEMO_MODE_ALLOW_PRODUCTION", "").strip().lower() == "true":
+            raise RuntimeError(
+                "DEMO_MODE=true is set, but a production environment marker is "
+                "also set (one of VERCEL_ENV, RAILWAY_ENVIRONMENT, FLY_APP_NAME, "
+                "RENDER, NODE_ENV, APP_ENV, ENVIRONMENT). Refusing to start. "
+                "Demo mode seeds fake data and mocks AI — it must never run in "
+                "production. If this is intentional, unset the prod marker; "
+                "otherwise unset DEMO_MODE. To explicitly allow demo mode on a "
+                "production host (e.g. a dedicated demo deployment), also set "
+                "DEMO_MODE_ALLOW_PRODUCTION=true."
+            )
     # Loud warning (not a hard fail — the lock-everyone-out default is
     # documented as intentional): with no ADMIN_EMAIL, every new registration
     # stays "pending" forever because nobody can approve them.

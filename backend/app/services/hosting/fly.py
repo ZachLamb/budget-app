@@ -4,7 +4,7 @@ from __future__ import annotations
 
 Reads machine + volume state from Fly's Machines REST API (the well-documented
 public API at ``api.machines.dev``), computes whether the config matches the
-"free-tier blueprint" Clarity is expected to run on, and returns a normalized
+"free-tier blueprint" Snack's Budget is expected to run on, and returns a normalized
 summary the UI can render at a glance.
 
 Why config-drift instead of $ spend: Fly's GraphQL doesn't expose current-month

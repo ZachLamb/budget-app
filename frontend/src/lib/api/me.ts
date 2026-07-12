@@ -95,7 +95,7 @@ export const meApi = {
     }
     const blob = await resp.blob();
     const fromHeader = parseContentDispositionFilename(resp.headers.get("content-disposition"));
-    const filename = fromHeader || `clarity-export-${isoDate()}.json`;
+    const filename = fromHeader || `snacksbudget-export-${isoDate()}.json`;
     return { blob, filename };
   },
 

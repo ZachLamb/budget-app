@@ -35,7 +35,7 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 
-DEMO_EMAIL = "demo@claritybudget.app"
+DEMO_EMAIL = "demo@snacksbudget.app"
 
 # ── Category definitions (mirrors DEFAULT_CATEGORIES in auth.py) ────────────
 DEFAULT_CATEGORIES = {

@@ -21,7 +21,7 @@ export const CYCLE_TRACKED_PATHS = {
   diagnose: "/recurring",
 } as const;
 
-const VISIT_KEY_PREFIX = "clarity:cycle-visit:";
+const VISIT_KEY_PREFIX = "snacks:cycle-visit:";
 
 function readLocal(key: string): string | null {
   if (typeof window === "undefined") return null;

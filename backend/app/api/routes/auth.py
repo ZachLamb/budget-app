@@ -92,7 +92,7 @@ async def demo_login(response: Response, db: AsyncSession = Depends(get_db)):
     """One-click login as the demo user. Only available when DEMO_MODE=true."""
     if not get_settings().demo_mode:
         raise HTTPException(status_code=404, detail="Not found")
-    result = await db.execute(select(User).where(User.email == "demo@claritybudget.app"))
+    result = await db.execute(select(User).where(User.email == "demo@snacksbudget.app"))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=503, detail="Demo data not ready")
@@ -362,7 +362,7 @@ async def passkey_register_options(
             raise HTTPException(status_code=400, detail=_REGISTRATION_FAILED_DETAIL)
         settings = get_settings()
         rp_id = get_webauthn_rp_id()
-        rp_name = (settings.webauthn_rp_name or "Budget App").strip() or "Budget App"
+        rp_name = (settings.webauthn_rp_name or "Snack's Budget").strip() or "Snack's Budget"
         user_id = str(uuid.uuid4())
         options = generate_registration_options(
             rp_id=rp_id,
@@ -653,7 +653,7 @@ async def passkey_add_options(
     try:
         settings = get_settings()
         rp_id = get_webauthn_rp_id()
-        rp_name = (settings.webauthn_rp_name or "Budget App").strip() or "Budget App"
+        rp_name = (settings.webauthn_rp_name or "Snack's Budget").strip() or "Snack's Budget"
         options = generate_registration_options(
             rp_id=rp_id,
             rp_name=rp_name,

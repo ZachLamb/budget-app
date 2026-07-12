@@ -16,7 +16,7 @@ export interface BrowserInfo {
 
 /** Installing as a PWA is optional — on-device AI runs in a normal tab. */
 export const PWA_NOT_REQUIRED =
-  "You do not need to install Clarity as an app. Open it in a regular browser tab on your computer.";
+  "You do not need to install Snack's Budget as an app. Open it in a regular browser tab on your computer.";
 
 export function detectBrowser(): BrowserInfo {
   if (typeof navigator === "undefined") {
@@ -67,7 +67,7 @@ export function unsupportedHeadline(browser: BrowserInfo): string {
 export function unsupportedSteps(browser: BrowserInfo): string[] {
   if (browser.isMobile) {
     return [
-      "On a computer, open Clarity in Google Chrome or Microsoft Edge (not your phone or tablet).",
+      "On a computer, open Snack's Budget in Google Chrome or Microsoft Edge (not your phone or tablet).",
       PWA_NOT_REQUIRED,
       "In the app, go to Settings → enable AI Financial Advisor → Set up on-device AI.",
       "Return to Transactions or AI Advisor and try your suggestion again.",
@@ -76,7 +76,7 @@ export function unsupportedSteps(browser: BrowserInfo): string[] {
   if (!browser.isChromeFamily) {
     return [
       "Install or open Google Chrome or Microsoft Edge on this computer.",
-      "Sign in to Clarity at the same URL you use today (a normal tab is fine — no app install).",
+      "Sign in to Snack's Budget at the same URL you use today (a normal tab is fine — no app install).",
       "Go to Settings → enable AI Financial Advisor → Set up on-device AI.",
       "Try your AI feature again after setup finishes.",
     ];
@@ -123,17 +123,17 @@ export type OnDeviceAiSettingsPhase =
   | "unsupported"
   | "loading";
 
-/** Card-level intro copy — avoids implying Clarity is something you install. */
+/** Card-level intro copy — avoids implying Snack's Budget is something you install. */
 export function onDeviceAiSettingsIntro(phase: OnDeviceAiSettingsPhase): string {
   switch (phase) {
     case "active":
-      return "Running in this browser tab. Your browser's built-in AI handles requests locally — nothing extra to install in Clarity.";
+      return "Running in this browser tab. Your browser's built-in AI handles requests locally — nothing extra to install in Snack's Budget.";
     case "nano-setup":
-      return "Your browser supports built-in AI. Finish the one-time activation below — Chrome or Edge downloads its model component, not a separate Clarity app.";
+      return "Your browser supports built-in AI. Finish the one-time activation below — Chrome or Edge downloads its model component, not a separate Snack's Budget app.";
     case "fallback-setup":
       return "Built-in AI isn't available here. You can store a fallback model in your browser for offline use (one-time download).";
     case "unsupported":
-      return "This browser or device can't run on-device AI yet. Review the checklist below — no Clarity app install is required.";
+      return "This browser or device can't run on-device AI yet. Review the checklist below — no Snack's Budget app install is required.";
     default:
       return "Checking what your browser supports…";
   }

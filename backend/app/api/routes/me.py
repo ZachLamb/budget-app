@@ -164,7 +164,7 @@ async def export_my_data(
 
     household_id = user.household_id
     today = datetime.now(timezone.utc).date().isoformat()
-    filename = f"clarity-export-{user.id}-{today}.json"
+    filename = f"snacksbudget-export-{user.id}-{today}.json"
 
     async def gen() -> AsyncIterator[bytes]:
         # State for "is this the first key?" — controls whether we prepend a

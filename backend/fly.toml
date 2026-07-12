@@ -1,4 +1,4 @@
-# Fly.io app config for the Clarity FastAPI backend.
+# Fly.io app config for the Snack's Budget FastAPI backend.
 #
 # Postgres is provisioned separately (``fly postgres create``) and attached
 # via ``fly postgres attach`` — that sets ``DATABASE_URL`` as a secret on

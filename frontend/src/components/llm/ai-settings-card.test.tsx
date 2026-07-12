@@ -86,7 +86,7 @@ describe("AiSettingsCard — Nano status", () => {
     } as never);
     renderCard();
     expect(await screen.findByText(/browser requirements/i)).toBeInTheDocument();
-    expect(await screen.findByText(/fix in clarity/i)).toBeInTheDocument();
+    expect(await screen.findByText(/fix in snack's budget/i)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /activate built-in ai/i }),
     ).toBeInTheDocument();

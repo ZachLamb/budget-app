@@ -1,5 +1,5 @@
 /* Minimal service worker — app shell only. Does not cache /api/* or auth HTML. */
-const CACHE = "clarity-shell-v2";
+const CACHE = "snacks-shell-v1";
 const SHELL = ["/", "/offline"];
 
 self.addEventListener("install", (event) => {

@@ -25,11 +25,14 @@ test("demo happy path: login, advisor, transactions, logout", async ({ page }) =
   await demoButton.click();
 
   // --- Dashboard ---
-  await expect(page).toHaveURL("/");
+  // Turbopack cold-compiles routes on first hit; the '/' page can take
+  // several seconds on a fresh CI container. 15s is generous but still
+  // far below the 20-minute job timeout.
+  await expect(page).toHaveURL("/", { timeout: 15_000 });
   // Either the dashboard heading or the welcome banner is enough to
   // confirm the authed layout rendered.
   await expect(
-    page.getByRole("heading", { name: /dashboard|welcome to clarity/i }),
+    page.getByRole("heading", { name: /dashboard|welcome to snack's budget/i }),
   ).toBeVisible();
 
   // --- AI advisor ---

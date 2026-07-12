@@ -291,7 +291,7 @@ function WelcomeBanner() {
       >
         <X className="h-4 w-4" />
       </button>
-      <h2 className="text-base font-semibold mb-1">Welcome to Clarity</h2>
+      <h2 className="text-base font-semibold mb-1">Welcome to Snack&apos;s Budget</h2>
       <p className="text-sm text-muted-foreground mb-4">
         Add accounts manually, import a CSV, or connect read-only bank sync (SimpleFIN)—your choice.
       </p>
