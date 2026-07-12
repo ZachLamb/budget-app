@@ -49,7 +49,7 @@ async def send_email(
 
     No request/response bodies are logged. The "subject" and recipient
     are deliberately omitted from logs too — the recipient is PII and
-    the subject can leak content (e.g., "Sign in to Clarity from
+    the subject can leak content (e.g., "Sign in to Snack's Budget from
     <city>"). Operators can correlate via provider_id if needed.
     """
     settings = get_settings()

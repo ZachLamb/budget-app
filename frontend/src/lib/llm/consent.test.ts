@@ -36,7 +36,7 @@ describe("local consent", () => {
   });
 
   it("ignores corrupt stored JSON", () => {
-    window.localStorage.setItem("clarity.llm.localConsent", "{not json");
+    window.localStorage.setItem("snacks.llm.localConsent", "{not json");
     expect(getLocalConsent()).toEqual({});
   });
 });

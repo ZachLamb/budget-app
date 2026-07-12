@@ -32,7 +32,7 @@ test("demo happy path: login, advisor, transactions, logout", async ({ page }) =
   // Either the dashboard heading or the welcome banner is enough to
   // confirm the authed layout rendered.
   await expect(
-    page.getByRole("heading", { name: /dashboard|welcome to clarity/i }),
+    page.getByRole("heading", { name: /dashboard|welcome to snack's budget/i }),
   ).toBeVisible();
 
   // --- AI advisor ---

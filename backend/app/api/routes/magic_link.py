@@ -53,7 +53,7 @@ class MagicLinkRequestResponse(BaseModel):
     """Always returned regardless of whether the email exists.
 
     Privacy: if a probing attacker enumerated "does this email exist on
-    Clarity?" by trying both /register and /magic-link/request, the
+    Snack's Budget?" by trying both /register and /magic-link/request, the
     /register flow already returns 400 on duplicates. So the only place
     enumeration could leak today IS this route. ``ok=True`` always.
     """

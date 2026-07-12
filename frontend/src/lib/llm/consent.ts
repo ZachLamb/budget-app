@@ -4,7 +4,7 @@
 
 import type { LocalConsent } from "./types";
 
-const KEY = "clarity.llm.localConsent";
+const KEY = "snacks.llm.localConsent";
 
 function read(): LocalConsent {
   if (typeof window === "undefined") return {};
