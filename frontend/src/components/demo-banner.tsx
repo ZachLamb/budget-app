@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import { X } from "lucide-react";
+import { useDemoGuard } from "@/lib/hooks";
 
 export function DemoBanner() {
   const [dismissed, setDismissed] = useState(false);
+  const { isDemo } = useDemoGuard();
 
-  if (process.env.NEXT_PUBLIC_DEMO_MODE !== "true" || dismissed) return null;
+  if (!isDemo || dismissed) return null;
 
   return (
     <div className="flex items-center justify-between gap-2 bg-amber-100 px-4 py-2 text-sm text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
