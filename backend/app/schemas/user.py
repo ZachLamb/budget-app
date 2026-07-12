@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+DEMO_EMAIL = "demo@snacksbudget.app"
 
 
 class UserCreate(BaseModel):
@@ -38,8 +40,17 @@ class UserResponse(BaseModel):
     # frontend just uses this for display.
     status: str
     created_at: datetime
+    # True only for the shared demo account. Frontend uses this (not the
+    # server-wide demo_mode flag) to gate read-only UI so that admin users
+    # on a demo-enabled backend still get full write access.
+    is_demo_user: bool = False
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _set_demo_flag(self) -> "UserResponse":
+        self.is_demo_user = self.email.lower() == DEMO_EMAIL
+        return self
 
 
 class TokenResponse(BaseModel):

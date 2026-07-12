@@ -48,7 +48,7 @@ function LoginPageContent() {
   // points at a demo backend would previously show the Google button and
   // the "Create one" toggle even though both dead-end at 403. useDemoGuard
   // falls back to the build-time flag until the config query resolves.
-  const { isDemo } = useDemoGuard();
+  const { serverDemoMode: isDemo } = useDemoGuard();
   const { user, loading: authLoading, login } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();

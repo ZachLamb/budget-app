@@ -13,6 +13,9 @@ export interface User {
    *  showing an "awaiting approval" page if a stale session sneaks through). */
   status: string;
   created_at: string;
+  /** True only for the shared demo account. Use this (not server-wide demo_mode)
+   *  to gate read-only UI — admins on a demo-enabled backend keep full access. */
+  is_demo_user: boolean;
 }
 
 export interface TokenResponse {

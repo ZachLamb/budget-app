@@ -42,7 +42,7 @@ struct TransactionsView: View {
 
     private func loadTransactions() async {
         do {
-            transactions = try AppDatabase.shared.read { db in
+            transactions = try await AppDatabase.shared.read { db in
                 try LocalTransaction
                     .order(Column("date").desc)
                     .limit(500)
