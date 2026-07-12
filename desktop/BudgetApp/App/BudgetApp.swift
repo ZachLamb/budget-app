@@ -3,6 +3,8 @@ import SwiftUI
 @main
 struct BudgetApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
+    @State private var sync = SyncCoordinator(api: APIClient(baseURL: URL(string: "https://your-backend.fly.dev")!))
+    @State private var inference = InferenceManager(api: APIClient(baseURL: URL(string: "https://your-backend.fly.dev")!))
 
     var body: some Scene {
         WindowGroup {
@@ -21,6 +23,8 @@ struct BudgetApp: App {
 
         MenuBarExtra("Budget", systemImage: "dollarsign.circle") {
             MenuBarView()
+                .environment(sync)
+                .environment(inference)
         }
         .menuBarExtraStyle(.window)
     }
