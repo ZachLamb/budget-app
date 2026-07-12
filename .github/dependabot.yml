@@ -1,27 +1,159 @@
 version: 2
 updates:
+  # ── Frontend (Next.js / Node) ────────────────────────────────────────────────
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - javascript
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
     groups:
+      # Core Next.js stack — bump together so plugin/config versions stay aligned.
       next:
         patterns:
           - next
           - eslint-config-next
+          - "@next/*"
+      # React — version must match between react and react-dom.
       react:
         patterns:
           - react
           - react-dom
           - "@types/react"
           - "@types/react-dom"
+      # Radix UI primitives — all released in lockstep.
+      radix-ui:
+        patterns:
+          - "@radix-ui/*"
+      # Tailwind CSS toolchain.
+      tailwind:
+        patterns:
+          - tailwindcss
+          - "@tailwindcss/*"
+          - tailwind-merge
+          - tailwindcss-animate
+      # Tanstack (React Query, Table, etc.).
+      tanstack:
+        patterns:
+          - "@tanstack/*"
+      # TypeScript and type definitions.
+      typescript:
+        patterns:
+          - typescript
+          - "@types/*"
+      # Testing tools.
+      testing:
+        patterns:
+          - jest
+          - jest-environment-jsdom
+          - "@jest/*"
+          - "@testing-library/*"
+          - vitest
+      # Build / lint tooling.
+      tooling:
+        patterns:
+          - eslint
+          - eslint-*
+          - prettier
+          - "@typescript-eslint/*"
+          - autoprefixer
+          - postcss
 
+  # ── Root workspace (if any shared tooling lives here) ───────────────────────
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - javascript
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+
+  # ── Backend (Python / pip) ───────────────────────────────────────────────────
   - package-ecosystem: pip
     directory: /backend
     schedule:
       interval: weekly
+      day: tuesday
+      time: "08:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - python
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      # FastAPI web framework and its ASGI server.
+      fastapi:
+        patterns:
+          - fastapi
+          - uvicorn
+          - starlette
+          - pydantic
+          - pydantic-settings
+          - python-multipart
+      # SQLAlchemy ORM and asyncpg driver.
+      sqlalchemy:
+        patterns:
+          - sqlalchemy
+          - asyncpg
+          - alembic
+          - greenlet
+      # HTTP clients.
+      httpx:
+        patterns:
+          - httpx
+          - httpcore
+          - h11
+      # Auth / crypto stack.
+      auth:
+        patterns:
+          - pyjwt
+          - bcrypt
+          - passlib
+          - cryptography
+          - py-webauthn
+      # AI / ML dependencies.
+      ai:
+        patterns:
+          - openai
+          - anthropic
+          - tiktoken
+          - numpy
 
+  # ── GitHub Actions ───────────────────────────────────────────────────────────
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "chore(ci)"
+      include: scope
+    groups:
+      # Group all action version bumps to reduce noise.
+      actions:
+        patterns:
+          - "*"

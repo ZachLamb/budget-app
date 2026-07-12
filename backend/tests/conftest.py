@@ -33,7 +33,7 @@ def reset_rate_limit_store():
 
     The InMemoryStore is module-level state on app.state; without this, tests
     that hit the same path prefix accumulate hits across the suite and can
-    trigger 429s on routes that should return 404.
+    trigger 429s on routes that should return 404 or another status.
     """
     from app.main import app as _app
     store = getattr(getattr(_app, "state", None), "rate_limit_store", None)
