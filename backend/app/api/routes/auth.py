@@ -13,13 +13,13 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode, urlparse
 
 import httpx
+import jwt
 import jwt as _jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-import jwt
 from app.services.auth.passwords import hash_password, verify_password
 from app.services.auth.tokens import create_session_token
 from webauthn import generate_registration_options, verify_registration_response, generate_authentication_options, verify_authentication_response
@@ -1080,14 +1080,28 @@ async def native_token(
             status="pending",
         )
         db.add(user)
+        await db.flush()
+        for sort_idx, (group_name, config) in enumerate(DEFAULT_CATEGORIES.items()):
+            group = CategoryGroup(
+                household_id=household.id,
+                name=group_name,
+                sort_order=sort_idx,
+                is_income=config.get("is_income", False),
+            )
+            db.add(group)
+            await db.flush()
+            for cat_idx, cat_name in enumerate(config["cats"]):
+                db.add(Category(group_id=group.id, name=cat_name, sort_order=cat_idx))
+        apply_admin_bootstrap(user)
         await db.commit()
         await db.refresh(user)
-        apply_admin_bootstrap(user)
-        if user.status == "approved":
+    else:
+        if user.google_id is None:
+            user.google_id = google_id
             await db.commit()
-    elif user.google_id is None:
-        user.google_id = google_id
-        await db.commit()
+        if apply_admin_bootstrap(user):
+            await db.commit()
+            await db.refresh(user)
 
     check_approved(user)
     token = _create_token(user)

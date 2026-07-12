@@ -1,6 +1,7 @@
 """Pytest bootstrap: minimal env so `app.config` loads without a local `.env`."""
 
 import os
+import pytest
 
 # Must satisfy get_settings() before any `from app...` that pulls database/config.
 if not os.environ.get("SECRET_KEY"):
@@ -24,3 +25,20 @@ for _k in (
 # Production deploy markers in a local shell must not trip demo-mode guards during pytest.
 os.environ.pop("FLY_APP_NAME", None)
 os.environ.pop("VERCEL_ENV", None)
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limit_store():
+    """Clear in-memory rate limit counters between tests.
+
+    The InMemoryStore is module-level state on app.state; without this, tests
+    that hit the same path prefix accumulate hits across the suite and can
+    trigger 429s on routes that should return 404.
+    """
+    from app.main import app as _app
+    store = getattr(getattr(_app, "state", None), "rate_limit_store", None)
+    if store is not None and hasattr(store, "_hits"):
+        store._hits.clear()
+    yield
+    if store is not None and hasattr(store, "_hits"):
+        store._hits.clear()

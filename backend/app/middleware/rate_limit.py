@@ -22,6 +22,13 @@ from starlette.responses import Response
 from app.config import get_settings
 from app.middleware.rate_limit_store import RateLimitStore, build_store
 
+# (path prefix, max_hits, window_seconds) — GET-only routes that need rate limiting.
+# SSE connections are long-lived and each holds an asyncio queue in memory; cap
+# the connection rate per IP so a single account can't exhaust server memory.
+_GET_RULES: List[Tuple[str, int, int]] = [
+    ("/api/realtime/events", 10, 60),
+]
+
 # (path prefix, max_hits, window_seconds)
 # AI routes have a tight per-IP cap: each POST can hold a worker for up to the
 # full Ollama read timeout (120s), so 120/min left a large cost-amplification /
@@ -121,6 +128,34 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
         method = request.method.upper()
+
+        if method == "GET":
+            for prefix, max_hits, window in _GET_RULES:
+                if path.startswith(prefix):
+                    ip = client_ip_for_limit(request, self._trusted_proxies)
+                    key = f"rl:{prefix}:{ip}"
+                    result = await self._store.check_and_increment(
+                        key, max_hits, window, fail_open=True
+                    )
+                    remaining = max(0, max_hits - result.count)
+                    rate_headers = {
+                        "RateLimit-Limit": str(max_hits),
+                        "RateLimit-Remaining": str(remaining),
+                        "RateLimit-Reset": str(window),
+                    }
+                    if result.over:
+                        return Response(
+                            content=json.dumps({"detail": "Too many requests. Try again shortly."}),
+                            status_code=429,
+                            media_type="application/json",
+                            headers={"Retry-After": str(window), **rate_headers},
+                        )
+                    response = await call_next(request)
+                    for name, value in rate_headers.items():
+                        response.headers[name] = value
+                    return response
+            return await call_next(request)
+
         if method not in ("POST", "PUT", "PATCH", "DELETE"):
             return await call_next(request)
 
