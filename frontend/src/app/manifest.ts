@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Clarity — Budget & Debt",
-    short_name: "Clarity",
+    name: "Snack's Budget",
+    short_name: "Snack's Budget",
     description: "Private budgeting, debt planning, and optional on-device AI",
     start_url: "/",
     display: "standalone",

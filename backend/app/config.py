@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # from. Empty means "derive from FRONTEND_URL's hostname" (see
     # app.api.routes.auth.get_webauthn_rp_id) with a final localhost fallback.
     webauthn_rp_id: str = ""
-    webauthn_rp_name: str = "Budget App"
+    webauthn_rp_name: str = "Snack's Budget"
     webauthn_debug: bool = False  # if True, GET /api/auth/passkey/debug is enabled
 
     # Demo mode: seeds fake data, enables read-only guard

@@ -236,7 +236,7 @@ export function OnDeviceAiSetupPanel({
           <div className="space-y-2">
             {!compact && (
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Fix in Clarity
+                Fix in Snack's Budget
               </p>
             )}
             <ul className="space-y-3" role="list">
@@ -266,7 +266,7 @@ export function OnDeviceAiSetupPanel({
               Fix in Chrome (one-time)
             </p>
             <p className="text-xs text-muted-foreground">
-              Clarity cannot enable these browser settings for you. Copy a link, paste it into
+              Snack's Budget cannot enable these browser settings for you. Copy a link, paste it into
               Chrome&apos;s address bar, then return here and click Re-check.
             </p>
             <ul className="space-y-3" role="list">

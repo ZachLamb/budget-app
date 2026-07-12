@@ -30,7 +30,7 @@ function titleFromPath(pathname: string): string {
   for (const [path, title] of Object.entries(PATH_TITLES)) {
     if (path !== "/" && pathname.startsWith(path)) return title;
   }
-  return "Clarity";
+  return "Snack's Budget";
 }
 
 type PageTitleContextValue = {
@@ -64,7 +64,7 @@ export function PageTitleProvider({ children }: { children: ReactNode }) {
 export function usePageTitle() {
   const ctx = useContext(PageTitleContext);
   if (!ctx) {
-    return { title: "Clarity", setTitle: () => {} };
+    return { title: "Snack's Budget", setTitle: () => {} };
   }
   return ctx;
 }

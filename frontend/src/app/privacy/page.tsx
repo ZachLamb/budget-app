@@ -2,8 +2,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Cpu, Smartphone } from "lucide-react";
 
 export const metadata = {
-  title: "Privacy — Clarity",
-  description: "How Clarity handles your financial data and AI features.",
+  title: "Privacy — Snack's Budget",
+  description: "How Snack's Budget handles your financial data and AI features.",
 };
 
 export default function PrivacyPage() {
@@ -12,7 +12,7 @@ export default function PrivacyPage() {
       <header className="space-y-2">
         <h1 className="text-3xl font-semibold">Privacy</h1>
         <p className="text-muted-foreground">
-          Clarity is a household budget app. Your data is yours. This page explains exactly how AI
+          Snack's Budget is a household budget app. Your data is yours. This page explains exactly how AI
           features handle your information on your device.
         </p>
       </header>
@@ -42,7 +42,7 @@ export default function PrivacyPage() {
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <p>
-            For browsers without Gemini Nano (e.g., Safari, Firefox), Clarity runs an open-source
+            For browsers without Gemini Nano (e.g., Safari, Firefox), Snack's Budget runs an open-source
             model in your browser using WebGPU. The model is downloaded once (700 MB or 1.8 GB) and
             cached on your device. After the one-time download, prompts and completions stay
             entirely on your device.
@@ -62,7 +62,7 @@ export default function PrivacyPage() {
         <CardContent className="space-y-2 text-sm">
           <p>
             Heavy AI features fetch deterministic budget, goal, and context summaries from the
-            Clarity API before any model runs. Those endpoints return numbers and IDs only — never
+            Snack's Budget API before any model runs. Those endpoints return numbers and IDs only — never
             model output — and are scoped to your household with the same auth as the rest of the app.
           </p>
           <p className="text-muted-foreground">Model prompts or completions stored on our servers: <span className="font-medium text-foreground">No.</span></p>
@@ -74,7 +74,7 @@ export default function PrivacyPage() {
           <CardTitle>What is not used</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          <p>Clarity never sends prompts to OpenAI, Anthropic, Google AI Studio, or any third-party model API.</p>
+          <p>Snack's Budget never sends prompts to OpenAI, Anthropic, Google AI Studio, or any third-party model API.</p>
           <p>We do not log full request bodies of any AI call.</p>
           <p>Browser-side console logs do not include any AI content.</p>
         </CardContent>

@@ -15,14 +15,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Clarity — private budgeting & debt planning",
+  title: "Snack's Budget — private budgeting & debt planning",
   description:
     "Envelope-style budgeting, debt and savings goals, optional bank sync (SimpleFIN), and optional on-device AI in Chrome or Edge.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Clarity",
+    title: "Snack's Budget",
   },
 };
 

@@ -68,7 +68,7 @@ export function buildOnDeviceRequirements(
     status: browser.isDesktop ? "pass" : "fail",
     detail: browser.isDesktop
       ? "On-device AI runs on a computer, not a phone or tablet."
-      : "Open Clarity on a laptop or desktop computer.",
+      : "Open Snack's Budget on a laptop or desktop computer.",
     action: browser.isDesktop ? undefined : PWA_ACTION_DESKTOP,
     fixTier: browser.isDesktop ? "none" : "browser-manual",
   });
@@ -100,7 +100,7 @@ export function buildOnDeviceRequirements(
 }
 
 const PWA_ACTION_DESKTOP =
-  "You do not need to install Clarity as an app — a normal browser tab on your computer is enough.";
+  "You do not need to install Snack's Budget as an app — a normal browser tab on your computer is enough.";
 
 const NANO_FLAG_COPY: ManualCopyItem[] = [
   CHROME_MANUAL_COPY_ITEMS[0],
@@ -128,7 +128,7 @@ function buildNanoRequirement(cap: CapabilitySnapshot): OnDeviceRequirement {
         label: "Built-in AI (Gemini Nano)",
         status: "pending",
         detail: "Your browser supports built-in AI — activate it with one click below.",
-        action: "Chrome downloads its model component; you stay in Clarity.",
+        action: "Chrome downloads its model component; you stay in Snack's Budget.",
         fixTier: "in-app",
         inAppAction: "activate-nano",
       };
@@ -148,7 +148,7 @@ function buildNanoRequirement(cap: CapabilitySnapshot): OnDeviceRequirement {
         status: "fail",
         detail: "Built-in AI is not available on this browser build.",
         action:
-          "Update Chrome or Edge, then check components and flags below. Clarity cannot change these from the app.",
+          "Update Chrome or Edge, then check components and flags below. Snack's Budget cannot change these from the app.",
         fixTier: "browser-manual",
         manualCopyItems: NANO_FLAG_COPY,
       };
@@ -161,7 +161,7 @@ function buildNanoRequirement(cap: CapabilitySnapshot): OnDeviceRequirement {
           ? "The Prompt API did not respond — built-in AI may be disabled in Chrome."
           : "The Prompt API is not enabled in this browser.",
         action:
-          "Enable the flags below in Chrome, restart the browser, then click Re-check. Clarity cannot toggle flags for you.",
+          "Enable the flags below in Chrome, restart the browser, then click Re-check. Snack's Budget cannot toggle flags for you.",
         fixTier: "browser-manual",
         manualCopyItems: NANO_FLAG_COPY,
       };
@@ -185,7 +185,7 @@ function buildWebgpuRequirement(
         : "WebGPU is not available — needed for the fallback on-device model.",
       action: optional
         ? undefined
-        : "Check chrome://gpu in Chrome — WebGPU should show “Hardware accelerated”. Clarity cannot enable it from here.",
+        : "Check chrome://gpu in Chrome — WebGPU should show “Hardware accelerated”. Snack's Budget cannot enable it from here.",
       fixTier: optional ? "none" : "browser-manual",
       manualCopyItems: optional ? undefined : WEBGPU_COPY,
       optional,
@@ -257,7 +257,7 @@ function buildFallbackModelRequirement(
     label: "Fallback model in browser storage",
     status: "pending",
     detail: `Store a one-time ${downloadStatus.sizeLabel} download in this browser when Gemini Nano is unavailable.`,
-    action: "Click below to download — you stay in Clarity.",
+    action: "Click below to download — you stay in Snack's Budget.",
     fixTier: "in-app",
     inAppAction: "download-fallback",
   };

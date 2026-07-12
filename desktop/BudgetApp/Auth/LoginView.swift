@@ -9,7 +9,7 @@ struct LoginView: View {
                 .font(.system(size: 64))
                 .foregroundStyle(.tint)
 
-            Text("Budget App")
+            Text("Snack's Budget")
                 .font(.largeTitle.bold())
 
             Text("Sign in to sync your budget across devices.")

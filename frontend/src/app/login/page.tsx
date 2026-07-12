@@ -198,7 +198,7 @@ function LoginPageContent() {
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Wallet className="h-6 w-6 text-primary" />
           </div>
-          <CardTitle className="text-2xl">Clarity</CardTitle>
+          <CardTitle className="text-2xl">Snack's Budget</CardTitle>
           <CardDescription>
             {isRegister
               ? "Private budgeting and goals — AI stays off until you enable it."

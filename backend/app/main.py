@@ -74,7 +74,7 @@ async def lifespan(app: FastAPI):
 # not /api/accounts/).  This prevents FastAPI from issuing 307 redirects that would loop
 # with Next.js's trailing-slash normalisation.
 app = FastAPI(
-    title="Budget App API",
+    title="Snack's Budget API",
     version="0.1.0",
     lifespan=lifespan,
     redirect_slashes=False,
