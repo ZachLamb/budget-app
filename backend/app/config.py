@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     email_from_address: str = ""
 
+    # Allowed redirect URIs for native client OAuth (deep link scheme).
+    # Comma-separated. Default allows the macOS app's deep link.
+    native_client_redirect_uris: str = "budget://auth/callback"
+
     # Bootstrap admin: the first user whose email matches ADMIN_EMAIL is
     # auto-promoted to role="admin" + status="approved" on registration
     # OR on next login if they already exist. Self-healing.

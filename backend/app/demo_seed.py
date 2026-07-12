@@ -81,8 +81,8 @@ async def seed_demo_data(session_factory) -> None:
         db.add(Household(
             id=household_id,
             name="Demo Household",
-            simplefin_access_url="https://demo.simplefin.example/access",
-            sync_interval_hours=4,
+            # No simplefin_access_url — keeps the demo household out of the
+            # hourly scheduler's sync queue (it queries IS NOT NULL).
             ai_enabled=True,
             debt_strategy="avalanche",
             debt_extra_monthly=Decimal("200.00"),

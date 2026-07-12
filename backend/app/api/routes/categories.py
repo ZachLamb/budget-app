@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.api.deps import get_household_id
+from app.services.realtime import emit_event
 from app.models import (
     AutoCategorizationRule,
     BudgetAssignment,
@@ -139,7 +140,10 @@ async def create_category_group(
     await db.flush()
     # Fresh object post-flush: async lazy-load of .categories would raise MissingGreenlet during serialization; refresh loads the (empty) collection.
     await db.refresh(group, ["categories"])
-    return CategoryGroupResponse.model_validate(group)
+    response = CategoryGroupResponse.model_validate(group)
+    await db.commit()
+    await emit_event(household_id, "category.updated")
+    return response
 
 
 @router.put("/groups/{group_id}", response_model=CategoryGroupResponse)
@@ -159,7 +163,10 @@ async def update_category_group(
         raise HTTPException(status_code=404, detail="Category group not found")
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(group, field, value)
-    return CategoryGroupResponse.model_validate(group)
+    response = CategoryGroupResponse.model_validate(group)
+    await db.commit()
+    await emit_event(household_id, "category.updated")
+    return response
 
 
 @router.delete("/groups/{group_id}", status_code=204)
@@ -196,6 +203,8 @@ async def delete_category_group(
         for category in categories:
             await db.delete(category)
     await db.delete(group)
+    await db.commit()
+    await emit_event(household_id, "category.updated")
 
 
 @router.post("", response_model=CategoryResponse, status_code=201)
@@ -220,7 +229,10 @@ async def create_category(
     category = Category(**payload)
     db.add(category)
     await db.flush()
-    return CategoryResponse.model_validate(category)
+    response = CategoryResponse.model_validate(category)
+    await db.commit()
+    await emit_event(household_id, "category.updated")
+    return response
 
 
 @router.put("/{category_id}", response_model=CategoryResponse)
@@ -250,7 +262,10 @@ async def update_category(
             raise HTTPException(status_code=404, detail="Category group not found")
     for field, value in updates.items():
         setattr(category, field, value)
-    return CategoryResponse.model_validate(category)
+    response = CategoryResponse.model_validate(category)
+    await db.commit()
+    await emit_event(household_id, "category.updated")
+    return response
 
 
 @router.delete("/{category_id}", status_code=204)
@@ -279,3 +294,5 @@ async def delete_category(
         sql_update(Transaction).where(Transaction.category_id == category_id).values(category_id=None)
     )
     await db.delete(category)
+    await db.commit()
+    await emit_event(household_id, "category.updated")

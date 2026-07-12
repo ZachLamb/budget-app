@@ -46,3 +46,7 @@ next-env.d.ts
 /playwright-report/
 /playwright/.cache/
 .fallow/
+
+# Generated API types — regenerated from FastAPI OpenAPI spec at build time.
+# Run `npm run generate:api` locally after backend changes, or update openapi-snapshot.json.
+/src/lib/api/generated.ts
