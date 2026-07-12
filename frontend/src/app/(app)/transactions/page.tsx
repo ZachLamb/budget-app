@@ -24,6 +24,7 @@ import { aiApi } from "@/lib/api/ai";
 import { AnomalyExplain } from "@/components/transactions/anomaly-explain";
 import { useFsaReviewScan } from "@/hooks/use-fsa-review-scan";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
+import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import { useFlatCategories, useIsClient, useDemoGuard } from "@/lib/hooks";
@@ -79,6 +80,17 @@ function TransactionsContent() {
   const queryClient = useQueryClient();
   const isClient = useIsClient();
   const { filters, setFilters, updateFilters } = useTransactionFilters();
+
+  useRealtimeEvents((type) => {
+    if (
+      type === "transaction.created" ||
+      type === "transaction.updated" ||
+      type === "transaction.deleted"
+    ) {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    }
+  });
 
   const { data: accounts = [] } = useQuery({
     queryKey: ["accounts"],
