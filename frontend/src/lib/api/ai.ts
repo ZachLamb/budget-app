@@ -40,6 +40,29 @@ export interface SpendingPatternsResponse {
   patterns: SpendingTrend[];
 }
 
+export interface CycleMover {
+  category: string;
+  direction: "up" | "down";
+  pct_change: number;
+}
+
+export interface CycleOverspend {
+  category: string;
+  over_by: number;
+}
+
+export interface CycleSummaryFacts {
+  window: string;
+  income: number;
+  spent: number;
+  net: number;
+  top_movers: CycleMover[];
+  overspent: CycleOverspend[];
+  cycle_progress: { observed: boolean; diagnosed: boolean; decided: boolean };
+  open_commitments: number;
+  next_step: string;
+}
+
 export interface BudgetSuggestion {
   category_id: string;
   category_name: string;
@@ -60,6 +83,8 @@ export interface AnomalyFact {
 export const aiApi = {
   getSpendingPatterns: () =>
     api.get<SpendingPatternsResponse>("/ai/facts/spending-patterns").then((r) => r.data),
+  getCycleSummary: () =>
+    api.get<CycleSummaryFacts>("/ai/facts/cycle-summary").then((r) => r.data),
   getAnomalies: () =>
     api.get<{ anomalies: AnomalyFact[] }>("/ai/facts/anomalies").then((r) => r.data),
   getFsaReviewCandidates: (params?: {

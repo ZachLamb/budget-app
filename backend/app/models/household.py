@@ -16,6 +16,13 @@ class Household(Base):
     simplefin_access_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True, default=None)
     sync_interval_hours: Mapped[int] = mapped_column(Integer, default=4)
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Route AI features to the self-hosted OpenAI-compatible server (LM Studio /
+    # Ollama) as the primary model, with on-device as fallback. Because that
+    # server runs on the user's own machine, enabling this also acts as consent
+    # for the local-server ("cloud") tier.
+    prefer_local_server: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
     debt_strategy: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, default=None)
     debt_extra_monthly: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2), nullable=True, default=None)
 

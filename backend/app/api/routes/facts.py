@@ -18,6 +18,7 @@ from app.schemas.facts import (
     AnomalyFacts,
     BudgetFacts,
     ContextFacts,
+    CycleSummaryFacts,
     DebtFacts,
     GoalFacts,
     SearchFacts,
@@ -26,6 +27,7 @@ from app.schemas.facts import (
 from app.services.ai.anomaly import compute_anomaly_facts
 from app.services.ai.budget import compute_budget_facts, compute_spending_patterns
 from app.services.ai.context import build_context_facts
+from app.services.ai.cycle_summary import compute_cycle_summary_facts
 from app.services.ai.debt_facts import compute_debt_facts
 from app.services.ai.search import compute_search_facts
 
@@ -66,6 +68,20 @@ async def spending_patterns_facts(
 ) -> SpendingPatternsFacts:
     """Category spending trends vs 3-month average (deterministic)."""
     return SpendingPatternsFacts(**await compute_spending_patterns(db, household_id))
+
+
+@router.get("/cycle-summary", response_model=CycleSummaryFacts)
+async def cycle_summary_facts(
+    household_id: str = Depends(_require_ai_enabled),
+    db: AsyncSession = Depends(get_db),
+) -> CycleSummaryFacts:
+    """Grounding facts for the pay-cycle 'how's this cycle going?' narration.
+
+    Deterministic composition of window income/spend, top category movers,
+    overspent categories, cycle observe/diagnose/decide progress, and open
+    commitments — the narration built from this must not stray beyond it.
+    """
+    return CycleSummaryFacts(**await compute_cycle_summary_facts(db, household_id))
 
 
 @router.get("/anomalies", response_model=AnomalyFacts)

@@ -42,6 +42,15 @@ class RecurringSuggestionDismissBody(BaseModel):
     dedupe_key: str = Field(..., min_length=1, max_length=128)
 
 
+class PriceChangeResponse(BaseModel):
+    """A subscription whose latest charge stepped up from its established price."""
+
+    payee_name: str
+    previous_amount: float
+    current_amount: float
+    pct_change: float
+
+
 class RecurringResponse(BaseModel):
     id: str
     household_id: str

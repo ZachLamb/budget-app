@@ -1,14 +1,94 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.database import get_db
 from app.api.deps import get_household_id
-from app.models import AutoCategorizationRule
-from app.schemas.rule import RuleCreate, RuleUpdate, RuleResponse
+from app.models import AutoCategorizationRule, Transaction, Account, Category, Payee
+from app.schemas.rule import (
+    RuleCreate,
+    RuleUpdate,
+    RuleResponse,
+    RuleSuggestionResponse,
+)
+from app.services.rule_suggestions import (
+    ExistingRuleView,
+    PayeeCategoryStat,
+    build_rule_suggestions,
+)
 from app.utils import validate_category_ownership
 
 router = APIRouter()
+
+
+@router.get("/suggestions", response_model=list[RuleSuggestionResponse])
+async def list_rule_suggestions(
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Propose payee→category rules from consistent categorization history.
+
+    Deterministic: aggregates how each payee's categorized transactions are
+    filed, then surfaces the strong, uncovered patterns. No model involved.
+    """
+    counts = await db.execute(
+        select(
+            Payee.name,
+            Transaction.category_id,
+            func.count(Transaction.id).label("count"),
+        )
+        .join(Account, Transaction.account_id == Account.id)
+        .join(Payee, Transaction.payee_id == Payee.id)
+        .where(
+            Account.household_id == household_id,
+            Transaction.category_id.is_not(None),
+        )
+        .group_by(Payee.name, Transaction.category_id)
+    )
+    stats = [
+        PayeeCategoryStat(payee_name=name, category_id=cat_id, count=count)
+        for name, cat_id, count in counts.all()
+    ]
+
+    rules_result = await db.execute(
+        select(AutoCategorizationRule).where(
+            AutoCategorizationRule.household_id == household_id
+        )
+    )
+    existing = [
+        ExistingRuleView(
+            match_field=r.match_field,
+            match_type=r.match_type,
+            match_value=r.match_value,
+            enabled=r.enabled,
+        )
+        for r in rules_result.scalars().all()
+    ]
+
+    suggestions = build_rule_suggestions(stats, existing)
+    if not suggestions:
+        return []
+
+    cat_result = await db.execute(
+        select(Category.id, Category.name).where(
+            Category.id.in_({s.category_id for s in suggestions})
+        )
+    )
+    cat_names = {cid: name for cid, name in cat_result.all()}
+
+    return [
+        RuleSuggestionResponse(
+            match_field=s.match_field,
+            match_type=s.match_type,
+            match_value=s.match_value,
+            category_id=s.category_id,
+            category_name=cat_names.get(s.category_id, "Unknown"),
+            support=s.support,
+            total=s.total,
+            dominance=s.dominance,
+        )
+        for s in suggestions
+    ]
 
 
 @router.get("", response_model=list[RuleResponse])

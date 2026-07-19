@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { rulesApi, type Rule, type RuleCreate } from "@/lib/api/rules";
+import { rulesApi, type Rule, type RuleCreate, type RuleSuggestion } from "@/lib/api/rules";
 import { reportsApi, type LlmSuggestion } from "@/lib/api/reports";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
+import { useMerchantNameRefine } from "@/hooks/use-merchant-name-refine";
 import { useFlatCategories, useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
 import { Card, CardContent } from "@/components/ui/card";
@@ -60,6 +61,53 @@ function RulesContent() {
 
   const { allCategories, catNameMap } = useFlatCategories();
   const categorizeAi = useCategorizeSuggestions();
+
+  // Rule suggestions derived deterministically from categorization history
+  // (payees consistently filed under one category with no rule yet).
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
+  // On-device AI refinements of the match value (keyed by the original payee name).
+  const [refinedMatch, setRefinedMatch] = useState<Record<string, string>>({});
+  const nameRefine = useMerchantNameRefine();
+  const { data: ruleSuggestions = [] } = useQuery({
+    queryKey: ["ruleSuggestions"],
+    queryFn: rulesApi.suggestions,
+    enabled: isClient,
+    meta: inlineErrorQueryMeta,
+  });
+  const visibleSuggestions = ruleSuggestions.filter(
+    (s: RuleSuggestion) => !dismissedSuggestions.has(s.match_value),
+  );
+  const matchValueFor = (s: RuleSuggestion) => refinedMatch[s.match_value] ?? s.match_value;
+
+  const refineSuggestions = async () => {
+    const accepted = await nameRefine.refine(
+      visibleSuggestions.map((s: RuleSuggestion) => ({
+        id: s.match_value,
+        sourceText: s.match_value,
+        current: matchValueFor(s),
+      })),
+    );
+    if (Object.keys(accepted).length > 0) {
+      setRefinedMatch((prev) => ({ ...prev, ...accepted }));
+    }
+  };
+
+  const addSuggestionMutation = useMutation({
+    mutationFn: (s: RuleSuggestion) =>
+      rulesApi.create({
+        match_field: s.match_field,
+        match_type: s.match_type,
+        match_value: matchValueFor(s),
+        category_id: s.category_id,
+        source: "history",
+      }),
+    onSuccess: (_res, s) => {
+      queryClient.invalidateQueries({ queryKey: ["rules"] });
+      queryClient.invalidateQueries({ queryKey: ["ruleSuggestions"] });
+      appToast.success(`Rule added: ${matchValueFor(s)} → ${s.category_name}`);
+    },
+    onError: (e) => toastApiError("Failed to add rule", e),
+  });
 
   const createMutation = useMutation({
     mutationFn: rulesApi.create,
@@ -262,6 +310,79 @@ function RulesContent() {
         description="This will permanently delete this auto-categorization rule."
         onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId); }}
       />
+
+      {visibleSuggestions.length > 0 && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="pt-6 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold">Suggested from your history</h2>
+                <p className="text-xs text-muted-foreground">
+                  Payees you consistently categorize the same way, with no rule yet. Add one to automate it going forward.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 shrink-0 gap-1 text-xs"
+                onClick={() => void refineSuggestions()}
+                disabled={nameRefine.loading}
+                aria-busy={nameRefine.loading}
+              >
+                <Sparkles className={cn("h-3 w-3", nameRefine.loading && "animate-pulse")} />
+                {nameRefine.loading ? "Cleaning…" : "Clean names with AI"}
+              </Button>
+            </div>
+            {nameRefine.error && <MaybeAiErrorWithSettings message={nameRefine.error} />}
+            <div className="space-y-2">
+              {visibleSuggestions.map((s: RuleSuggestion) => {
+                const matchValue = matchValueFor(s);
+                const refined = matchValue !== s.match_value;
+                return (
+                <div
+                  key={s.match_value}
+                  className="flex items-center justify-between gap-2 rounded border bg-background/60 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <span className="font-medium truncate">{matchValue}</span>
+                    {refined && (
+                      <Badge variant="outline" className="ml-2 text-[10px] uppercase">AI</Badge>
+                    )}
+                    <span className="mx-2 text-muted-foreground">&rarr;</span>
+                    <Badge variant="secondary">{s.category_name}</Badge>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {s.support} of {s.total} transaction{s.total === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1 text-xs"
+                      onClick={() => addSuggestionMutation.mutate(s)}
+                      disabled={addSuggestionMutation.isPending}
+                    >
+                      <Plus className="h-3 w-3" /> Add rule
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      aria-label={`Dismiss suggestion for ${s.match_value}`}
+                      onClick={() =>
+                        setDismissedSuggestions((prev) => new Set(prev).add(s.match_value))
+                      }
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="pt-6">

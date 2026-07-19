@@ -187,7 +187,7 @@ function SpendingTab() {
                       <div key={i} className="flex items-center justify-between">
                         <div>
                           <p className="font-medium text-sm">{p.payee_name}</p>
-                          <p className="text-xs text-muted-foreground">{p.count} transactions</p>
+                          <p className="text-xs text-muted-foreground">{p.count} transaction{p.count === 1 ? "" : "s"}</p>
                         </div>
                         <span className="font-mono text-sm text-red-600">{formatCurrencyNegative(p.total)}</span>
                       </div>

@@ -10,11 +10,13 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.config import get_settings
 from app.database import get_db
+from app.models.household import Household
 from app.models.user import User
 from app.services.ai import audit
 from app.services.ai import consent as consent_service
@@ -90,7 +92,25 @@ async def cloud_generate(
             detail="Cloud AI is not configured on this server.",
         )
 
-    if not await consent_service.has_active_consent(db, user.id, body.feature):
+    # "prefer local server" is blanket consent for this tier ONLY when the server
+    # is verifiably loopback/private — i.e. data stays on the user's machine/LAN.
+    # A remote LLM_BACKEND_URL falls back to requiring explicit per-feature consent
+    # so financial data can't leave the machine under a "private" opt-in.
+    prefer_local = False
+    if user.household_id:
+        household = (
+            await db.execute(
+                select(Household).where(Household.id == user.household_id)
+            )
+        ).scalar_one_or_none()
+        prefer_local = bool(household and household.prefer_local_server)
+    blanket_consent = prefer_local and llm_client.is_local_backend_url(
+        get_settings().ollama_url
+    )
+
+    if not blanket_consent and not await consent_service.has_active_consent(
+        db, user.id, body.feature
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cloud AI not authorized for this feature. Grant consent first.",
@@ -144,6 +164,39 @@ async def cloud_generate(
         gen(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+class BackendStatusResponse(BaseModel):
+    """State of the configured OpenAI-compatible model server (LM Studio, Ollama…)."""
+
+    configured: bool
+    reachable: bool
+    active_model: Optional[str] = None
+    models: list[str] = []
+    # True only when the server resolves to a loopback/private address. When
+    # false the server is remote — data would leave the machine — so the local
+    # tier is not blanket-consented and the UI must not call it "private".
+    is_local: bool = False
+
+
+@router.get("/backend-status", response_model=BackendStatusResponse)
+async def backend_status(
+    user: User = Depends(get_current_user),
+):
+    """Report whether the local/self-hosted model server is set up and reachable.
+
+    Powers the Settings display ("Local server: connected — gemma-3-12b") and lets
+    the client decide whether the local-server tier can be offered.
+    """
+    settings = get_settings()
+    probe = await llm_client.probe_backend()
+    return BackendStatusResponse(
+        configured=probe["configured"],
+        reachable=probe["reachable"],
+        active_model=settings.ollama_model or None,
+        models=probe["models"],
+        is_local=probe.get("is_local", False),
     )
 
 

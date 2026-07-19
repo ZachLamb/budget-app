@@ -6,6 +6,7 @@ import {
   resolveMobileDataBarKind,
   buildSetupSteps,
   isCoreSetupComplete,
+  resolveDefaultAccountId,
 } from "./ux-plan-logic";
 
 describe("shouldShowMobileSyncBanner", () => {
@@ -144,5 +145,21 @@ describe("buildSetupSteps + isCoreSetupComplete", () => {
       simplefinConfigured: false,
     });
     expect(isCoreSetupComplete(steps)).toBe(false);
+  });
+});
+
+describe("resolveDefaultAccountId", () => {
+  it("prefers the active account filter", () => {
+    expect(resolveDefaultAccountId("acc-2", ["acc-1", "acc-2", "acc-3"])).toBe("acc-2");
+  });
+
+  it("falls back to the first account when no filter is set", () => {
+    expect(resolveDefaultAccountId("", ["acc-1", "acc-2"])).toBe("acc-1");
+    expect(resolveDefaultAccountId(undefined, ["acc-1", "acc-2"])).toBe("acc-1");
+  });
+
+  it("returns empty string when there are no accounts", () => {
+    expect(resolveDefaultAccountId("", [])).toBe("");
+    expect(resolveDefaultAccountId(undefined, [])).toBe("");
   });
 });

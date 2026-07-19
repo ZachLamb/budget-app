@@ -20,6 +20,16 @@ export interface SimplefinClaimResponse {
 
 export interface AiSettings {
   ai_enabled: boolean;
+  prefer_local_server: boolean;
+}
+
+export interface LlmBackendStatus {
+  configured: boolean;
+  reachable: boolean;
+  active_model: string | null;
+  models: string[];
+  /** True only when the server is loopback/private — safe to treat as on-machine. */
+  is_local: boolean;
 }
 
 export interface PlanPreferences {
@@ -71,8 +81,15 @@ export const settingsApi = {
     api.post<SimplefinClaimResponse>("/settings/simplefin/claim", { token }).then((r) => r.data),
   getAiSettings: () =>
     api.get<AiSettings>("/settings/ai").then((r) => r.data),
-  updateAiSettings: (ai_enabled: boolean) =>
-    api.put<AiSettings>("/settings/ai", { ai_enabled }).then((r) => r.data),
+  updateAiSettings: (ai_enabled: boolean, prefer_local_server?: boolean) =>
+    api
+      .put<AiSettings>("/settings/ai", {
+        ai_enabled,
+        ...(prefer_local_server !== undefined ? { prefer_local_server } : {}),
+      })
+      .then((r) => r.data),
+  getLlmBackendStatus: () =>
+    api.get<LlmBackendStatus>("/llm/backend-status").then((r) => r.data),
   getPlanPreferences: () =>
     api.get<PlanPreferences>("/settings/plan-preferences").then((r) => r.data),
   updatePlanPreferences: (data: { debt_strategy?: string; debt_extra_monthly?: number }) =>

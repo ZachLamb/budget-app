@@ -162,10 +162,19 @@ async def claim_simplefin_token(
 
 class AiSettingsResponse(BaseModel):
     ai_enabled: bool
+    prefer_local_server: bool = False
 
 
 class AiSettingsUpdate(BaseModel):
     ai_enabled: bool
+    prefer_local_server: Optional[bool] = None
+
+
+def _ai_settings(household: Household) -> AiSettingsResponse:
+    return AiSettingsResponse(
+        ai_enabled=bool(household.ai_enabled),
+        prefer_local_server=bool(household.prefer_local_server),
+    )
 
 
 @router.get("/ai", response_model=AiSettingsResponse)
@@ -178,7 +187,7 @@ async def get_ai_settings(
     household = result.scalar_one_or_none()
     if not household:
         raise HTTPException(404, "Household not found")
-    return AiSettingsResponse(ai_enabled=bool(household.ai_enabled))
+    return _ai_settings(household)
 
 
 @router.put("/ai", response_model=AiSettingsResponse)
@@ -193,8 +202,10 @@ async def update_ai_settings(
     if not household:
         raise HTTPException(404, "Household not found")
     household.ai_enabled = body.ai_enabled
+    if body.prefer_local_server is not None:
+        household.prefer_local_server = body.prefer_local_server
     await db.commit()
-    return AiSettingsResponse(ai_enabled=bool(household.ai_enabled))
+    return _ai_settings(household)
 
 
 class PlanPreferencesResponse(BaseModel):

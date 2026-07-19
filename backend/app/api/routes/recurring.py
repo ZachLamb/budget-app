@@ -4,15 +4,17 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.api.deps import get_household_id
-from app.models import RecurringTransaction, Payee, Category, Account, RecurringSuggestionDismissal
+from app.models import RecurringTransaction, Payee, Category, Account, Transaction, RecurringSuggestionDismissal
 from app.schemas.recurring import (
     RecurringCreate,
     RecurringUpdate,
     RecurringResponse,
     RecurringSuggestionResponse,
     RecurringSuggestionDismissBody,
+    PriceChangeResponse,
 )
 from app.services.recurring_detection import suggest_recurring_from_transactions, suggestion_to_api_dict
+from app.services.subscription_price import detect_price_changes
 from app.utils import validate_category_ownership, validate_payee_ownership, validate_account_ownership
 
 router = APIRouter()
@@ -29,6 +31,53 @@ async def list_recurring_suggestions(
         db, household_id, lookback_days=lookback_days
     )
     return [RecurringSuggestionResponse(**suggestion_to_api_dict(s)) for s in raw]
+
+
+@router.get("/price-changes", response_model=list[PriceChangeResponse])
+async def list_price_changes(
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Flag subscriptions whose latest charge stepped up from their prior price.
+
+    Deterministic: for each subscription payee, compares its most recent charge
+    to the maximum of earlier charges. No model involved.
+    """
+    subs = await db.execute(
+        select(RecurringTransaction.payee_id, Payee.name)
+        .join(Payee, RecurringTransaction.payee_id == Payee.id)
+        .where(
+            RecurringTransaction.household_id == household_id,
+            RecurringTransaction.is_subscription.is_(True),
+        )
+    )
+    payee_by_id = {pid: name for pid, name in subs.all()}
+    if not payee_by_id:
+        return []
+
+    charges = await db.execute(
+        select(Transaction.payee_id, Transaction.amount)
+        .join(Account, Transaction.account_id == Account.id)
+        .where(
+            Account.household_id == household_id,
+            Transaction.payee_id.in_(payee_by_id.keys()),
+            Transaction.amount < 0,
+        )
+        .order_by(Transaction.date)
+    )
+    series_by_key: dict[str, list[float]] = {}
+    for payee_id, amount in charges.all():
+        series_by_key.setdefault(payee_by_id[payee_id], []).append(float(amount))
+
+    return [
+        PriceChangeResponse(
+            payee_name=c.key,
+            previous_amount=c.previous_amount,
+            current_amount=c.current_amount,
+            pct_change=c.pct_change,
+        )
+        for c in detect_price_changes(series_by_key)
+    ]
 
 
 @router.post("/suggestions/dismiss", status_code=204)

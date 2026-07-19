@@ -40,6 +40,13 @@ export interface RecurringSuggestion {
   account_id: string | null;
 }
 
+export interface SubscriptionPriceChange {
+  payee_name: string;
+  previous_amount: number;
+  current_amount: number;
+  pct_change: number;
+}
+
 export const recurringApi = {
   list: () => api.get<RecurringTransaction[]>("/recurring").then((r) => r.data),
   create: (data: RecurringCreate) =>
@@ -53,4 +60,6 @@ export const recurringApi = {
       .then((r) => r.data),
   dismissSuggestion: (dedupe_key: string) =>
     api.post("/recurring/suggestions/dismiss", { dedupe_key }),
+  priceChanges: () =>
+    api.get<SubscriptionPriceChange[]>("/recurring/price-changes").then((r) => r.data),
 };

@@ -19,6 +19,18 @@ export interface RuleCreate {
   match_value: string;
   category_id: string;
   priority?: number;
+  source?: string;
+}
+
+export interface RuleSuggestion {
+  match_field: string;
+  match_type: string;
+  match_value: string;
+  category_id: string;
+  category_name: string;
+  support: number;
+  total: number;
+  dominance: number;
 }
 
 export const rulesApi = {
@@ -27,4 +39,5 @@ export const rulesApi = {
   update: (id: string, data: Partial<RuleCreate & { enabled: boolean }>) =>
     api.put<Rule>(`/rules/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/rules/${id}`),
+  suggestions: () => api.get<RuleSuggestion[]>("/rules/suggestions").then((r) => r.data),
 };

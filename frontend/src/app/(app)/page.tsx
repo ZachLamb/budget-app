@@ -126,6 +126,88 @@ function SpendingSummaryCard() {
   );
 }
 
+function CycleSummaryCard() {
+  const isClient = useIsClient();
+  const ai = useAiPipelineRun("spending_summary");
+  const [summary, setSummary] = useState("");
+  const { data: facts } = useQuery({
+    queryKey: ["cycle-summary"],
+    queryFn: aiApi.getCycleSummary,
+    enabled: isClient,
+  });
+
+  if (!facts) return null;
+
+  const narrate = async () => {
+    setSummary("");
+    ai.clearError();
+    try {
+      await ai.runStream(
+        `In 2-3 sentences, tell the user how this pay cycle is going and what to do next. ` +
+          `Be plain and encouraging. Use only these facts; never invent numbers or categories.\n` +
+          `Facts: ${JSON.stringify(facts)}`,
+        (chunk) => setSummary((s) => s + chunk),
+        { maxTokens: 200 },
+      );
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-purple-500" aria-hidden />
+          This cycle at a glance
+        </CardTitle>
+        <CardDescription>{facts.window} · grounded in your numbers</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <div className="flex flex-wrap gap-x-6 gap-y-1">
+          <span>
+            <span className="text-muted-foreground">Income </span>
+            <span className="font-mono tabular-nums">{formatCurrency(facts.income)}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Spent </span>
+            <span className="font-mono tabular-nums">{formatCurrency(facts.spent)}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Net </span>
+            <span className={cn("font-mono tabular-nums", facts.net >= 0 ? "text-green-600" : "text-red-600")}>
+              {formatCurrency(facts.net)}
+            </span>
+          </span>
+        </div>
+        {facts.overspent.length > 0 && (
+          <p className="text-muted-foreground">
+            Over budget:{" "}
+            {facts.overspent.map((o) => `${o.category} (${formatCurrency(o.over_by)})`).join(", ")}
+          </p>
+        )}
+        <p>
+          <span className="text-muted-foreground">Next step: </span>
+          <span className="font-medium">{facts.next_step}</span>
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void narrate()}
+          disabled={ai.running}
+          aria-busy={ai.running}
+        >
+          <Sparkles className={cn("mr-2 h-3 w-3", ai.running && "animate-pulse")} />
+          {ai.running ? "Summarizing…" : "AI summary"}
+        </Button>
+        {ai.running ? <AiRunStatus progress={ai.progress} onCancel={ai.cancel} /> : null}
+        {ai.error ? <MaybeAiErrorWithSettings message={ai.error} /> : null}
+        {summary ? <p className="whitespace-pre-wrap">{summary}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function InsightsPanel({
   hasFinancialData,
   onSyncCompletedAt,
@@ -490,6 +572,8 @@ function DashboardContent() {
       <NextBestAction className="mt-2" />
 
       {accounts.length > 0 && <CycleReviewSection className="mt-2" />}
+
+      {accounts.length > 0 && <CycleSummaryCard />}
 
       {/* Summary cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

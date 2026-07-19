@@ -27,6 +27,7 @@ import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
+import { resolveDefaultAccountId } from "@/lib/ux-plan-logic";
 import { useFlatCategories, useIsClient, useDemoGuard } from "@/lib/hooks";
 import { toastApiError, toastPlainError } from "@/lib/toast-error";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -502,7 +503,13 @@ function TransactionsContent() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+          <Dialog open={addOpen} onOpenChange={(open) => {
+            if (open && !form.account_id) {
+              const defaultAccount = resolveDefaultAccountId(filters.account_id, accounts.map((a: Account) => a.id));
+              if (defaultAccount) setForm((f) => ({ ...f, account_id: defaultAccount }));
+            }
+            setAddOpen(open);
+          }}>
             <DialogTrigger asChild>
               <Button size="sm"><Plus className="mr-2 h-4 w-4" /> Add</Button>
             </DialogTrigger>

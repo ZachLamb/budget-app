@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Trash2, Pencil, Lightbulb, CircleHelp } from "lucide-react";
+import { Plus, Trash2, Pencil, Lightbulb, CircleHelp, TrendingUp } from "lucide-react";
 import { appToast } from "@/lib/app-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
@@ -162,6 +162,12 @@ function RecurringContent() {
     queryFn: () => payeesApi.list(),
     enabled: isClient,
   });
+  const { data: priceChanges = [] } = useQuery({
+    queryKey: ["subscription-price-changes"],
+    queryFn: recurringApi.priceChanges,
+    enabled: isClient,
+    meta: inlineErrorQueryMeta,
+  });
 
   const { allCategories } = useFlatCategories();
 
@@ -266,6 +272,35 @@ function RecurringContent() {
           </Dialog>
         }
       />
+
+      {priceChanges.length > 0 && (
+        <Card className="border-amber-300/50 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/20">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-red-500" />
+              Subscription price increases
+            </CardTitle>
+            <CardDescription>
+              These subscriptions now charge more than they used to. Review whether they&apos;re still worth it.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 text-sm">
+              {priceChanges.map((c) => (
+                <li key={c.payee_name} className="flex items-center justify-between gap-2">
+                  <span className="font-medium truncate">{c.payee_name}</span>
+                  <span className="shrink-0 font-mono text-xs tabular-nums">
+                    <span className="text-muted-foreground">{formatCurrency(c.previous_amount)}</span>
+                    <span className="mx-1 text-muted-foreground">&rarr;</span>
+                    <span className="text-foreground">{formatCurrency(c.current_amount)}</span>
+                    <span className="ml-2 text-red-600">+{c.pct_change.toFixed(0)}%</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {(suggestionsLoading || suggestions.length > 0) && (
         <Card>

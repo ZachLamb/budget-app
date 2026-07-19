@@ -7,10 +7,10 @@ import { authApi, credentialToJSON } from "@/lib/api/auth";
 import {
   settingsApi,
   type SimplefinClaimAccount,
-  type AiSettings,
   type PaySchedule,
 } from "@/lib/api/settings";
 import { AiSettingsCard } from "@/components/llm/ai-settings-card";
+import { LocalServerCard } from "@/components/settings/local-server-card";
 import { PrivacyDataCard } from "@/components/settings/privacy-data-card";
 import { HostingHealthCard } from "@/components/settings/hosting-health-card";
 import { AdminUsersCard } from "@/components/settings/admin-users-card";
@@ -408,15 +408,24 @@ function SettingsContent() {
   });
 
   const aiSettingsMutation = useMutation({
-    mutationFn: (enabled: boolean) => settingsApi.updateAiSettings(enabled),
-    onSuccess: (data: AiSettings) => {
+    mutationFn: (vars: { ai_enabled: boolean; prefer_local_server?: boolean }) =>
+      settingsApi.updateAiSettings(vars.ai_enabled, vars.prefer_local_server),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["aiSettings"] });
-      appToast.success(data.ai_enabled ? "AI enabled" : "AI disabled");
+      appToast.success("AI settings saved");
     },
     onError: (e) => toastApiError("Failed to save AI settings", e),
   });
 
   const aiEnabled = aiSettings?.ai_enabled ?? true;
+  const preferLocalServer = aiSettings?.prefer_local_server ?? false;
+
+  const { data: llmBackendStatus } = useQuery({
+    queryKey: ["llmBackendStatus"],
+    queryFn: settingsApi.getLlmBackendStatus,
+    enabled: aiEnabled,
+    refetchInterval: 30_000,
+  });
   const isAdmin = user?.role === "admin";
 
   const handleRemovePasskey = async (id: string) => {
@@ -750,7 +759,7 @@ function SettingsContent() {
                 aria-checked={aiEnabled}
                 aria-describedby="ai-enabled-hint"
                 disabled={aiSettingsMutation.isPending || isDemo}
-                onClick={() => aiSettingsMutation.mutate(!aiEnabled)}
+                onClick={() => aiSettingsMutation.mutate({ ai_enabled: !aiEnabled })}
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 ${
                   aiEnabled ? "bg-primary" : "bg-muted-foreground/30"
                 }`}
@@ -775,6 +784,17 @@ function SettingsContent() {
           </CardContent>
         </Card>
         {aiEnabled && <AiSettingsCard />}
+        {aiEnabled && (
+          <LocalServerCard
+            status={llmBackendStatus}
+            preferLocalServer={preferLocalServer}
+            saving={aiSettingsMutation.isPending}
+            disabled={isDemo}
+            onToggle={(next) =>
+              aiSettingsMutation.mutate({ ai_enabled: aiEnabled, prefer_local_server: next })
+            }
+          />
+        )}
       </section>
 
       <section id="privacy" className="scroll-mt-24">
