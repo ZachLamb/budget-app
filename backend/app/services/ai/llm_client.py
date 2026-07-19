@@ -2,15 +2,51 @@ from __future__ import annotations
 
 """Minimal OpenAI-compatible streaming client for opt-in Tier 4 cloud AI."""
 
+import ipaddress
 import json
 import logging
+import socket
+import time
+from functools import lru_cache
 from typing import AsyncIterator, Optional
+from urllib.parse import urlsplit
 
 import httpx
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=16)
+def is_local_backend_url(url: str) -> bool:
+    """True only if every address the URL resolves to is loopback or private.
+
+    This is the security gate for treating the model server as "on your own
+    machine": a loopback or RFC-1918/link-local host keeps financial data on the
+    user's device/LAN, so blanket consent and the "private" framing are honest.
+    A public host — or one we can't resolve — is treated as remote (fail-closed),
+    so it needs explicit per-feature consent instead. Cached since the URL is
+    fixed config for the process lifetime.
+    """
+    host = urlsplit(url).hostname
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False
+    addresses = {info[4][0] for info in infos}
+    if not addresses:
+        return False
+    for addr in addresses:
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            return False
+        if not (ip.is_loopback or ip.is_private or ip.is_link_local):
+            return False
+    return True
 
 _CONNECT_TIMEOUT = 2.0
 _STREAM_TIMEOUT = 120.0
@@ -19,6 +55,15 @@ _PROBE_TIMEOUT = 5.0
 # Tests may inject an httpx transport to stub the upstream OpenAI-compatible
 # server (LM Studio / Ollama) without real network calls.
 _TEST_TRANSPORT: Optional[httpx.AsyncBaseTransport] = None
+
+# Cap the /v1/models body we'll read, so a misconfigured/compromised server
+# can't exhaust memory on the probe.
+_PROBE_MAX_BYTES = 1_000_000
+
+# Short TTL cache for the probe result: the status endpoint is polled, and each
+# call otherwise makes an outbound request. Keyed on the configured URL.
+_probe_cache: dict[str, tuple[float, dict]] = {}
+_PROBE_CACHE_TTL = 15.0
 
 
 class LlmStreamError(Exception):
@@ -51,24 +96,35 @@ async def probe_backend() -> dict:
     """
     settings = get_settings()
     if not settings.ollama_url:
-        return {"configured": False, "reachable": False, "models": []}
+        return {"configured": False, "reachable": False, "models": [], "is_local": False}
 
+    cached = _probe_cache.get(settings.ollama_url)
+    if cached and (time.monotonic() - cached[0]) < _PROBE_CACHE_TTL:
+        return cached[1]
+
+    is_local = is_local_backend_url(settings.ollama_url)
     try:
         async with _make_client(
             httpx.Timeout(_PROBE_TIMEOUT, connect=_CONNECT_TIMEOUT)
         ) as client:
             resp = await client.get(_backend_url("/v1/models"), headers=_build_headers())
             resp.raise_for_status()
-            data = resp.json()
+            body = await resp.aread()
+            if len(body) > _PROBE_MAX_BYTES:
+                raise ValueError("model list response too large")
+            data = json.loads(body)
         models = [
             m["id"]
             for m in data.get("data", [])
             if isinstance(m, dict) and isinstance(m.get("id"), str)
         ]
-        return {"configured": True, "reachable": True, "models": models}
+        result = {"configured": True, "reachable": True, "models": models, "is_local": is_local}
     except (httpx.HTTPError, ValueError) as e:
         logger.info("LLM backend probe failed: %s", type(e).__name__)
-        return {"configured": True, "reachable": False, "models": []}
+        result = {"configured": True, "reachable": False, "models": [], "is_local": is_local}
+
+    _probe_cache[settings.ollama_url] = (time.monotonic(), result)
+    return result
 
 
 def _build_headers() -> dict[str, str]:

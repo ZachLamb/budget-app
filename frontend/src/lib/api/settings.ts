@@ -28,6 +28,8 @@ export interface LlmBackendStatus {
   reachable: boolean;
   active_model: string | null;
   models: string[];
+  /** True only when the server is loopback/private — safe to treat as on-machine. */
+  is_local: boolean;
 }
 
 export interface PlanPreferences {

@@ -25,15 +25,35 @@ def _fake_settings(url: str = "http://localhost:1234", model: str = "google/gemm
 
 @pytest.fixture(autouse=True)
 def _reset_transport():
+    llm_client._probe_cache.clear()
     yield
     llm_client._TEST_TRANSPORT = None
+    llm_client._probe_cache.clear()
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("http://localhost:1234", True),
+        ("http://127.0.0.1:1234", True),
+        ("http://[::1]:1234", True),
+        ("http://192.168.1.50:1234", True),
+        ("http://10.0.0.5:1234", True),
+        ("http://172.16.4.4:1234", True),
+        ("http://8.8.8.8:1234", False),
+        ("http://", False),
+        ("not-a-url", False),
+    ],
+)
+def test_is_local_backend_url(url, expected):
+    assert llm_client.is_local_backend_url(url) is expected
 
 
 @pytest.mark.asyncio
 async def test_probe_unconfigured(monkeypatch):
     monkeypatch.setattr(llm_client, "get_settings", lambda: _fake_settings(url=""))
     out = await llm_client.probe_backend()
-    assert out == {"configured": False, "reachable": False, "models": []}
+    assert out == {"configured": False, "reachable": False, "models": [], "is_local": False}
 
 
 @pytest.mark.asyncio
@@ -51,7 +71,24 @@ async def test_probe_reachable_lists_models(monkeypatch):
     out = await llm_client.probe_backend()
     assert out["configured"] is True
     assert out["reachable"] is True
+    assert out["is_local"] is True
     assert out["models"] == ["google/gemma-3-12b", "llama-3.1-8b"]
+
+
+@pytest.mark.asyncio
+async def test_probe_result_is_cached(monkeypatch):
+    monkeypatch.setattr(llm_client, "get_settings", lambda: _fake_settings())
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, json={"data": [{"id": "gemma"}]})
+
+    llm_client._TEST_TRANSPORT = httpx.MockTransport(handler)
+    await llm_client.probe_backend()
+    await llm_client.probe_backend()
+    # Second call within the TTL is served from cache — no second outbound request.
+    assert calls["n"] == 1
 
 
 @pytest.mark.asyncio
@@ -63,7 +100,7 @@ async def test_probe_unreachable_reports_configured_but_down(monkeypatch):
 
     llm_client._TEST_TRANSPORT = httpx.MockTransport(handler)
     out = await llm_client.probe_backend()
-    assert out == {"configured": True, "reachable": False, "models": []}
+    assert out == {"configured": True, "reachable": False, "models": [], "is_local": True}
 
 
 @pytest.mark.asyncio

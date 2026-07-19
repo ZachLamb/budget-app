@@ -102,18 +102,26 @@ async def test_settings_put_persists_prefer_local_server(db_session):
     assert resp.json() == {"ai_enabled": True, "prefer_local_server": True}
 
 
-@pytest.mark.asyncio
-async def test_prefer_local_server_is_blanket_consent(db_session, monkeypatch):
-    headers = await _seed(db_session, prefer_local=True)
-    monkeypatch.setattr(
-        llm_client, "get_settings",
-        lambda: SimpleNamespace(ollama_url="http://localhost:1234", ollama_model="gemma", llm_backend_api_key="", demo_mode=False),
+def _settings(url: str):
+    return SimpleNamespace(
+        ollama_url=url, ollama_model="gemma", llm_backend_api_key="", demo_mode=False
     )
+
+
+def _patch_settings(monkeypatch, url: str = "http://localhost:1234"):
+    monkeypatch.setattr(llm_client, "get_settings", lambda: _settings(url))
+    monkeypatch.setattr(llm_route, "get_settings", lambda: _settings(url))
+
+
+@pytest.mark.asyncio
+async def test_prefer_local_server_is_blanket_consent_when_local(db_session, monkeypatch):
+    headers = await _seed(db_session, prefer_local=True)
+    _patch_settings(monkeypatch, "http://localhost:1234")
     monkeypatch.setattr(llm_route.audit, "write", lambda *a, **k: _async_none())
     llm_client._TEST_TRANSPORT = _mock_lmstudio()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # No consent row exists, but prefer_local_server is on → allowed.
+        # No consent row exists, but prefer_local_server + local URL → allowed.
         resp = await client.post(
             "/api/llm/cloud",
             headers=headers,
@@ -124,12 +132,23 @@ async def test_prefer_local_server_is_blanket_consent(db_session, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_prefer_local_server_with_remote_url_needs_consent(db_session, monkeypatch):
+    # prefer_local is on, but the server is a public address → NOT blanket consent.
+    headers = await _seed(db_session, prefer_local=True)
+    _patch_settings(monkeypatch, "http://8.8.8.8:1234")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/api/llm/cloud",
+            headers=headers,
+            json={"feature": "financial_advice", "prompt": "hi", "system": "s", "max_tokens": 32},
+        )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_without_prefer_or_consent_is_forbidden(db_session, monkeypatch):
     headers = await _seed(db_session, prefer_local=False)
-    monkeypatch.setattr(
-        llm_client, "get_settings",
-        lambda: SimpleNamespace(ollama_url="http://localhost:1234", ollama_model="gemma", llm_backend_api_key="", demo_mode=False),
-    )
+    _patch_settings(monkeypatch, "http://localhost:1234")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post(
             "/api/llm/cloud",

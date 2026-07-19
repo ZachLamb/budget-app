@@ -11,8 +11,12 @@ const status = (o: Partial<LlmBackendStatus>): LlmBackendStatus => ({
   reachable: false,
   active_model: null,
   models: [],
+  is_local: false,
   ...o,
 });
+
+const connectedLocal = status({ configured: true, reachable: true, is_local: true, active_model: "gemma" });
+const connectedRemote = status({ configured: true, reachable: true, is_local: false, active_model: "gemma" });
 
 describe("describeLocalServer", () => {
   it("undefined or not configured → not-configured", () => {
@@ -26,18 +30,18 @@ describe("describeLocalServer", () => {
     });
   });
 
-  it("reachable → connected with model", () => {
-    expect(
-      describeLocalServer(status({ configured: true, reachable: true, active_model: "gemma" })),
-    ).toEqual({ kind: "connected", model: "gemma" });
+  it("reachable → connected with model and locality", () => {
+    expect(describeLocalServer(connectedLocal)).toEqual({ kind: "connected", model: "gemma", isLocal: true });
+    expect(describeLocalServer(connectedRemote)).toEqual({ kind: "connected", model: "gemma", isLocal: false });
   });
 });
 
 describe("canEnableLocalServer", () => {
-  it("only true when connected", () => {
+  it("only true when connected AND local", () => {
     expect(canEnableLocalServer(undefined)).toBe(false);
     expect(canEnableLocalServer(status({ configured: true, reachable: false }))).toBe(false);
-    expect(canEnableLocalServer(status({ configured: true, reachable: true }))).toBe(true);
+    expect(canEnableLocalServer(connectedRemote)).toBe(false);
+    expect(canEnableLocalServer(connectedLocal)).toBe(true);
   });
 });
 
@@ -47,11 +51,10 @@ describe("localServerStatusLabel", () => {
     expect(localServerStatusLabel(status({ configured: true, reachable: false }))).toBe(
       "Configured, but not reachable",
     );
+    expect(localServerStatusLabel(connectedLocal)).toBe("Connected — gemma");
+    expect(localServerStatusLabel(connectedRemote)).toBe("Connected (remote) — gemma");
     expect(
-      localServerStatusLabel(status({ configured: true, reachable: true, active_model: "gemma-3" })),
-    ).toBe("Connected — gemma-3");
-    expect(
-      localServerStatusLabel(status({ configured: true, reachable: true, active_model: null })),
+      localServerStatusLabel(status({ configured: true, reachable: true, is_local: true, active_model: null })),
     ).toBe("Connected");
   });
 });

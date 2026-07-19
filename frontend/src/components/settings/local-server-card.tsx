@@ -22,7 +22,8 @@ interface Props {
 export function LocalServerCard({ status, preferLocalServer, saving, disabled, onToggle }: Props) {
   const state = describeLocalServer(status);
   const connected = state.kind === "connected";
-  // Can turn ON only when reachable; can always turn OFF.
+  const remote = state.kind === "connected" && !state.isLocal;
+  // Can turn ON only when reachable AND local; can always turn OFF.
   const toggleDisabled = saving || disabled || (!preferLocalServer && !canEnableLocalServer(status));
 
   const dotColor =
@@ -69,6 +70,14 @@ export function LocalServerCard({ status, preferLocalServer, saving, disabled, o
             Developer → Start Server) and load a model.
             {preferLocalServer &&
               " Until it's back, AI features fall back to on-device models automatically."}
+          </p>
+        )}
+        {remote && (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            This server isn&apos;t on your machine, so it can&apos;t be used as a one-tap private
+            model — sending your data to it would leave your device and requires explicit
+            per-feature approval. Point <code className="rounded bg-muted px-1">LLM_BACKEND_URL</code>{" "}
+            at a local address to enable it here.
           </p>
         )}
 

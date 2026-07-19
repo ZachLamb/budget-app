@@ -92,9 +92,10 @@ async def cloud_generate(
             detail="Cloud AI is not configured on this server.",
         )
 
-    # The local model server (LM Studio / Ollama) runs on the user's own machine,
-    # so opting into "prefer local server" acts as blanket consent for this tier.
-    # Otherwise require the explicit per-feature grant.
+    # "prefer local server" is blanket consent for this tier ONLY when the server
+    # is verifiably loopback/private — i.e. data stays on the user's machine/LAN.
+    # A remote LLM_BACKEND_URL falls back to requiring explicit per-feature consent
+    # so financial data can't leave the machine under a "private" opt-in.
     prefer_local = False
     if user.household_id:
         household = (
@@ -103,8 +104,11 @@ async def cloud_generate(
             )
         ).scalar_one_or_none()
         prefer_local = bool(household and household.prefer_local_server)
+    blanket_consent = prefer_local and llm_client.is_local_backend_url(
+        get_settings().ollama_url
+    )
 
-    if not prefer_local and not await consent_service.has_active_consent(
+    if not blanket_consent and not await consent_service.has_active_consent(
         db, user.id, body.feature
     ):
         raise HTTPException(
@@ -170,6 +174,10 @@ class BackendStatusResponse(BaseModel):
     reachable: bool
     active_model: Optional[str] = None
     models: list[str] = []
+    # True only when the server resolves to a loopback/private address. When
+    # false the server is remote — data would leave the machine — so the local
+    # tier is not blanket-consented and the UI must not call it "private".
+    is_local: bool = False
 
 
 @router.get("/backend-status", response_model=BackendStatusResponse)
@@ -188,6 +196,7 @@ async def backend_status(
         reachable=probe["reachable"],
         active_model=settings.ollama_model or None,
         models=probe["models"],
+        is_local=probe.get("is_local", False),
     )
 
 
