@@ -73,10 +73,37 @@ export interface CascadeVerifiedOptions<T> extends GenerateVerifiedOptions<T> {
   primaryRetries?: number;
   /** Retries on local fallback before cloud (default 1). */
   fallbackRetries?: number;
+  /**
+   * User prefers their self-hosted server (LM Studio / Ollama). When set, it's
+   * tried first and, on any failure (including an unreachable server), the
+   * on-device cascade runs as fallback.
+   */
+  preferLocal?: boolean;
+}
+
+/** Run the self-hosted server and verify its structured output. */
+async function generateViaLocalServer<T>(
+  featureId: FeatureId,
+  spec: GenerateStructuredSpec,
+  checks: Check<T>[],
+  opts: CascadeVerifiedOptions<T>,
+): Promise<T> {
+  const text = await streamCloudGenerate({
+    feature: featureId,
+    system: spec.system,
+    prompt: spec.prompt,
+    maxTokens: maxTokensFor(featureId),
+    signal: opts.signal,
+  });
+  const parsed = parseJsonResponse(text) as T;
+  const draft = opts.transform ? opts.transform(parsed) : parsed;
+  return verify(draft, checks);
 }
 
 /**
  * generateVerified with escalate-on-hard: primary → local fallback → cloud (opt-in).
+ * When `preferLocal` is set, the self-hosted server is tried first, then the
+ * on-device cascade acts as fallback.
  */
 export async function generateVerifiedWithCascade<T>(
   providers: CascadeProviders,
@@ -87,6 +114,20 @@ export async function generateVerifiedWithCascade<T>(
 ): Promise<T> {
   const primaryRetries = opts.primaryRetries ?? 1;
   const fallbackRetries = opts.fallbackRetries ?? 1;
+
+  // Local-server-first: try the user's own model, fall back to on-device on any
+  // error (unreachable, bad JSON, verify failure) so AI never hard-fails.
+  if (opts.preferLocal) {
+    try {
+      return await generateViaLocalServer(featureId, spec, checks, opts);
+    } catch (localErr) {
+      if (opts.signal?.aborted) throw localErr;
+      opts.onProgress?.({
+        step: "generate",
+        label: "Local server unavailable — using on-device model…",
+      });
+    }
+  }
 
   const tryPrimary = async (): Promise<T> =>
     generateVerified(providers.primary, spec, checks, {
@@ -130,6 +171,9 @@ export async function generateVerifiedWithCascade<T>(
       }
     }
 
+    // Already tried the local server up front if preferred; otherwise it's the
+    // opt-in escalation, which needs explicit per-feature consent.
+    if (opts.preferLocal) throw primaryErr;
     const cloudOk = await hasCloudConsent(featureId);
     if (!cloudOk) throw primaryErr;
 
@@ -138,17 +182,7 @@ export async function generateVerifiedWithCascade<T>(
       label: "Trying cloud model (opt-in)…",
     });
 
-    const text = await streamCloudGenerate({
-      feature: featureId,
-      system: spec.system,
-      prompt: spec.prompt,
-      maxTokens: maxTokensFor(featureId),
-      signal: opts.signal,
-    });
-
-    const parsed = parseJsonResponse(text) as T;
-    const draft = opts.transform ? opts.transform(parsed) : parsed;
-    return verify(draft, checks);
+    return generateViaLocalServer(featureId, spec, checks, opts);
   }
 }
 
@@ -168,6 +202,7 @@ export async function runVerified<T>(
   if (ctx.cascade) {
     return generateVerifiedWithCascade(ctx.cascade, featureId, spec, checks, {
       featureId,
+      preferLocal: ctx.preferLocal,
       ...base,
     });
   }

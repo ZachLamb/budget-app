@@ -158,7 +158,7 @@ async def seed_demo_data(session_factory) -> None:
         payee_names = [
             "Kroger", "Costco", "Amazon", "Target", "Starbucks", "Shell Gas",
             "Netflix", "Spotify", "Comcast", "Duke Energy", "State Farm",
-            "Planet Fitness", "Walgreens", "Chipotle", "Home Depot", "Uber",
+            "Planet Fitness", "Walgreens", "Chipotle", "Sunset Property Mgmt", "Uber",
             "DoorDash", "T-Mobile", "Dr. Smith", "PetSmart", "Trader Joe's",
             "REI", "Apple", "Charity Water", "Employer",
         ]
@@ -207,7 +207,7 @@ async def seed_demo_data(session_factory) -> None:
             # --- Rent on 1st ---
             d = date(y, m, 1)
             if first_day <= d <= today:
-                _txn(acct_checking_id, d, "Home Depot", -1650.00, "Rent/Mortgage", notes="Monthly rent")
+                _txn(acct_checking_id, d, "Sunset Property Mgmt", -1650.00, "Rent/Mortgage", notes="Monthly rent")
 
             # --- Utilities ---
             for d_off, payee, cat, lo, hi in [
@@ -382,7 +382,7 @@ async def seed_demo_data(session_factory) -> None:
             return candidate
 
         recurring_items = [
-            ("Home Depot", -1650.00, "Rent/Mortgage", acct_checking_id, 1, False),
+            ("Sunset Property Mgmt", -1650.00, "Rent/Mortgage", acct_checking_id, 1, False),
             ("Comcast", -89.00, "Internet", acct_checking_id, 3, True),
             ("Duke Energy", -120.00, "Utilities", acct_checking_id, 5, True),
             ("Netflix", -15.99, "Streaming", acct_checking_id, 2, True),

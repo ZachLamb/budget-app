@@ -103,3 +103,15 @@ export function buildSetupSteps(input: SetupStepInput): SetupStep[] {
 export function isCoreSetupComplete(steps: Pick<SetupStep, "optional" | "done">[]): boolean {
   return steps.filter((s) => !s.optional).every((s) => s.done);
 }
+
+/**
+ * Pick the account to pre-select when opening the "Add transaction" form.
+ * Prefers a currently-active account filter, falls back to the first account,
+ * and returns "" when there are no accounts (nothing to select).
+ */
+export function resolveDefaultAccountId(
+  filterAccountId: string | undefined,
+  accountIds: string[],
+): string {
+  return filterAccountId || accountIds[0] || "";
+}

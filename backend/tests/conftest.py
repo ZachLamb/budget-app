@@ -26,6 +26,10 @@ for _k in (
 os.environ.pop("FLY_APP_NAME", None)
 os.environ.pop("VERCEL_ENV", None)
 
+# A developer .env with DEMO_MODE=true must not turn the read-only demo guard on
+# during pytest — it would 403 every mutation-route test.
+os.environ.pop("DEMO_MODE", None)
+
 
 @pytest.fixture(autouse=True)
 def reset_rate_limit_store():

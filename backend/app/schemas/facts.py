@@ -61,6 +61,37 @@ class SpendingPatternsFacts(BaseModel):
     patterns: list[SpendingTrendFact]
 
 
+class CycleMoverFact(BaseModel):
+    category: str
+    direction: str
+    pct_change: float
+
+
+class CycleOverspendFact(BaseModel):
+    category: str
+    over_by: float
+
+
+class CycleProgressFact(BaseModel):
+    observed: bool
+    diagnosed: bool
+    decided: bool
+
+
+class CycleSummaryFacts(BaseModel):
+    """Grounding payload for the on-device pay-cycle narration (deterministic)."""
+
+    window: str
+    income: float
+    spent: float
+    net: float
+    top_movers: list[CycleMoverFact]
+    overspent: list[CycleOverspendFact]
+    cycle_progress: CycleProgressFact
+    open_commitments: int
+    next_step: str
+
+
 class ContextFacts(BaseModel):
     """Deterministic structured financial snapshot for the on-device verifier.
 

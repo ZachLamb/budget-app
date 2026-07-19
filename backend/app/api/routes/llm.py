@@ -10,11 +10,13 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.config import get_settings
 from app.database import get_db
+from app.models.household import Household
 from app.models.user import User
 from app.services.ai import audit
 from app.services.ai import consent as consent_service
@@ -90,7 +92,21 @@ async def cloud_generate(
             detail="Cloud AI is not configured on this server.",
         )
 
-    if not await consent_service.has_active_consent(db, user.id, body.feature):
+    # The local model server (LM Studio / Ollama) runs on the user's own machine,
+    # so opting into "prefer local server" acts as blanket consent for this tier.
+    # Otherwise require the explicit per-feature grant.
+    prefer_local = False
+    if user.household_id:
+        household = (
+            await db.execute(
+                select(Household).where(Household.id == user.household_id)
+            )
+        ).scalar_one_or_none()
+        prefer_local = bool(household and household.prefer_local_server)
+
+    if not prefer_local and not await consent_service.has_active_consent(
+        db, user.id, body.feature
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cloud AI not authorized for this feature. Grant consent first.",
@@ -144,6 +160,34 @@ async def cloud_generate(
         gen(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+class BackendStatusResponse(BaseModel):
+    """State of the configured OpenAI-compatible model server (LM Studio, Ollama…)."""
+
+    configured: bool
+    reachable: bool
+    active_model: Optional[str] = None
+    models: list[str] = []
+
+
+@router.get("/backend-status", response_model=BackendStatusResponse)
+async def backend_status(
+    user: User = Depends(get_current_user),
+):
+    """Report whether the local/self-hosted model server is set up and reachable.
+
+    Powers the Settings display ("Local server: connected — gemma-3-12b") and lets
+    the client decide whether the local-server tier can be offered.
+    """
+    settings = get_settings()
+    probe = await llm_client.probe_backend()
+    return BackendStatusResponse(
+        configured=probe["configured"],
+        reachable=probe["reachable"],
+        active_model=settings.ollama_model or None,
+        models=probe["models"],
     )
 
 

@@ -14,10 +14,22 @@ logger = logging.getLogger(__name__)
 
 _CONNECT_TIMEOUT = 2.0
 _STREAM_TIMEOUT = 120.0
+_PROBE_TIMEOUT = 5.0
+
+# Tests may inject an httpx transport to stub the upstream OpenAI-compatible
+# server (LM Studio / Ollama) without real network calls.
+_TEST_TRANSPORT: Optional[httpx.AsyncBaseTransport] = None
 
 
 class LlmStreamError(Exception):
     """Upstream LLM stream failed or ended before a complete response."""
+
+
+def _make_client(timeout: httpx.Timeout) -> httpx.AsyncClient:
+    kwargs: dict = {"timeout": timeout}
+    if _TEST_TRANSPORT is not None:
+        kwargs["transport"] = _TEST_TRANSPORT
+    return httpx.AsyncClient(**kwargs)
 
 
 def is_configured() -> bool:
@@ -28,6 +40,35 @@ def is_configured() -> bool:
 def _backend_url(path: str) -> str:
     base = get_settings().ollama_url.rstrip("/")
     return f"{base}{path}"
+
+
+async def probe_backend() -> dict:
+    """Check the configured OpenAI-compatible backend (e.g. LM Studio, Ollama).
+
+    Hits the standard ``/v1/models`` endpoint and reports whether it's
+    configured, reachable, and which model ids it advertises — so the UI can
+    show "Local server: connected (gemma-3-12b)". Never raises.
+    """
+    settings = get_settings()
+    if not settings.ollama_url:
+        return {"configured": False, "reachable": False, "models": []}
+
+    try:
+        async with _make_client(
+            httpx.Timeout(_PROBE_TIMEOUT, connect=_CONNECT_TIMEOUT)
+        ) as client:
+            resp = await client.get(_backend_url("/v1/models"), headers=_build_headers())
+            resp.raise_for_status()
+            data = resp.json()
+        models = [
+            m["id"]
+            for m in data.get("data", [])
+            if isinstance(m, dict) and isinstance(m.get("id"), str)
+        ]
+        return {"configured": True, "reachable": True, "models": models}
+    except (httpx.HTTPError, ValueError) as e:
+        logger.info("LLM backend probe failed: %s", type(e).__name__)
+        return {"configured": True, "reachable": False, "models": []}
 
 
 def _build_headers() -> dict[str, str]:
@@ -79,8 +120,8 @@ async def stream_complete(
 
     yielded = False
     try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(_STREAM_TIMEOUT, connect=_CONNECT_TIMEOUT)
+        async with _make_client(
+            httpx.Timeout(_STREAM_TIMEOUT, connect=_CONNECT_TIMEOUT)
         ) as client:
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
                 resp.raise_for_status()

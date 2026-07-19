@@ -53,6 +53,7 @@ export interface RunFeatureOptions {
 
 interface AiSettings {
   ai_enabled?: boolean;
+  prefer_local_server?: boolean;
 }
 
 export interface UseLlm {
@@ -152,10 +153,14 @@ export function useLlm(): UseLlm {
 
       const cap = capability ?? (await getCapability());
       const cascade = await resolveCascadeProviders(feature, buildContext(), cap);
+      const preferLocal = Boolean(
+        (aiSettings.data as AiSettings | undefined)?.prefer_local_server,
+      );
       const pctx: PipelineContext = {
         provider: cascade.primary,
         cascade,
         capability: cap,
+        preferLocal,
         signal: opts?.signal,
         onProgress: opts?.onProgress,
       };
@@ -174,7 +179,7 @@ export function useLlm(): UseLlm {
           throw new Error(`Unhandled heavy feature "${feature}"`);
       }
     },
-    [buildContext, capability],
+    [buildContext, capability, aiSettings.data],
   );
 
   const refresh = useCallback(async () => {

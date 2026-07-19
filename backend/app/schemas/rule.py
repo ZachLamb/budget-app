@@ -34,3 +34,16 @@ class RuleResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class RuleSuggestionResponse(BaseModel):
+    """A rule the user could create, derived from consistent categorization history."""
+
+    match_field: str
+    match_type: str
+    match_value: str
+    category_id: str
+    category_name: str
+    support: int  # txns already filed under this category for the payee
+    total: int  # total categorized txns for the payee
+    dominance: float  # support / total, in [0, 1]
