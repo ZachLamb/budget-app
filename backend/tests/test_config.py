@@ -88,6 +88,104 @@ def test_webauthn_debug_refused_in_production(monkeypatch: pytest.MonkeyPatch) -
     get_settings.cache_clear()
 
 
+def _prod_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Minimum env for get_settings() to run its production warning block."""
+    monkeypatch.setenv("SECRET_KEY", "x" * 40)
+    monkeypatch.setenv("FLY_APP_NAME", "clarity-backend")
+    monkeypatch.delenv("DEMO_MODE", raising=False)
+    monkeypatch.delenv("WEBAUTHN_DEBUG", raising=False)
+
+
+def test_warns_when_rp_id_does_not_cover_frontend_host(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A domain change that updates FRONTEND_URL but not WEBAUTHN_RP_ID breaks
+    passkeys client-side, so startup is the only place it can surface."""
+    _prod_settings_env(monkeypatch)
+    monkeypatch.setenv("FRONTEND_URL", "https://snacksbudget.app")
+    monkeypatch.setenv("WEBAUTHN_RP_ID", "clarity.example.com")
+    monkeypatch.setenv("CORS_ORIGINS", "https://snacksbudget.app")
+    get_settings.cache_clear()
+    with caplog.at_level("WARNING"):
+        get_settings()
+    get_settings.cache_clear()
+    assert "WEBAUTHN_RP_ID" in caplog.text
+    assert "SecurityError" in caplog.text
+
+
+def test_no_rp_id_warning_when_rp_id_is_registrable_suffix(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An apex RP ID legitimately covers a subdomain login page."""
+    _prod_settings_env(monkeypatch)
+    monkeypatch.setenv("FRONTEND_URL", "https://app.snacksbudget.app")
+    monkeypatch.setenv("WEBAUTHN_RP_ID", "snacksbudget.app")
+    monkeypatch.setenv("CORS_ORIGINS", "https://app.snacksbudget.app")
+    get_settings.cache_clear()
+    with caplog.at_level("WARNING"):
+        get_settings()
+    get_settings.cache_clear()
+    assert "WEBAUTHN_RP_ID" not in caplog.text
+
+
+def test_warns_when_frontend_url_missing_from_cors_origins(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _prod_settings_env(monkeypatch)
+    monkeypatch.setenv("FRONTEND_URL", "https://snacksbudget.app")
+    monkeypatch.setenv("WEBAUTHN_RP_ID", "snacksbudget.app")
+    monkeypatch.setenv("CORS_ORIGINS", "https://clarity-zach.vercel.app")
+    get_settings.cache_clear()
+    with caplog.at_level("WARNING"):
+        get_settings()
+    get_settings.cache_clear()
+    assert "CORS_ORIGINS" in caplog.text
+    assert "Invalid origin" in caplog.text
+
+
+def test_no_cors_warning_when_origin_differs_only_by_trailing_slash(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A cosmetic trailing slash must not be reported as a real mismatch."""
+    _prod_settings_env(monkeypatch)
+    monkeypatch.setenv("FRONTEND_URL", "https://snacksbudget.app")
+    monkeypatch.setenv("WEBAUTHN_RP_ID", "snacksbudget.app")
+    monkeypatch.setenv("CORS_ORIGINS", "https://snacksbudget.app/")
+    get_settings.cache_clear()
+    with caplog.at_level("WARNING"):
+        get_settings()
+    get_settings.cache_clear()
+    assert "Invalid origin" not in caplog.text
+
+
+def test_demo_mode_in_production_still_hard_fails_without_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _prod_settings_env(monkeypatch)
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.delenv("DEMO_MODE_ALLOW_PRODUCTION", raising=False)
+    get_settings.cache_clear()
+    with pytest.raises(RuntimeError, match="DEMO_MODE"):
+        get_settings()
+    get_settings.cache_clear()
+
+
+def test_demo_mode_in_production_warns_loudly_when_override_set(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The escape hatch must start the app but never do so silently — a prod
+    deploy stuck in demo mode 403s every sign-up and reads as 'login broken'."""
+    _prod_settings_env(monkeypatch)
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DEMO_MODE_ALLOW_PRODUCTION", "true")
+    get_settings.cache_clear()
+    with caplog.at_level("WARNING"):
+        get_settings()  # must not raise
+    get_settings.cache_clear()
+    assert "READ-ONLY DEMO" in caplog.text
+    assert "DEMO_MODE_ALLOW_PRODUCTION" in caplog.text
+
+
 def test_upstash_primary_name_wins_over_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     """When both names are set, UPSTASH_* takes precedence over KV_REST_API_*."""
     monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "https://primary.example")

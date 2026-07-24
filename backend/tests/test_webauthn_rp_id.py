@@ -19,15 +19,15 @@ def _patched(settings: Settings):
 
 
 def test_explicit_rp_id_wins() -> None:
-    s = _settings(webauthn_rp_id="clarity.example.com", frontend_url="https://other.example.org")
+    s = _settings(webauthn_rp_id="snacksbudget.example.com", frontend_url="https://other.example.org")
     with _patched(s):
-        assert get_webauthn_rp_id() == "clarity.example.com"
+        assert get_webauthn_rp_id() == "snacksbudget.example.com"
 
 
 def test_derives_from_frontend_url_when_unset() -> None:
-    s = _settings(webauthn_rp_id="", frontend_url="https://clarity-zach.vercel.app")
+    s = _settings(webauthn_rp_id="", frontend_url="https://snacks-zach.vercel.app")
     with _patched(s):
-        assert get_webauthn_rp_id() == "clarity-zach.vercel.app"
+        assert get_webauthn_rp_id() == "snacks-zach.vercel.app"
 
 
 def test_derivation_strips_port_and_path() -> None:
