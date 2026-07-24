@@ -59,6 +59,27 @@ npm run dev   # http://localhost:3000 — rewrites /api to localhost:8000
 ./scripts/ci-local.sh
 ```
 
+Mirrors `.github/workflows/ci.yml` step for step — both jobs that run on every
+PR, including the `pip-audit` and `npm audit --audit-level=high` dependency
+gates. A green run here is meant to predict a green CI run; if you add a step
+to `ci.yml`, add it to the script too.
+
+Needs `pip-audit` on your PATH (`pip install pip-audit`) — the script fails
+fast rather than skipping it, since a skipped gate makes "OK" meaningless.
+
+The Playwright smoke suite is opt-in, because it needs Docker and takes
+several minutes:
+
+```bash
+./scripts/ci-local.sh --e2e
+```
+
+In CI that job is path-filtered — it only runs when `frontend/src`,
+`frontend/e2e`, `backend/app`, `docker-compose.yml` or `.env.demo` change, so
+run it yourself when you touch those. It brings up a demo stack via
+`docker compose`, stashes and restores any existing `.env`, and tears the
+stack down on exit.
+
 ## Docs
 
 - [AGENTS.md](AGENTS.md) — contributor / agent context
