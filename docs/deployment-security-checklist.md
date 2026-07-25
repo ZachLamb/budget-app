@@ -80,6 +80,72 @@ curl -sS "https://<your-fly-app>/api/health" | jq .
 
 Expect `components.rate_limit_store` and `components.rate_limit_store_status`.
 
+## Changing the app's domain (login-critical)
+
+Moving the frontend to a new hostname breaks sign-in in three separate ways.
+All three are runtime env/secrets — no code change fixes them.
+
+1. **`WEBAUTHN_RP_ID`** — must be the new login-page domain (or a registrable
+   suffix of it, e.g. `snacksbudget.app` covers `app.snacksbudget.app`). If it
+   still names the old domain the browser aborts the passkey ceremony with
+   `SecurityError` and *no request reaches the backend*.
+2. **`CORS_ORIGINS`** — must contain the new origin. Otherwise `/api/auth/*`
+   rejects the browser origin with `400 Invalid origin`.
+3. **`FRONTEND_URL`** — magic-link and OAuth redirects point here; a stale
+   value sends users back to the old domain.
+
+```bash
+fly secrets set \
+  WEBAUTHN_RP_ID='<new-domain>' \
+  CORS_ORIGINS='https://<new-domain>' \
+  FRONTEND_URL='https://<new-domain>' \
+  -a clarity-backend
+```
+
+Both mismatches now emit a startup warning (`app/config.py`); check
+`fly logs -a clarity-backend` after the deploy.
+
+> **Existing passkeys do not survive a domain change.** A passkey is
+> cryptographically bound to the RP ID it was created under, so credentials
+> registered on the old domain can never be asserted on the new one — there is
+> no migration. Affected users must sign in by another method (magic link) and
+> register a new passkey. Keep `RESEND_API_KEY` + `EMAIL_FROM_ADDRESS` working
+> before the cutover, or everyone is locked out.
+
+## Incident: production stuck in demo mode (2026-07-25)
+
+**Symptom:** could not sign in or create an account on `snacks-budget.vercel.app`.
+
+**Cause:** the backend had `DEMO_MODE=true` *and* `DEMO_MODE_ALLOW_PRODUCTION=true`
+set as Fly secrets. The second is the deliberate escape hatch that bypasses the
+hard-fail gate in `app/config.py`, so the app booted normally — but
+`DemoGuardMiddleware` was installed, and it 403s every mutation not on its
+allowlist. Registration is not on that allowlist:
+
+```
+POST /api/auth/register           → 403 "This is a read-only demo"
+POST /api/auth/passkey/register/* → 403 "This is a read-only demo"
+```
+
+Sign-*in* was permitted; sign-*up* and passkey enrolment were not — so there was
+no way to establish an account on the new domain. The frontend was built with
+`NEXT_PUBLIC_DEMO_MODE` empty, so the UI never revealed itself as a demo. This
+is exactly the build-time/runtime drift the `/api/config` docstring warns about.
+
+**Fix:** `fly secrets unset DEMO_MODE DEMO_MODE_ALLOW_PRODUCTION -a clarity-backend`
+
+**Diagnosis shortcut** — `curl -sS https://<backend>/api/config` is
+server-authoritative and answers "is this deploy a demo?" in one request. Check
+it first when sign-up misbehaves; the domain/passkey settings below are a
+separate failure class with different symptoms.
+
+`app/config.py` now logs a loud `READ-ONLY DEMO` warning whenever the escape
+hatch is active, so this state can't sit unnoticed again.
+
+Also cleared in the same pass: `WEBAUTHN_RP_NAME` was still set to `Clarity` on
+Fly, overriding the renamed code default, so OS passkey prompts read "Clarity".
+Unset it — the `app/config.py` default (`Snack's Budget`) is now authoritative.
+
 ## MCP / ops log (2026-05-17)
 
 Executed on production:
