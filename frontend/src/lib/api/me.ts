@@ -44,6 +44,14 @@ function isoDate(): string {
 }
 
 /**
+ * Deadline for both calls. Unlike the shared axios client these use raw
+ * `fetch`, which has no default timeout — a stalled response would leave the
+ * dialog spinning with no way for the user to recover. Generous because an
+ * export streams the user's entire history.
+ */
+const REQUEST_TIMEOUT_MS = 60_000;
+
+/**
  * Build an axios-shaped error so callers can use `toastApiError` consistently
  * with the rest of the app (which assumes axios `error.response.data.detail`).
  */
@@ -89,6 +97,7 @@ export const meApi = {
     const resp = await fetch(url, {
       method: "GET",
       credentials: "include",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!resp.ok) {
       throw await buildHttpError(resp, "GET", url);
@@ -109,6 +118,7 @@ export const meApi = {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ confirm: DELETE_CONFIRMATION_PHRASE }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!resp.ok) {
       throw await buildHttpError(resp, "DELETE", url);

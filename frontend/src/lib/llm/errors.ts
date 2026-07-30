@@ -18,6 +18,22 @@ export class OnDeviceError extends Error {
   }
 }
 
+/**
+ * Codes meaning "the model produced a bad answer", as opposed to "the engine
+ * broke". Only these are worth another attempt on the same tier, or an
+ * escalation to a stronger one — a session/context/download failure fails
+ * identically every time, so retrying it just delays the real error.
+ */
+export const RETRYABLE_GENERATION_CODES: ReadonlySet<OnDeviceErrorCode> = new Set([
+  "schema_parse_failed",
+  "verify_failed",
+]);
+
+/** True when `e` is a bad-generation failure worth retrying or escalating. */
+export function isRetryableGeneration(e: unknown): e is OnDeviceError {
+  return e instanceof OnDeviceError && RETRYABLE_GENERATION_CODES.has(e.code);
+}
+
 const MESSAGES: Record<OnDeviceErrorCode, string> = {
   no_model:
     "On-device AI needs Chrome or Edge on a desktop computer. Open Settings → AI for setup steps (no app install required).",

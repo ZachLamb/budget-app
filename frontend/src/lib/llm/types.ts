@@ -8,11 +8,16 @@
  * Tier 3 (WASM CPU) is intentionally not implemented — too slow to ship.
  */
 
-export type Tier = 1 | 2;
+export type Tier = 1 | 2 | 4;
 
-export type Privacy = "local";
+/**
+ * "local" — never leaves the device. "self-hosted" — leaves the browser for a
+ * server the user runs; the backend only treats it as private when the URL
+ * resolves to a loopback/private address (see `is_local_backend_url`).
+ */
+export type Privacy = "local" | "self-hosted";
 
-export type ProviderName = "nano" | "web-llm";
+export type ProviderName = "nano" | "web-llm" | "local-server";
 
 export interface GenerateOptions {
   signal?: AbortSignal;

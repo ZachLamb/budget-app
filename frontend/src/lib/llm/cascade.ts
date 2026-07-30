@@ -4,7 +4,7 @@
 
 import { getCapability } from "./capability";
 import { getLocalConsent } from "./consent";
-import { OnDeviceError } from "./errors";
+import { isRetryableGeneration } from "./errors";
 import type { FeatureId } from "./features";
 import { decide, type RouterContext } from "./router";
 import type { CapabilitySnapshot, LLMProvider } from "./types";
@@ -19,24 +19,34 @@ import {
 } from "./pipelines/steps";
 import type { PipelineContext } from "./pipelines/types";
 import { hasCloudConsent, streamCloudGenerate } from "./providers/cloud";
+import { createLocalServerProvider } from "./providers/local-server";
 
 export interface CascadeProviders {
   primary: LLMProvider;
   /** Stronger on-device model when Nano verify/parse fails. */
   localFallback: LLMProvider | null;
   capability: CapabilitySnapshot;
+  /**
+   * No on-device tier exists — `primary` IS the user's self-hosted server, so
+   * there is nothing to fall back to when it fails.
+   */
+  localServerOnly?: boolean;
 }
 
-const ESCALATABLE: ReadonlySet<OnDeviceError["code"]> = new Set([
-  "schema_parse_failed",
-  "verify_failed",
-]);
+export interface ResolveCascadeOptions {
+  /**
+   * User opted into their own model server. It needs no on-device model, so a
+   * browser without Nano/WebGPU can still run pipelines.
+   */
+  preferLocal?: boolean;
+}
 
 /** Resolve Nano-first providers for heavy / verified pipelines. */
 export async function resolveCascadeProviders(
   featureId: FeatureId,
   ctx: RouterContext,
   capability?: CapabilitySnapshot,
+  opts: ResolveCascadeOptions = {},
 ): Promise<CascadeProviders> {
   const cap = capability ?? (await getCapability());
 
@@ -58,6 +68,17 @@ export async function resolveCascadeProviders(
 
   const decision = await decide(featureId, ctx, cap);
   if (decision.kind !== "ready") {
+    // A user who opted into their own server doesn't need an on-device model at
+    // all. Failing here told them "AI isn't available on this device or
+    // browser" while a perfectly reachable server sat configured in Settings.
+    if (opts.preferLocal) {
+      return {
+        primary: createLocalServerProvider(featureId),
+        localFallback: null,
+        capability: cap,
+        localServerOnly: true,
+      };
+    }
     throw new Error(decision.message);
   }
   return {
@@ -122,6 +143,9 @@ export async function generateVerifiedWithCascade<T>(
       return await generateViaLocalServer(featureId, spec, checks, opts);
     } catch (localErr) {
       if (opts.signal?.aborted) throw localErr;
+      // Nothing on-device to fall back to — surface the server's own error
+      // ("unreachable", "not authorized") rather than a generic AI failure.
+      if (providers.localServerOnly) throw localErr;
       opts.onProgress?.({
         step: "generate",
         label: "Local server unavailable — using on-device model…",
@@ -139,12 +163,7 @@ export async function generateVerifiedWithCascade<T>(
     return await tryPrimary();
   } catch (primaryErr) {
     if (opts.signal?.aborted) throw primaryErr;
-    if (
-      !(primaryErr instanceof OnDeviceError) ||
-      !ESCALATABLE.has(primaryErr.code)
-    ) {
-      throw primaryErr;
-    }
+    if (!isRetryableGeneration(primaryErr)) throw primaryErr;
 
     if (
       providers.localFallback &&
@@ -161,12 +180,7 @@ export async function generateVerifiedWithCascade<T>(
         });
       } catch (fallbackErr) {
         if (opts.signal?.aborted) throw fallbackErr;
-        if (
-          !(fallbackErr instanceof OnDeviceError) ||
-          !ESCALATABLE.has(fallbackErr.code)
-        ) {
-          throw fallbackErr;
-        }
+        if (!isRetryableGeneration(fallbackErr)) throw fallbackErr;
         // fall through to cloud
       }
     }

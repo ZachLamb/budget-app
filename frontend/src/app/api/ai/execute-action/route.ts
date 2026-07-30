@@ -1,21 +1,23 @@
 import { NextRequest } from "next/server";
-import { buildForwardHeaders, getAiBackendBaseUrl, readProxyJsonBody, readUpstreamJsonSafe } from "@/lib/ai-proxy";
+import {
+  ACTION_UPSTREAM_TIMEOUT_MS,
+  postToBackend,
+  readProxyJsonBody,
+  readUpstreamJsonSafe,
+} from "@/lib/ai-proxy";
 
 export async function POST(req: NextRequest) {
   const parsed = await readProxyJsonBody(req);
   if (!parsed.ok) return parsed.response;
 
-  const BACKEND = getAiBackendBaseUrl();
-
-  const upstream = await fetch(`${BACKEND}/api/ai/execute-action`, {
-    method: "POST",
-    headers: buildForwardHeaders(req),
-    body: JSON.stringify(parsed.body),
+  const result = await postToBackend("/api/ai/execute-action", req, parsed.body, {
+    timeoutMs: ACTION_UPSTREAM_TIMEOUT_MS,
   });
+  if (!result.ok) return result.response;
 
-  const data = await readUpstreamJsonSafe(upstream);
+  const data = await readUpstreamJsonSafe(result.upstream);
   return new Response(JSON.stringify(data), {
-    status: upstream.status,
+    status: result.upstream.status,
     headers: { "Content-Type": "application/json" },
   });
 }

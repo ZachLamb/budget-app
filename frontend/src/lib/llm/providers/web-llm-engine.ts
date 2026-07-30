@@ -103,7 +103,11 @@ class WebLlmProvider implements LLMProvider {
       });
 
       for await (const chunk of stream) {
-        if (opts.signal?.aborted) return;
+        // Throw rather than `return`: silently ending the stream makes a
+        // cancelled generation indistinguishable from a short successful one,
+        // and a truncated response that happens to parse would be handed back
+        // as a real answer.
+        if (opts.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const delta = chunk.choices?.[0]?.delta?.content;
         if (delta) yield delta;
       }
