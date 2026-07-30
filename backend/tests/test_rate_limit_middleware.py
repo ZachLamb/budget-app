@@ -18,7 +18,7 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
-from app.middleware.rate_limit import RateLimitMiddleware, _RULES
+from app.middleware.rate_limit import RateLimitMiddleware, _GET_RULES, _RULES, match_rule
 from app.middleware.rate_limit_store import InMemoryStore
 
 
@@ -38,6 +38,7 @@ def _build_app(*, trusted_proxies: str = "127.0.0.1") -> Starlette:
             Route("/api/auth/login", _ok, methods=["POST", "GET"]),
             Route("/api/auth/passkey/authenticate/start", _ok, methods=["POST"]),
             Route("/api/ai/insights", _ok, methods=["POST"]),
+            Route("/api/ai/facts/context", _ok, methods=["POST"]),
             Route("/api/llm/cloud", _ok, methods=["POST"]),
         ]
     )
@@ -51,10 +52,15 @@ def _build_app(*, trusted_proxies: str = "127.0.0.1") -> Starlette:
 
 
 def _rule_cap(prefix: str) -> int:
-    for p, cap, _ in _RULES:
-        if prefix.startswith(p):
-            return cap
-    raise AssertionError(f"no rate-limit rule for {prefix}")
+    """The cap the middleware will actually apply to ``prefix``.
+
+    Resolved through ``match_rule`` rather than a local first-match loop, so the
+    tests can't disagree with the middleware about which rule wins.
+    """
+    rule = match_rule(prefix, _RULES)
+    if rule is None:
+        raise AssertionError(f"no rate-limit rule for {prefix}")
+    return rule[1]
 
 
 @pytest.mark.asyncio
@@ -144,6 +150,76 @@ async def test_login_prefix_takes_precedence_over_bare_auth_prefix() -> None:
             assert resp.status_code == 200
         resp = await client.post("/api/auth/login", headers={"x-forwarded-for": "3.3.3.3"})
         assert resp.status_code == 429
+
+
+def test_match_rule_prefers_the_longest_prefix() -> None:
+    """Rule selection must not depend on list order.
+
+    ``/api/ai/`` and ``/api/ai/facts/`` both match a facts request. Taking the
+    first hit made the facts rule dead code and silently applied the tighter
+    generate cap to fact fetches.
+    """
+    assert match_rule("/api/ai/facts/context", _RULES) == ("/api/ai/facts/", 30, 60)
+    assert match_rule("/api/ai/insights", _RULES) == ("/api/ai/", 20, 60)
+    assert match_rule("/api/auth/login", _RULES) == ("/api/auth/login", 30, 60)
+    assert match_rule("/api/transactions", _RULES) is None
+    assert match_rule("/api/realtime/events", _GET_RULES) == (
+        "/api/realtime/events",
+        10,
+        60,
+    )
+
+
+def test_facts_rule_is_reachable() -> None:
+    """Regression guard: the facts rule must not be shadowed by a broader one."""
+    facts_rule = next(r for r in _RULES if r[0] == "/api/ai/facts/")
+    assert match_rule("/api/ai/facts/budget", _RULES) == facts_rule
+
+
+@pytest.mark.asyncio
+async def test_facts_route_gets_its_own_looser_cap() -> None:
+    """A facts POST must get the facts cap (30), not the generate cap (20)."""
+    app = _build_app()
+    facts_cap = _rule_cap("/api/ai/facts/context")
+    generate_cap = _rule_cap("/api/ai/insights")
+    assert facts_cap > generate_cap, "fixture assumes facts is the looser rule"
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        for _ in range(facts_cap):
+            resp = await client.post(
+                "/api/ai/facts/context",
+                headers={"x-forwarded-for": "5.5.5.5"},
+            )
+            assert resp.status_code == 200
+            assert resp.headers.get("RateLimit-Limit") == str(facts_cap)
+        resp = await client.post(
+            "/api/ai/facts/context",
+            headers={"x-forwarded-for": "5.5.5.5"},
+        )
+        assert resp.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_facts_and_generate_buckets_are_independent() -> None:
+    """Exhausting the generate cap must not lock the user out of fact fetches."""
+    app = _build_app()
+    generate_cap = _rule_cap("/api/ai/insights")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        for _ in range(generate_cap):
+            resp = await client.post(
+                "/api/ai/insights", headers={"x-forwarded-for": "6.6.6.6"}
+            )
+            assert resp.status_code == 200
+        assert (
+            await client.post("/api/ai/insights", headers={"x-forwarded-for": "6.6.6.6"})
+        ).status_code == 429
+        # Different rule, different bucket.
+        resp = await client.post(
+            "/api/ai/facts/context", headers={"x-forwarded-for": "6.6.6.6"}
+        )
+        assert resp.status_code == 200
 
 
 @pytest.mark.asyncio

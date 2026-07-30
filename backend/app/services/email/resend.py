@@ -80,8 +80,17 @@ async def send_email(
             # Status only; never echo the response body (can contain the recipient).
             logger.warning("resend_send_failed status=%s", resp.status_code)
             return EmailSendResult(ok=False, error=f"HTTP {resp.status_code}")
-        body = resp.json() if resp.content else {}
-        return EmailSendResult(ok=True, provider_id=str(body.get("id") or "") or None)
+        # A 2xx means Resend accepted the message. The body is only useful for
+        # its message id, so an unparseable one must not turn a delivered email
+        # into a reported failure — we just lose the log-correlation handle.
+        provider_id: Optional[str] = None
+        try:
+            body = resp.json() if resp.content else {}
+            if isinstance(body, dict):
+                provider_id = str(body.get("id") or "") or None
+        except ValueError:
+            logger.warning("resend_send_unparseable_body status=%s", resp.status_code)
+        return EmailSendResult(ok=True, provider_id=provider_id)
     except (httpx.ConnectError, httpx.TimeoutException) as e:
         logger.warning("resend_send_unreachable: %s", type(e).__name__)
         return EmailSendResult(ok=False, error="Resend unreachable")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Cloud LLM consent CRUD and opt-in Tier 4 generate proxy."""
 
+import asyncio
 import json
 import logging
 import time
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.config import get_settings
-from app.database import get_db
+from app.database import async_session, get_db
 from app.models.household import Household
 from app.models.user import User
 from app.services.ai import audit
@@ -77,6 +78,42 @@ def _approx_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+async def _write_stream_audit(
+    *,
+    user_id: str,
+    feature: str,
+    status_code: int,
+    prompt: str,
+    completion: str,
+    t_request: float,
+    model: Optional[str],
+) -> None:
+    """Write the Tier-4 audit row after the stream ends. Never raises.
+
+    Deliberately opens its own session instead of reusing the request's: when
+    the client disconnects mid-stream the request session is already being torn
+    down and rolled back, so the row would be lost in precisely the case the
+    audit log needs to record. A failed audit write is logged and dropped — it
+    must never turn into an error for the user.
+    """
+    try:
+        async with async_session() as session:
+            await audit.write(
+                session,
+                user_id=user_id,
+                feature=feature,
+                tier=4,
+                status=status_code,
+                prompt_tokens=_approx_tokens(prompt),
+                completion_tokens=_approx_tokens(completion),
+                latency_ms=int((time.perf_counter() - t_request) * 1000),
+                model=model,
+                cache_hit=False,
+            )
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning("cloud_generate audit write failed: %s", type(e).__name__)
+
+
 @router.post("/cloud")
 async def cloud_generate(
     body: CloudGenerateRequest,
@@ -117,7 +154,17 @@ async def cloud_generate(
         )
 
     system_prompt = sanitize_user_text(body.system or "", max_len=2_000) if body.system else ""
-    user_prompt = body.prompt
+    # The prompt carries interpolated user-authored text (payee names, memos)
+    # assembled client-side, so it gets the same structural cleaning as the
+    # system prompt. The cap matches the field's own max_length.
+    user_prompt = sanitize_user_text(body.prompt, max_len=8_000)
+    if not user_prompt:
+        # Literal 422 — starlette's HTTP_422_UNPROCESSABLE_ENTITY is deprecated
+        # and its replacement isn't in every supported version.
+        raise HTTPException(
+            status_code=422,
+            detail="Prompt is empty after sanitization.",
+        )
     settings = get_settings()
     model_name = settings.ollama_model
 
@@ -141,23 +188,37 @@ async def cloud_generate(
             status_code = 502
             logger.warning("cloud_generate stream failed")
             yield _sse({"error": "Cloud AI stream interrupted or unavailable."})
+        except (asyncio.CancelledError, GeneratorExit):
+            # Client hung up mid-stream (pressed Stop, closed the tab). Both
+            # forms show up in practice: Starlette cancels the request task, and
+            # closing the generator raises GeneratorExit at the yield. Neither is
+            # an `Exception` subclass, so both need naming explicitly. Record the
+            # disconnect, then let it propagate.
+            status_code = 499
+            raise
         except Exception as e:
             status_code = 500
             logger.warning("cloud_generate failed: %s", type(e).__name__)
             yield _sse({"error": "Cloud AI request failed."})
         finally:
-            completion = "".join(completion_buf)
-            await audit.write(
-                db,
-                user_id=user.id,
-                feature=body.feature,
-                tier=4,
-                status=status_code,
-                prompt_tokens=_approx_tokens(user_prompt),
-                completion_tokens=_approx_tokens(completion),
-                latency_ms=int((time.perf_counter() - t_request) * 1000),
-                model=model_name,
-                cache_hit=False,
+            # Runs on every exit path, disconnects included — a cancelled
+            # request is one the model server still did work for, so it belongs
+            # in the audit log. `_write_stream_audit` opens its own session
+            # (the request's is being torn down by now) and never raises.
+            #
+            # `shield` is belt-and-braces: the first cancellation is already
+            # delivered by the time we get here, but uvicorn can cancel again on
+            # a shutdown timeout, and that would abandon the write mid-flight.
+            await asyncio.shield(
+                _write_stream_audit(
+                    user_id=user.id,
+                    feature=body.feature,
+                    status_code=status_code,
+                    prompt=user_prompt,
+                    completion="".join(completion_buf),
+                    t_request=t_request,
+                    model=model_name,
+                )
             )
 
     return StreamingResponse(

@@ -3,6 +3,23 @@ import { NextRequest } from "next/server";
 /** Cap proxy payload size to reduce abuse of the BFF routes. */
 const MAX_AI_PROXY_BODY_BYTES = 512 * 1024;
 
+/** Upstream deadline for the small, non-streaming action proxies. */
+export const ACTION_UPSTREAM_TIMEOUT_MS = 30_000;
+
+/**
+ * Upstream deadline for the streaming generate proxy. Just under the route's
+ * `maxDuration` (300s) so we return a real 504 instead of the platform killing
+ * the function with an opaque error.
+ */
+export const STREAM_UPSTREAM_TIMEOUT_MS = 290_000;
+
+function jsonResponse(status: number, detail: string): Response {
+  return new Response(JSON.stringify({ detail }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 export function getAiBackendBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_DOCKER === "1"
     ? "http://backend:8000"
@@ -41,13 +58,7 @@ export async function readProxyJsonBody(
   if (cl !== null && cl !== "") {
     const n = Number(cl);
     if (Number.isFinite(n) && n > MAX_AI_PROXY_BODY_BYTES) {
-      return {
-        ok: false,
-        response: new Response(JSON.stringify({ detail: "Request body too large" }), {
-          status: 413,
-          headers: { "Content-Type": "application/json" },
-        }),
-      };
+      return { ok: false, response: jsonResponse(413, "Request body too large") };
     }
   }
 
@@ -55,35 +66,69 @@ export async function readProxyJsonBody(
   try {
     text = await req.text();
   } catch {
-    return {
-      ok: false,
-      response: new Response(JSON.stringify({ detail: "Could not read request body" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      }),
-    };
+    return { ok: false, response: jsonResponse(400, "Could not read request body") };
   }
 
   if (text.length > MAX_AI_PROXY_BODY_BYTES) {
-    return {
-      ok: false,
-      response: new Response(JSON.stringify({ detail: "Request body too large" }), {
-        status: 413,
-        headers: { "Content-Type": "application/json" },
-      }),
-    };
+    return { ok: false, response: jsonResponse(413, "Request body too large") };
   }
 
   try {
     return { ok: true, body: JSON.parse(text) as unknown };
   } catch {
-    return {
-      ok: false,
-      response: new Response(JSON.stringify({ detail: "Invalid JSON" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      }),
-    };
+    return { ok: false, response: jsonResponse(400, "Invalid JSON") };
+  }
+}
+
+/**
+ * Translate a failed upstream `fetch` into a JSON response the client can
+ * actually parse.
+ *
+ * Without this, an unreachable backend rejects the route handler and Next
+ * returns its own HTML 500 — every client error path in the app reads
+ * `{ detail }`, so the user would see a generic "Cloud AI is unavailable"
+ * with no way to tell a dead backend from a refused request.
+ */
+export function upstreamErrorResponse(req: NextRequest, error: unknown): Response {
+  // The browser hung up (user pressed Stop, navigated away). Nobody is left to
+  // read this; 499 keeps it out of the 5xx error budget.
+  if (req.signal.aborted) {
+    return jsonResponse(499, "Request cancelled.");
+  }
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return jsonResponse(504, "The AI backend took too long to respond.");
+  }
+  return jsonResponse(502, "Could not reach the AI backend.");
+}
+
+export type UpstreamResult =
+  | { ok: true; upstream: Response }
+  | { ok: false; response: Response };
+
+/**
+ * POST a JSON body to the backend on behalf of the browser.
+ *
+ * Forwards the client's abort signal so pressing Stop actually cancels the
+ * upstream generation instead of leaving the model server (and this function)
+ * running to completion, and bounds the wait with `timeoutMs`.
+ */
+export async function postToBackend(
+  path: string,
+  req: NextRequest,
+  body: unknown,
+  { timeoutMs }: { timeoutMs: number },
+): Promise<UpstreamResult> {
+  try {
+    const upstream = await fetch(`${getAiBackendBaseUrl()}${path}`, {
+      method: "POST",
+      headers: buildForwardHeaders(req),
+      body: JSON.stringify(body),
+      signal: AbortSignal.any([req.signal, AbortSignal.timeout(timeoutMs)]),
+      cache: "no-store",
+    });
+    return { ok: true, upstream };
+  } catch (error) {
+    return { ok: false, response: upstreamErrorResponse(req, error) };
   }
 }
 

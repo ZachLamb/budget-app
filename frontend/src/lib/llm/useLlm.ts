@@ -152,10 +152,14 @@ export function useLlm(): UseLlm {
       if (isDemoMode) return demoStructuredResult(feature);
 
       const cap = capability ?? (await getCapability());
-      const cascade = await resolveCascadeProviders(feature, buildContext(), cap);
       const preferLocal = Boolean(
         (aiSettings.data as AiSettings | undefined)?.prefer_local_server,
       );
+      // Resolved with `preferLocal` so a browser with no on-device tier can
+      // still run on the user's own server instead of erroring out.
+      const cascade = await resolveCascadeProviders(feature, buildContext(), cap, {
+        preferLocal,
+      });
       const pctx: PipelineContext = {
         provider: cascade.primary,
         cascade,

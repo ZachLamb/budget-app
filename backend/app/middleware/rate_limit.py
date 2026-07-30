@@ -30,6 +30,9 @@ _GET_RULES: List[Tuple[str, int, int]] = [
 ]
 
 # (path prefix, max_hits, window_seconds)
+# Matched by LONGEST prefix, not list order — see match_rule. A specific rule
+# always wins over a general one regardless of where it sits in this list.
+#
 # AI routes have a tight per-IP cap: each POST can hold a worker for up to the
 # full Ollama read timeout (120s), so 120/min left a large cost-amplification /
 # CPU-DoS window. 20/min is well above normal interactive use and keeps that
@@ -58,6 +61,24 @@ _RULES: List[Tuple[str, int, int]] = [
     # blunt scanners. 30/min is generous.
     ("/api/auth/magic-link/verify", 30, 60),
 ]
+
+
+def match_rule(
+    path: str, rules: List[Tuple[str, int, int]]
+) -> Optional[Tuple[str, int, int]]:
+    """Pick the rule whose prefix matches ``path`` most specifically.
+
+    List order must not decide this. ``/api/ai/`` and ``/api/ai/facts/`` both
+    match a facts request, and taking the first hit silently made the facts
+    rule dead code — facts inherited the tighter generate cap instead of its
+    own. Longest prefix wins, so adding a general rule can never shadow a
+    specific one.
+    """
+    best: Optional[Tuple[str, int, int]] = None
+    for rule in rules:
+        if path.startswith(rule[0]) and (best is None or len(rule[0]) > len(best[0])):
+            best = rule
+    return best
 
 
 def _parse_trusted_proxies(raw: str) -> List[ipaddress._BaseNetwork]:
@@ -128,65 +149,55 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         method = request.method.upper()
 
         if method == "GET":
-            for prefix, max_hits, window in _GET_RULES:
-                if path.startswith(prefix):
-                    ip = client_ip_for_limit(request, self._trusted_proxies)
-                    key = f"rl:{prefix}:{ip}"
-                    result = await self._store.check_and_increment(
-                        key, max_hits, window, fail_open=True
-                    )
-                    remaining = max(0, max_hits - result.count)
-                    rate_headers = {
-                        "RateLimit-Limit": str(max_hits),
-                        "RateLimit-Remaining": str(remaining),
-                        "RateLimit-Reset": str(window),
-                    }
-                    if result.over:
-                        return Response(
-                            content=json.dumps({"detail": "Too many requests. Try again shortly."}),
-                            status_code=429,
-                            media_type="application/json",
-                            headers={"Retry-After": str(window), **rate_headers},
-                        )
-                    response = await call_next(request)
-                    for name, value in rate_headers.items():
-                        response.headers[name] = value
-                    return response
-            return await call_next(request)
+            rule = match_rule(path, _GET_RULES)
+            if rule is None:
+                return await call_next(request)
+            return await self._apply(request, call_next, rule, fail_open=True)
 
         if method not in ("POST", "PUT", "PATCH", "DELETE"):
             return await call_next(request)
 
-        for prefix, max_hits, window in _RULES:
-            if path.startswith(prefix):
-                ip = client_ip_for_limit(request, self._trusted_proxies)
-                key = f"rl:{prefix}:{ip}"
-                settings = get_settings()
-                fail_open = not (
-                    settings.auth_rate_limit_strict and prefix.startswith("/api/auth/")
-                )
-                result = await self._store.check_and_increment(
-                    key, max_hits, window, fail_open=fail_open
-                )
-                # RFC 9331 draft: expose remaining budget on every response
-                # under a matched rule so clients can back off before the
-                # 429 instead of blindly retrying.
-                remaining = max(0, max_hits - result.count)
-                rate_headers = {
-                    "RateLimit-Limit": str(max_hits),
-                    "RateLimit-Remaining": str(remaining),
-                    "RateLimit-Reset": str(window),
-                }
-                if result.over:
-                    return Response(
-                        content=json.dumps({"detail": "Too many requests. Try again shortly."}),
-                        status_code=429,
-                        media_type="application/json",
-                        headers={"Retry-After": str(window), **rate_headers},
-                    )
-                response = await call_next(request)
-                for name, value in rate_headers.items():
-                    response.headers[name] = value
-                return response
+        rule = match_rule(path, _RULES)
+        if rule is None:
+            return await call_next(request)
 
-        return await call_next(request)
+        settings = get_settings()
+        fail_open = not (
+            settings.auth_rate_limit_strict and rule[0].startswith("/api/auth/")
+        )
+        return await self._apply(request, call_next, rule, fail_open=fail_open)
+
+    async def _apply(
+        self,
+        request: Request,
+        call_next,
+        rule: Tuple[str, int, int],
+        *,
+        fail_open: bool,
+    ) -> Response:
+        prefix, max_hits, window = rule
+        ip = client_ip_for_limit(request, self._trusted_proxies)
+        key = f"rl:{prefix}:{ip}"
+        result = await self._store.check_and_increment(
+            key, max_hits, window, fail_open=fail_open
+        )
+        # RFC 9331 draft: expose remaining budget on every response under a
+        # matched rule so clients can back off before the 429 instead of
+        # blindly retrying.
+        remaining = max(0, max_hits - result.count)
+        rate_headers = {
+            "RateLimit-Limit": str(max_hits),
+            "RateLimit-Remaining": str(remaining),
+            "RateLimit-Reset": str(window),
+        }
+        if result.over:
+            return Response(
+                content=json.dumps({"detail": "Too many requests. Try again shortly."}),
+                status_code=429,
+                media_type="application/json",
+                headers={"Retry-After": str(window), **rate_headers},
+            )
+        response = await call_next(request)
+        for name, value in rate_headers.items():
+            response.headers[name] = value
+        return response

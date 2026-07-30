@@ -1,6 +1,6 @@
 import api from "@/lib/api/client";
 import { parseJsonResponse } from "../contracts";
-import { OnDeviceError } from "../errors";
+import { isRetryableGeneration, OnDeviceError } from "../errors";
 import type { GenerateOptions, LLMProvider } from "../types";
 import type { PipelineProgress } from "./types";
 
@@ -99,6 +99,13 @@ export interface GenerateVerifiedOptions<T> {
  * (`verify_failed`) so a transient bad generation is given another chance.
  * Aborts propagate immediately. After the last attempt the most recent
  * `OnDeviceError` is rethrown so the caller sees the real cause.
+ *
+ * Anything that is NOT a bad generation — a dead session, context overflow, a
+ * raw engine error — propagates on the first attempt. Retrying those wastes
+ * the user's time on an identical failure, and rewriting them as
+ * `verify_failed` used to tell the user we "couldn't check the result against
+ * your numbers" for what was really a broken engine (and made the cascade
+ * escalate a bug to a stronger tier).
  */
 export async function generateVerified<T>(
   provider: LLMProvider,
@@ -130,6 +137,7 @@ export async function generateVerified<T>(
       if (opts.signal?.aborted) {
         throw new OnDeviceError("aborted", "Cancelled.");
       }
+      if (!isRetryableGeneration(e)) throw e;
       lastErr = e;
     }
   }

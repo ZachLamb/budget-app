@@ -157,3 +157,65 @@ describe("generation progress reporting", () => {
     expect(steps.some((s) => s.startsWith("verify:"))).toBe(true);
   });
 });
+
+describe("generateVerified error propagation", () => {
+  function failing(error: unknown): { provider: LLMProvider; calls: () => number } {
+    let calls = 0;
+    return {
+      provider: {
+        name: "nano",
+        tier: 1,
+        privacy: "local",
+        async *generate() {
+          calls += 1;
+          throw error;
+        },
+      },
+      calls: () => calls,
+    };
+  }
+
+  const spec = { system: "s", prompt: "p", schema: { type: "object" } };
+
+  it("surfaces an engine failure as-is instead of rewriting it as verify_failed", async () => {
+    const { generateVerified } = await import("./steps");
+    const { provider, calls } = failing(
+      new OnDeviceError("session_create_failed", "engine died"),
+    );
+
+    await expect(
+      generateVerified(provider, spec, [], { retries: 2 }),
+    ).rejects.toMatchObject({ code: "session_create_failed" });
+    // Failed once, did not burn the remaining attempts on the same failure.
+    expect(calls()).toBe(1);
+  });
+
+  it("propagates a non-OnDeviceError without masking it", async () => {
+    const { generateVerified } = await import("./steps");
+    const { provider, calls } = failing(new TypeError("WebGPU adapter lost"));
+
+    await expect(generateVerified(provider, spec, [], { retries: 2 })).rejects.toThrow(
+      "WebGPU adapter lost",
+    );
+    expect(calls()).toBe(1);
+  });
+
+  it("still retries a failed verification up to the retry budget", async () => {
+    const { generateVerified } = await import("./steps");
+    let calls = 0;
+    const provider: LLMProvider = {
+      name: "nano",
+      tier: 1,
+      privacy: "local",
+      async *generate() {
+        calls += 1;
+        yield '{"a":1}';
+      },
+    };
+
+    await expect(
+      generateVerified(provider, spec, [() => false], { retries: 2 }),
+    ).rejects.toMatchObject({ code: "verify_failed" });
+    expect(calls).toBe(3);
+  });
+});

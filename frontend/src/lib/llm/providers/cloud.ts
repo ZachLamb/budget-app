@@ -93,18 +93,33 @@ export async function streamCloudGenerate(params: CloudGenerateParams): Promise<
 
   const text = await res.text();
   let out = "";
+  let streamError: string | null = null;
+
   for (const line of text.split("\n")) {
     if (!line.startsWith("data:")) continue;
     const payload = line.slice(5).trim();
     if (!payload || payload === "[DONE]") continue;
+
+    // A truncated or malformed frame must not discard the text we already
+    // collected — the previous version rethrew the SyntaxError (matching on an
+    // engine-specific message), turning a partial answer into a hard failure.
+    let frame: { content?: string; error?: string; done?: boolean };
     try {
-      const j = JSON.parse(payload) as { content?: string; error?: string; done?: boolean };
-      if (j.error) throw new Error(j.error);
-      if (j.content) out += j.content;
-    } catch (e) {
-      if (e instanceof Error && e.message !== "Unexpected end of JSON input") throw e;
+      frame = JSON.parse(payload) as typeof frame;
+    } catch {
+      continue;
     }
+    // The backend reports upstream failures in-band, after a 200 header.
+    if (typeof frame.error === "string" && frame.error) {
+      streamError = frame.error;
+      break;
+    }
+    if (typeof frame.content === "string") out += frame.content;
   }
+
+  // An error frame that arrives mid-stream still invalidates the answer: the
+  // completion is truncated, and callers parse it as a whole JSON document.
+  if (streamError) throw new Error(streamError);
   if (!out.trim()) {
     throw new Error("Cloud model returned an empty response.");
   }

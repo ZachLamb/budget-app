@@ -69,6 +69,25 @@ describe("generateVerifiedWithCascade preferLocal", () => {
     expect(out).toEqual({ answer: "on-device" });
   });
 
+  it("surfaces the server error when there is no on-device tier to fall back to", async () => {
+    vi.mocked(streamCloudGenerate).mockRejectedValue(
+      new Error("Cloud AI is not configured on this server."),
+    );
+
+    await expect(
+      generateVerifiedWithCascade(
+        { ...providers(), localServerOnly: true },
+        "financial_advice",
+        spec,
+        [],
+        { featureId: "financial_advice", preferLocal: true },
+      ),
+    ).rejects.toThrow("Cloud AI is not configured on this server.");
+
+    // Never pretends an on-device model exists.
+    expect(generateVerified).not.toHaveBeenCalled();
+  });
+
   it("does not consult per-feature cloud consent in preferLocal mode", async () => {
     vi.mocked(streamCloudGenerate).mockResolvedValue('{"answer":"x"}');
     await generateVerifiedWithCascade(providers(), "financial_advice", spec, [], {
