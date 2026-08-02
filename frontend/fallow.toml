@@ -2,7 +2,9 @@
 # Full `fallow` (dupes/health) is for periodic audits via code-quality-audit skill.
 # https://docs.fallow.tools
 
-entry = ["public/sw.js", "src/lib/llm/index.ts"]
+# run-ai-jobs.mjs is a standalone CLI (see `npm run ai:run-jobs`) — it is
+# invoked by the user, not imported by the app, so it has no in-tree consumer.
+entry = ["public/sw.js", "src/lib/llm/index.ts", "scripts/run-ai-jobs.mjs"]
 
 ignoreExportsUsedInFile = true
 
