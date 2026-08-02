@@ -15,7 +15,11 @@ final class AppDatabase {
         return queue
     }()
 
-    static var migrator: DatabaseMigrator = {
+    // `nonisolated(unsafe)`: GRDB's `DatabaseMigrator` isn't `Sendable`, but this
+    // one is built once and only ever read (during `shared`'s init), so there's
+    // no actual shared mutable state to race on. The annotation documents that
+    // and silences the strict-concurrency warning without weakening it globally.
+    nonisolated(unsafe) static let migrator: DatabaseMigrator = {
         var m = DatabaseMigrator()
 
         m.registerMigration("v1_initial") { db in
