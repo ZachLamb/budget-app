@@ -18,8 +18,24 @@ struct TransactionsView: View {
     }
 
     var body: some View {
-        List(filtered) { txn in
-            TransactionRow(txn: txn)
+        Group {
+            if transactions.isEmpty {
+                ContentUnavailableView {
+                    Label("No transactions", systemImage: "list.bullet.rectangle")
+                } description: {
+                    Text("Sync to pull your latest transactions from the server.")
+                } actions: {
+                    Button("Sync Now") { Task { await sync.syncAll() } }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(sync.isSyncing)
+                }
+            } else if filtered.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            } else {
+                List(filtered) { txn in
+                    TransactionRow(txn: txn)
+                }
+            }
         }
         .searchable(text: $searchText, prompt: "Search transactions")
         .navigationTitle("Transactions")
@@ -58,7 +74,17 @@ struct TransactionRow: View {
     let txn: LocalTransaction
 
     var body: some View {
-        HStack {
+        HStack(spacing: Theme.Spacing.md) {
+            // Category-colored leading accent for quick visual scanning.
+            RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                .fill(Theme.Palette.brand.opacity(0.15))
+                .frame(width: 32, height: 32)
+                .overlay(
+                    Image(systemName: txn.amount >= 0 ? "arrow.down.left" : "arrow.up.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(txn.amount >= 0 ? Theme.Palette.positive : .secondary)
+                )
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(txn.payeeName ?? "Unknown")
                     .fontWeight(.medium)
@@ -71,12 +97,13 @@ struct TransactionRow: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text(txn.amount, format: .currency(code: "USD"))
-                    .foregroundStyle(txn.amount >= 0 ? .green : .primary)
+                    .font(Theme.Font.numeric)
+                    .foregroundStyle(txn.amount >= 0 ? Theme.Palette.positive : .primary)
                 Text(txn.date)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Theme.Spacing.xs)
     }
 }

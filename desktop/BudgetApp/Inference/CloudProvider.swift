@@ -1,40 +1,68 @@
 import Foundation
 
+/// Tier 3 — the backend's opt-in cloud proxy (`POST /api/llm/cloud`).
 struct CloudProvider {
+
+    /// Accumulates the streamed completion.
+    ///
+    /// `postSSE` delivers one `data:` payload at a time. The backend's frames
+    /// are `{"content": "…"}` deltas terminated by `{"done": true}`, with
+    /// `{"error": "…"}` on failure — so the text has to be joined across frames.
+    /// An earlier version assigned each chunk to a single variable and returned
+    /// the last one, which meant replies were only ever the final token.
+    private final class StreamAccumulator: @unchecked Sendable {
+        private let lock = NSLock()
+        private var text = ""
+        private var failure: String?
+
+        func ingest(_ payload: String) {
+            guard let data = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return }
+
+            lock.lock()
+            defer { lock.unlock() }
+
+            if let message = object["error"] as? String {
+                failure = message
+            } else if let content = object["content"] as? String {
+                text += content
+            }
+        }
+
+        func result() throws -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            if let failure { throw APIError.httpError(502, failure) }
+            return text
+        }
+    }
+
     static func complete(
         prompt: String,
         system: String,
-        api: APIClient
+        api: APIClient,
+        feature: String = "chat",
+        maxTokens: Int = 1024
     ) async throws -> String {
         struct CloudRequest: Encodable {
             let feature: String
             let prompt: String
             let system: String
             let maxTokens: Int
-
-            enum CodingKeys: String, CodingKey {
-                case feature, prompt, system
-                case maxTokens = "maxTokens"
-            }
         }
-        struct CloudResponse: Decodable { let answer: String }
 
         let req = CloudRequest(
-            feature: "chat",
+            feature: feature,
             prompt: prompt,
             system: system,
-            maxTokens: 1024
+            maxTokens: maxTokens
         )
 
-        var lastChunk = ""
+        let accumulator = StreamAccumulator()
         try await api.postSSE("api/llm/cloud", body: req) { chunk in
-            lastChunk = chunk
+            accumulator.ingest(chunk)
         }
-
-        if let data = lastChunk.data(using: .utf8),
-           let resp = try? JSONDecoder().decode(CloudResponse.self, from: data) {
-            return resp.answer
-        }
-        return lastChunk
+        return try accumulator.result()
     }
 }

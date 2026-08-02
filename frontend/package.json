@@ -17,6 +17,7 @@
     "test:e2e": "playwright test",
     "generate:api": "openapi-typescript http://localhost:8000/openapi.json -o src/lib/api/generated.ts",
     "quality:static": "fallow dead-code",
+    "ai:run-jobs": "node scripts/run-ai-jobs.mjs",
     "quality:check": "npm run lint && npm run test:run && npm run quality:static",
     "quality:audit": "npm run quality:check && knip"
   },

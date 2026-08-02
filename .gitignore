@@ -32,3 +32,8 @@ caddy_config/
 /node_modules
 /public
 desktop/Snack's Budget/
+
+# SwiftPM build output and local IDE state (Package.resolved IS committed —
+# it pins dependency versions).
+desktop/.build/
+desktop/.swiftpm/

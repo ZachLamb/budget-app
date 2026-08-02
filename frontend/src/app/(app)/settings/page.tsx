@@ -11,6 +11,7 @@ import {
 } from "@/lib/api/settings";
 import { AiSettingsCard } from "@/components/llm/ai-settings-card";
 import { LocalServerCard } from "@/components/settings/local-server-card";
+import { LocalAiHandoffCard } from "@/components/settings/local-ai-handoff-card";
 import { PrivacyDataCard } from "@/components/settings/privacy-data-card";
 import { HostingHealthCard } from "@/components/settings/hosting-health-card";
 import { AdminUsersCard } from "@/components/settings/admin-users-card";
@@ -795,6 +796,7 @@ function SettingsContent() {
             }
           />
         )}
+        {aiEnabled && !isDemo && <LocalAiHandoffCard />}
       </section>
 
       <section id="privacy" className="scroll-mt-24">
