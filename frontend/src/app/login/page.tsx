@@ -13,6 +13,7 @@ import { Wallet, KeyRound, Play, Mail, CheckCircle2, ChevronDown, ChevronUp } fr
 import { toastApiError, toastPlainError } from "@/lib/toast-error";
 import { appToast } from "@/lib/app-toast";
 import { passkeyRegisterErrorAction } from "@/lib/passkey-register-error";
+import { buildNativeCallbackURL, parseNativeHandoff } from "@/lib/native-handoff";
 import { useDemoGuard } from "@/lib/hooks";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -79,11 +80,35 @@ function LoginPageContent() {
   const rawNext = searchParams.get("next") || "/";
   const nextPath = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
 
+  // Set when the page is running inside the desktop app's auth sheet.
+  const nativeHandoff = parseNativeHandoff(searchParams);
+
+  /**
+   * Finish a login. In native mode, hand a one-time code back to the desktop
+   * app instead of navigating; the app closes the sheet on the deep link.
+   * Returns true if the native hand-off took over.
+   */
+  const completeNativeHandoff = async (): Promise<boolean> => {
+    if (!nativeHandoff) return false;
+    const { code } = await authApi.nativeCode(nativeHandoff.redirectUri);
+    window.location.href = buildNativeCallbackURL(nativeHandoff.redirectUri, code);
+    return true;
+  };
+
   useEffect(() => {
-    if (!authLoading && user?.status === "approved") {
-      router.replace(nextPath);
+    if (authLoading || user?.status !== "approved") return;
+    // The auth sheet shares Safari's cookies, so the user may already have a
+    // valid session. Hand that session off rather than navigating into the web
+    // app inside the sheet, which would strand the desktop app waiting.
+    if (nativeHandoff) {
+      completeNativeHandoff().catch(() =>
+        toastPlainError("Could not return to the app. Please try again."),
+      );
+      return;
     }
-  }, [authLoading, user, router, nextPath]);
+    router.replace(nextPath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- completeNativeHandoff is recreated each render; nativeHandoff.redirectUri is the real input
+  }, [authLoading, user, router, nextPath, nativeHandoff?.redirectUri]);
 
   useEffect(() => {
     const error = searchParams.get("error");
@@ -191,6 +216,7 @@ function LoginPageContent() {
       }
       const result = await authApi.passkeyAuthenticateVerify(credentialToJSON(credential));
       login(result.user);
+      if (await completeNativeHandoff()) return;
       router.push(nextPath);
     } catch (err: unknown) {
       toastApiError("Passkey sign-in failed", err);

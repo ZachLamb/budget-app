@@ -69,6 +69,18 @@ export const authApi = {
   googleExchange: () =>
     api.post<TokenResponse>("/auth/google/exchange").then((r) => r.data),
   me: () => api.get<User>("/auth/me").then((r) => r.data),
+  /**
+   * Mint a one-time code handing this authenticated browser session off to a
+   * native client. Only meaningful when the login page is running inside the
+   * desktop app's auth sheet (`?native=1`); the session cookie set by the
+   * preceding login authorizes the call.
+   */
+  nativeCode: (redirectUri: string) =>
+    api
+      .post<{ code: string }>("/auth/native/code", null, {
+        params: { redirect_uri: redirectUri },
+      })
+      .then((r) => r.data),
   // Passkey (WebAuthn)
   passkeyRegisterOptions: (data: { email: string; name: string; household_name?: string }) =>
     api.post<{ options: string }>("/auth/passkey/register/options", data).then((r) => r.data),

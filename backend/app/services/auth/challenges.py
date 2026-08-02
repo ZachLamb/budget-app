@@ -10,6 +10,9 @@ from app.services.auth.ephemeral_store import EphemeralStore, build_ephemeral_st
 _store: EphemeralStore = build_ephemeral_store()
 
 OAUTH_LOGIN_CODE_TTL = 60
+# Slightly longer than the OAuth code: the native client must round-trip the
+# code from the auth sheet through the app's deep-link handler.
+NATIVE_LOGIN_CODE_TTL = 120
 CHALLENGE_TTL = 300
 
 
@@ -42,6 +45,39 @@ async def pop_oauth_login_code(code: str) -> Optional[str]:
     user_id = data.get("user_id")
     issued_ts = float(data.get("issued_ts", 0))
     if not user_id or time.time() - issued_ts > OAUTH_LOGIN_CODE_TTL:
+        return None
+    return str(user_id)
+
+
+# ── Native client one-time hand-off codes ────────────────────────────────────
+
+
+async def put_native_login_code(code: str, user_id: str) -> None:
+    """Store a one-time code handed to a native client after a browser login.
+
+    Namespaced separately from `oauth:` so a code minted for one flow can never
+    be redeemed by the other.
+    """
+    payload = json.dumps({"user_id": user_id, "issued_ts": time.time()})
+    await _store.set(f"native:{code}", payload, NATIVE_LOGIN_CODE_TTL)
+
+
+async def pop_native_login_code(code: str) -> Optional[str]:
+    """Return user_id if the code is valid and unexpired, else None.
+
+    `get_del` is atomic, so a concurrent double-redeem yields the user id at
+    most once.
+    """
+    raw = await _store.get_del(f"native:{code}")
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    user_id = data.get("user_id")
+    issued_ts = float(data.get("issued_ts", 0))
+    if not user_id or time.time() - issued_ts > NATIVE_LOGIN_CODE_TTL:
         return None
     return str(user_id)
 
