@@ -54,10 +54,12 @@ sets its override to `0`.
 - `id`, `household_id` (FK, unique)
 - `marginal_federal_rate: Numeric(5,2) | null`
 - `marginal_state_rate: Numeric(5,2) | null`
-- `pay_frequency: str | null` (`weekly` / `biweekly` / `semimonthly` /
-  `monthly`)
 - `current_federal_withholding_per_period: Numeric(10,2) | null`
 - `remaining_pay_periods_this_year: int | null`
+
+Pay frequency is not duplicated here — `Household.pay_frequency` already
+exists (see `app/models/household.py`) and the Deductions page reads it
+directly for display (e.g. labeling the nudge "per biweekly paycheck").
 
 All fields nullable — the feature degrades gracefully (see below) when
 settings are incomplete. This table holds no income, employer, or SSN
