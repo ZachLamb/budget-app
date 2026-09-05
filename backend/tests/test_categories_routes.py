@@ -370,3 +370,32 @@ async def test_reorder_categories_foreign_group_404(fixture):
         resp = await client.put("/api/categories/order", headers=headers_b,
                                 json={"group_id": group.id, "ordered_ids": [cat_b.id, cat_a.id]})
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_category_deduction_fields_roundtrip(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        grp = await client.post("/api/categories/groups", headers=headers, json={"name": "Rental"})
+        gid = grp.json()["id"]
+        create = await client.post(
+            "/api/categories",
+            headers=headers,
+            json={"group_id": gid, "name": "Cleaning"},
+        )
+        cid = create.json()["id"]
+        assert create.json()["deductible"] is False
+        assert create.json()["deduction_pct"] == "100.00" or float(create.json()["deduction_pct"]) == 100.0
+        assert create.json()["tax_line"] is None
+
+        update = await client.put(
+            f"/api/categories/{cid}",
+            headers=headers,
+            json={"deductible": True, "deduction_pct": 80, "tax_line": "Schedule E — Cleaning"},
+        )
+        assert update.status_code == 200
+        body = update.json()
+        assert body["deductible"] is True
+        assert float(body["deduction_pct"]) == 80.0
+        assert body["tax_line"] == "Schedule E — Cleaning"

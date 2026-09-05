@@ -23,6 +23,7 @@ class TransactionUpdate(BaseModel):
     notes: Optional[str] = None
     cleared: Optional[bool] = None
     reconciled: Optional[bool] = None
+    deduction_pct_override: Optional[Decimal] = None
 
 
 class TransactionResponse(BaseModel):
@@ -41,6 +42,7 @@ class TransactionResponse(BaseModel):
     parent_transaction_id: Optional[str]
     transfer_pair_id: Optional[str]
     import_id: Optional[str]
+    deduction_pct_override: Optional[Decimal] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

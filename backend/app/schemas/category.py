@@ -14,6 +14,15 @@ def clean_name(value: Optional[str]) -> Optional[str]:
     return value
 
 
+def clean_pct(value: Optional[Decimal]) -> Optional[Decimal]:
+    """Reject deduction percentages outside the valid 0-100 range."""
+    if value is None:
+        return value
+    if value < 0 or value > 100:
+        raise ValueError("deduction_pct must be between 0 and 100")
+    return value
+
+
 class CategoryGroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     sort_order: Optional[int] = None
@@ -43,11 +52,19 @@ class CategoryCreate(BaseModel):
     goal_type: str = "none"
     goal_amount: Optional[Decimal] = None
     goal_target_date: Optional[date] = None
+    deductible: bool = False
+    deduction_pct: Decimal = Decimal("100.00")
+    tax_line: Optional[str] = None
 
     @field_validator("name")
     @classmethod
     def _validate_name(cls, v: str) -> str:
         return clean_name(v)
+
+    @field_validator("deduction_pct")
+    @classmethod
+    def _validate_deduction_pct(cls, v: Decimal) -> Decimal:
+        return clean_pct(v)
 
 
 class CategoryUpdate(BaseModel):
@@ -57,11 +74,19 @@ class CategoryUpdate(BaseModel):
     goal_type: Optional[str] = None
     goal_amount: Optional[Decimal] = None
     goal_target_date: Optional[date] = None
+    deductible: Optional[bool] = None
+    deduction_pct: Optional[Decimal] = None
+    tax_line: Optional[str] = None
 
     @field_validator("name")
     @classmethod
     def _validate_name(cls, v: Optional[str]) -> Optional[str]:
         return clean_name(v)
+
+    @field_validator("deduction_pct")
+    @classmethod
+    def _validate_deduction_pct(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        return clean_pct(v)
 
 
 class CategoryResponse(BaseModel):
@@ -72,6 +97,9 @@ class CategoryResponse(BaseModel):
     goal_type: str
     goal_amount: Optional[Decimal]
     goal_target_date: Optional[date]
+    deductible: bool
+    deduction_pct: Decimal
+    tax_line: Optional[str]
     created_at: datetime
 
     model_config = {"from_attributes": True}
