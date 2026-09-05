@@ -36,6 +36,9 @@ class Category(Base):
     goal_type: Mapped[str] = mapped_column(String(30), default="none")  # none, monthly_spending, savings_target, target_by_date
     goal_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2), nullable=True)
     goal_target_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    deductible: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    deduction_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("100.00"), server_default="100.00")
+    tax_line: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     group: Mapped["CategoryGroup"] = relationship(back_populates="categories")
