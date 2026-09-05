@@ -1,7 +1,16 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional
+
+
+def clean_pct(value: Optional[Decimal]) -> Optional[Decimal]:
+    """Reject deduction percentages outside the valid 0-100 range."""
+    if value is None:
+        return value
+    if value < 0 or value > 100:
+        raise ValueError("deduction_pct_override must be between 0 and 100")
+    return value
 
 
 class TransactionCreate(BaseModel):
@@ -24,6 +33,11 @@ class TransactionUpdate(BaseModel):
     cleared: Optional[bool] = None
     reconciled: Optional[bool] = None
     deduction_pct_override: Optional[Decimal] = None
+
+    @field_validator("deduction_pct_override")
+    @classmethod
+    def _validate_deduction_pct_override(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        return clean_pct(v)
 
 
 class TransactionResponse(BaseModel):
