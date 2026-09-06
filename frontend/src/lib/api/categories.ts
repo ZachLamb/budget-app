@@ -9,6 +9,9 @@ export interface Category {
   goal_amount: number | null;
   goal_target_date: string | null;
   created_at: string;
+  deductible: boolean;
+  deduction_pct: number;
+  tax_line: string | null;
 }
 
 export interface CategoryGroup {
@@ -40,7 +43,7 @@ export const categoriesApi = {
   deleteGroup: (id: string) => api.delete(`/categories/groups/${id}`),
   create: (data: { group_id: string; name: string; sort_order?: number }) =>
     api.post<Category>("/categories", data).then((r) => r.data),
-  update: (id: string, data: Partial<{ name: string; group_id: string }>) =>
+  update: (id: string, data: Partial<{ name: string; group_id: string; deductible: boolean; deduction_pct: number; tax_line: string | null }>) =>
     api.put<Category>(`/categories/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/categories/${id}`),
   usage: () => api.get<CategoryUsageMap>("/categories/usage").then((r) => r.data),
