@@ -11,6 +11,22 @@ export function formatCurrencyNegative(amount: number) {
   return formatCurrency(value);
 }
 
+/** Format a "YYYY-MM-DD" date-only string for display.
+ *
+ * Never pass a date-only string straight to `new Date(...)` — the Date
+ * constructor parses "YYYY-MM-DD" as UTC midnight, so formatting it with
+ * a locale method (which renders in the browser's local timezone) shows
+ * the wrong day for anyone west of UTC (e.g. "2026-09-06" renders as
+ * "9/5/2026" in US timezones). Split and construct the Date from local
+ * year/month/day components instead, matching the existing month-string
+ * helpers below.
+ */
+export function formatDate(dateStr: string, options?: Intl.DateTimeFormatOptions): string {
+  const [year, month, day] = dateStr.split("-");
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+  return options ? date.toLocaleDateString("en-US", options) : date.toLocaleDateString();
+}
+
 export function getMonthString(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }

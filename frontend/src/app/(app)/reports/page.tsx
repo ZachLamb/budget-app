@@ -29,7 +29,7 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import { formatCurrency, formatCurrencyNegative, getMonthString, formatShortMonth } from "@/lib/format";
+import { formatCurrency, formatCurrencyNegative, getMonthString, formatShortMonth, formatDate } from "@/lib/format";
 import { useChartColors, useIsClient } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
 
@@ -339,7 +339,7 @@ function BalanceHistoryTab() {
   });
 
   const chartData = history.map((h) => ({
-    date: new Date(h.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    date: formatDate(h.date, { month: "short", day: "numeric" }),
     Balance: h.balance,
   }));
 
