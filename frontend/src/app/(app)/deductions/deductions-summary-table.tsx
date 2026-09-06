@@ -2,10 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DeductionsSummary } from "@/lib/api/deductions";
-
-function formatCurrency(value: number): string {
-  return value.toLocaleString("en-US", { style: "currency", currency: "USD" });
-}
+import { formatCurrency } from "@/lib/format";
 
 export function DeductionsSummaryTable({ summary }: { summary: DeductionsSummary }) {
   if (summary.lines.length === 0) {
