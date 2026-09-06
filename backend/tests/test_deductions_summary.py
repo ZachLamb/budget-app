@@ -157,3 +157,14 @@ async def test_summary_route_returns_200(fixture):
         assert body["year"] == 2026
         assert float(body["total"]) == 100.0
         assert "estimated_tax_savings" not in body or body["estimated_tax_savings"] is None
+
+
+@pytest.mark.asyncio
+async def test_summary_route_rejects_out_of_range_year(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        too_low = await client.get("/api/deductions/summary?year=1999", headers=headers)
+        assert too_low.status_code == 422
+        too_high = await client.get("/api/deductions/summary?year=2101", headers=headers)
+        assert too_high.status_code == 422

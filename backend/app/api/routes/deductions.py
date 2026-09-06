@@ -15,7 +15,7 @@ router = APIRouter()
 
 @router.get("/summary", response_model=DeductionsSummaryResponse)
 async def get_deductions_summary(
-    year: int = Query(default_factory=lambda: date.today().year),
+    year: int = Query(default_factory=lambda: date.today().year, ge=2000, le=2100),
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):

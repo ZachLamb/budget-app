@@ -63,6 +63,28 @@ async def test_put_tax_settings_upserts_and_partial_updates(fixture):
 
 
 @pytest.mark.asyncio
+async def test_put_tax_settings_rejects_negative_withholding(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        resp = await client.put(
+            "/api/tax-settings", headers=headers, json={"current_federal_withholding_per_period": -1}
+        )
+        assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_put_tax_settings_rejects_overflowing_withholding(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        resp = await client.put(
+            "/api/tax-settings", headers=headers, json={"current_federal_withholding_per_period": 100000000}
+        )
+        assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_tax_settings_scoped_per_household(fixture):
     session, _ = fixture
     _, headers_a = await _seed_household(session)

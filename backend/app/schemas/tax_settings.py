@@ -29,6 +29,18 @@ class TaxSettingsUpdate(BaseModel):
             raise ValueError("remaining_pay_periods_this_year must not be negative")
         return v
 
+    @field_validator("current_federal_withholding_per_period")
+    @classmethod
+    def _validate_withholding(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        if v is None:
+            return v
+        if v < 0:
+            raise ValueError("current_federal_withholding_per_period must not be negative")
+        # Numeric(10,2) column: 8 digits before the decimal point max.
+        if v >= Decimal("100000000"):
+            raise ValueError("current_federal_withholding_per_period is too large")
+        return v
+
 
 class TaxSettingsResponse(BaseModel):
     marginal_federal_rate: Optional[Decimal]

@@ -23,6 +23,15 @@ def clean_pct(value: Optional[Decimal]) -> Optional[Decimal]:
     return value
 
 
+def clean_tax_line(value: Optional[str]) -> Optional[str]:
+    """Strip surrounding whitespace; a whitespace-only value becomes None
+    rather than producing a blank grouping label in the deductions summary."""
+    if value is None:
+        return value
+    value = value.strip()
+    return value or None
+
+
 class CategoryGroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     sort_order: Optional[int] = None
@@ -54,7 +63,7 @@ class CategoryCreate(BaseModel):
     goal_target_date: Optional[date] = None
     deductible: bool = False
     deduction_pct: Decimal = Decimal("100.00")
-    tax_line: Optional[str] = None
+    tax_line: Optional[str] = Field(default=None, max_length=255)
 
     @field_validator("name")
     @classmethod
@@ -66,6 +75,11 @@ class CategoryCreate(BaseModel):
     def _validate_deduction_pct(cls, v: Decimal) -> Decimal:
         return clean_pct(v)
 
+    @field_validator("tax_line")
+    @classmethod
+    def _validate_tax_line(cls, v: Optional[str]) -> Optional[str]:
+        return clean_tax_line(v)
+
 
 class CategoryUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
@@ -76,7 +90,7 @@ class CategoryUpdate(BaseModel):
     goal_target_date: Optional[date] = None
     deductible: Optional[bool] = None
     deduction_pct: Optional[Decimal] = None
-    tax_line: Optional[str] = None
+    tax_line: Optional[str] = Field(default=None, max_length=255)
 
     @field_validator("name")
     @classmethod
@@ -87,6 +101,11 @@ class CategoryUpdate(BaseModel):
     @classmethod
     def _validate_deduction_pct(cls, v: Optional[Decimal]) -> Optional[Decimal]:
         return clean_pct(v)
+
+    @field_validator("tax_line")
+    @classmethod
+    def _validate_tax_line(cls, v: Optional[str]) -> Optional[str]:
+        return clean_tax_line(v)
 
 
 class CategoryResponse(BaseModel):

@@ -142,6 +142,39 @@ async def test_category_name_validation(fixture):
 
 
 @pytest.mark.asyncio
+async def test_category_tax_line_too_long_rejected(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        grp = await client.post("/api/categories/groups", headers=headers, json={"name": "Rental"})
+        gid = grp.json()["id"]
+        resp = await client.post(
+            "/api/categories", headers=headers, json={"group_id": gid, "name": "Cleaning", "tax_line": "x" * 256}
+        )
+        assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_category_tax_line_whitespace_only_becomes_none(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        grp = await client.post("/api/categories/groups", headers=headers, json={"name": "Rental"})
+        gid = grp.json()["id"]
+        created = await client.post(
+            "/api/categories", headers=headers, json={"group_id": gid, "name": "Cleaning", "tax_line": "   "}
+        )
+        assert created.status_code == 201
+        assert created.json()["tax_line"] is None
+
+        updated = await client.put(
+            f"/api/categories/{created.json()['id']}", headers=headers, json={"tax_line": "   "}
+        )
+        assert updated.status_code == 200
+        assert updated.json()["tax_line"] is None
+
+
+@pytest.mark.asyncio
 async def test_new_groups_append_in_creation_order(fixture):
     session, _ = fixture
     _, headers = await _seed_household(session)
