@@ -36,7 +36,13 @@ async def compute_deductions_summary(db: AsyncSession, household_id: str, year: 
     grand_total = Decimal("0.00")
     for txn, category in rows:
         pct = txn.deduction_pct_override if txn.deduction_pct_override is not None else category.deduction_pct
-        deductible_amount = (txn.amount * pct / Decimal("100")).quantize(_CENTS)
+        # Expenses are stored as negative amounts throughout this app (see
+        # Transaction.amount usage elsewhere, e.g. transactions page). Negate
+        # so a deductible expense summarizes as a positive deduction amount,
+        # while a refund/credit (positive amount) still nets out correctly —
+        # do not use abs(), which would break netting (spec: "Negative
+        # transaction amounts (refunds/credits) ... net out normally").
+        deductible_amount = (-txn.amount * pct / Decimal("100")).quantize(_CENTS)
         label = category.tax_line or category.name
         totals[label] += deductible_amount
         grand_total += deductible_amount

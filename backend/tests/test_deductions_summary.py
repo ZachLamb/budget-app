@@ -43,7 +43,7 @@ async def test_summary_groups_by_tax_line_and_applies_pct(fixture):
     session, _ = fixture
     hid, _ = await _seed_household(session)
     cat = await _seed_deductible_category(session, hid, name="Cleaning", tax_line="Schedule E — Cleaning", pct=Decimal("50.00"))
-    await _seed_txn(session, hid, cat.id, Decimal("100.00"), "2026-03-01")
+    await _seed_txn(session, hid, cat.id, Decimal("-100.00"), "2026-03-01")
     await session.commit()
 
     summary = await compute_deductions_summary(session, hid, 2026)
@@ -58,7 +58,7 @@ async def test_summary_override_beats_category_pct(fixture):
     session, _ = fixture
     hid, _ = await _seed_household(session)
     cat = await _seed_deductible_category(session, hid, name="Streaming", tax_line="Home office", pct=Decimal("100.00"))
-    await _seed_txn(session, hid, cat.id, Decimal("20.00"), "2026-03-01", override=Decimal("20.00"))
+    await _seed_txn(session, hid, cat.id, Decimal("-20.00"), "2026-03-01", override=Decimal("20.00"))
     await session.commit()
 
     summary = await compute_deductions_summary(session, hid, 2026)
@@ -70,7 +70,7 @@ async def test_summary_falls_back_to_category_name_when_tax_line_unset(fixture):
     session, _ = fixture
     hid, _ = await _seed_household(session)
     cat = await _seed_deductible_category(session, hid, name="Medical", tax_line=None)
-    await _seed_txn(session, hid, cat.id, Decimal("10.00"), "2026-03-01")
+    await _seed_txn(session, hid, cat.id, Decimal("-10.00"), "2026-03-01")
     await session.commit()
 
     summary = await compute_deductions_summary(session, hid, 2026)
@@ -82,7 +82,7 @@ async def test_summary_excludes_other_years(fixture):
     session, _ = fixture
     hid, _ = await _seed_household(session)
     cat = await _seed_deductible_category(session, hid, name="Cleaning", tax_line="Schedule E")
-    await _seed_txn(session, hid, cat.id, Decimal("100.00"), "2025-12-31")
+    await _seed_txn(session, hid, cat.id, Decimal("-100.00"), "2025-12-31")
     await session.commit()
 
     summary = await compute_deductions_summary(session, hid, 2026)
@@ -95,7 +95,7 @@ async def test_savings_present_only_when_both_rates_set(fixture):
     session, _ = fixture
     hid, _ = await _seed_household(session)
     cat = await _seed_deductible_category(session, hid, name="Cleaning", tax_line="Schedule E")
-    await _seed_txn(session, hid, cat.id, Decimal("1000.00"), "2026-03-01")
+    await _seed_txn(session, hid, cat.id, Decimal("-1000.00"), "2026-03-01")
     session.add(TaxSettings(id=str(uuid.uuid4()), household_id=hid, marginal_federal_rate=Decimal("22.00")))
     await session.commit()
 
@@ -109,7 +109,7 @@ async def test_savings_and_nudge_present_when_fully_configured(fixture):
     session, _ = fixture
     hid, _ = await _seed_household(session)
     cat = await _seed_deductible_category(session, hid, name="Cleaning", tax_line="Schedule E")
-    await _seed_txn(session, hid, cat.id, Decimal("1000.00"), "2026-03-01")
+    await _seed_txn(session, hid, cat.id, Decimal("-1000.00"), "2026-03-01")
     session.add(TaxSettings(
         id=str(uuid.uuid4()), household_id=hid,
         marginal_federal_rate=Decimal("22.00"), marginal_state_rate=Decimal("4.40"),
@@ -128,7 +128,7 @@ async def test_nudge_omitted_when_zero_remaining_periods(fixture):
     session, _ = fixture
     hid, _ = await _seed_household(session)
     cat = await _seed_deductible_category(session, hid, name="Cleaning", tax_line="Schedule E")
-    await _seed_txn(session, hid, cat.id, Decimal("1000.00"), "2026-03-01")
+    await _seed_txn(session, hid, cat.id, Decimal("-1000.00"), "2026-03-01")
     session.add(TaxSettings(
         id=str(uuid.uuid4()), household_id=hid,
         marginal_federal_rate=Decimal("22.00"), marginal_state_rate=Decimal("4.40"),
@@ -143,11 +143,28 @@ async def test_nudge_omitted_when_zero_remaining_periods(fixture):
 
 
 @pytest.mark.asyncio
+async def test_summary_nets_out_refunds_in_a_deductible_category(fixture):
+    """Spec: negative transaction amounts (refunds/credits) net out normally,
+    no special-casing. An expense (-185) and a partial refund (+50, e.g. a
+    returned item) in the same deductible category should net to a $135
+    deduction, not $185 with the refund ignored."""
+    session, _ = fixture
+    hid, _ = await _seed_household(session)
+    cat = await _seed_deductible_category(session, hid, name="Cleaning", tax_line="Schedule E")
+    await _seed_txn(session, hid, cat.id, Decimal("-185.00"), "2026-03-01")
+    await _seed_txn(session, hid, cat.id, Decimal("50.00"), "2026-03-05")
+    await session.commit()
+
+    summary = await compute_deductions_summary(session, hid, 2026)
+    assert summary.total == Decimal("135.00")
+
+
+@pytest.mark.asyncio
 async def test_summary_route_returns_200(fixture):
     session, _ = fixture
     hid, headers = await _seed_household(session)
     cat = await _seed_deductible_category(session, hid, name="Cleaning", tax_line="Schedule E")
-    await _seed_txn(session, hid, cat.id, Decimal("100.00"), "2026-03-01")
+    await _seed_txn(session, hid, cat.id, Decimal("-100.00"), "2026-03-01")
     await session.commit()
 
     async with _client() as client:
@@ -167,7 +184,7 @@ async def test_summary_scoped_per_household(fixture):
     hid_a, headers_a = await _seed_household(session)
     hid_b, headers_b = await _seed_household(session)
     cat = await _seed_deductible_category(session, hid_a, name="Cleaning", tax_line="Schedule E")
-    await _seed_txn(session, hid_a, cat.id, Decimal("500.00"), "2026-03-01")
+    await _seed_txn(session, hid_a, cat.id, Decimal("-500.00"), "2026-03-01")
     await session.commit()
 
     async with _client() as client:
