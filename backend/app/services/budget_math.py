@@ -67,10 +67,14 @@ def compute_rollover(
                 carry[c] = raw
         for c in income_category_ids:
             cum_income += activity.get((c, m), ZERO)
-        # All assignment rows count — even categories later deleted — so
-        # Ready to Assign never resurrects money that was assigned away.
+        # All envelope assignment rows count — even categories later deleted —
+        # so Ready to Assign never resurrects money that was assigned away.
+        # Income categories are excluded: they're not envelopes, and cum_income
+        # above only ever counts their *activity*, never an "assigned" amount —
+        # if an assigned value against an income category were included here,
+        # it would permanently reduce Ready to Assign with no way to offset it.
         cum_assigned += sum(
-            (assigned.get((c, m), ZERO) for c in category_ids), ZERO
+            (assigned.get((c, m), ZERO) for c in envelope_ids), ZERO
         )
 
     return RolloverResult(

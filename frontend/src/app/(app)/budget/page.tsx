@@ -154,11 +154,17 @@ export function CategoryRow({
     <div className="px-4 py-1.5 hover:bg-muted/50 transition-colors">
       <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2">
         <span className="pl-6 text-sm truncate">{cat.category_name}</span>
-        <AssignedCell
-          categoryId={cat.category_id}
-          month={month}
-          value={cat.assigned}
-        />
+        {isIncome ? (
+          <span className="h-7 w-28 flex items-center justify-end px-2 font-mono text-sm text-muted-foreground">
+            {formatCurrency(cat.assigned)}
+          </span>
+        ) : (
+          <AssignedCell
+            categoryId={cat.category_id}
+            month={month}
+            value={cat.assigned}
+          />
+        )}
         <span className="w-28 text-right font-mono text-sm text-muted-foreground">
           {formatCurrency(cat.activity)}
         </span>
