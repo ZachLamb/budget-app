@@ -48,7 +48,7 @@ async def test_summary_groups_by_tax_line_and_applies_pct(fixture):
 
     summary = await compute_deductions_summary(session, hid, 2026)
     assert summary.total == Decimal("50.00")
-    assert summary.lines == [{"tax_line": "Schedule E — Cleaning", "amount": Decimal("50.00")}]
+    assert [line.model_dump() for line in summary.lines] == [{"tax_line": "Schedule E — Cleaning", "amount": Decimal("50.00")}]
     assert summary.estimated_tax_savings is None
     assert summary.suggested_withholding_reduction_per_period is None
 
@@ -74,7 +74,7 @@ async def test_summary_falls_back_to_category_name_when_tax_line_unset(fixture):
     await session.commit()
 
     summary = await compute_deductions_summary(session, hid, 2026)
-    assert summary.lines == [{"tax_line": "Medical", "amount": Decimal("10.00")}]
+    assert [line.model_dump() for line in summary.lines] == [{"tax_line": "Medical", "amount": Decimal("10.00")}]
 
 
 @pytest.mark.asyncio
