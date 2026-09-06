@@ -22,29 +22,40 @@ beforeAll(() => {
   });
 });
 
-const category: Category = {
-  id: "c1", group_id: "g1", name: "Groceries", sort_order: 0,
-  goal_type: "none", goal_amount: null, goal_target_date: null,
-  created_at: "2026-01-01T00:00:00Z",
-};
+function makeCategory(overrides: Partial<Category> = {}): Category {
+  return {
+    id: "c1", group_id: "g1", name: "Groceries", sort_order: 0,
+    goal_type: "none", goal_amount: null, goal_target_date: null,
+    created_at: "2026-01-01T00:00:00Z",
+    deductible: false, deduction_pct: 100, tax_line: null,
+    ...overrides,
+  };
+}
+
+const category: Category = makeCategory();
 
 const groups: CategoryGroup[] = [
   { id: "g1", household_id: "h1", name: "Everyday", sort_order: 0, is_income: false, created_at: "2026-01-01T00:00:00Z", categories: [category] },
   { id: "g2", household_id: "h1", name: "Bills", sort_order: 1, is_income: false, created_at: "2026-01-01T00:00:00Z", categories: [] },
 ];
 
-function renderItem(onRequestDelete = vi.fn()) {
+function renderItem(onRequestDelete = vi.fn(), categoryOverride: Category = category) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   render(
     <QueryClientProvider client={qc}>
       <DndContext>
-        <CategoryItem category={category} groups={groups} onRequestDelete={onRequestDelete} />
+        <CategoryItem category={categoryOverride} groups={groups} onRequestDelete={onRequestDelete} />
       </DndContext>
     </QueryClientProvider>,
   );
   return { onRequestDelete };
+}
+
+function renderCategoryItem(categoryOverride: Category) {
+  renderItem(vi.fn(), categoryOverride);
+  return { user: { click: async (el: HTMLElement) => fireEvent.click(el) }, ...screen };
 }
 
 async function openMenu() {
@@ -97,6 +108,18 @@ describe("CategoryItem", () => {
     await openMenu();
     await clickMenuItem("Delete");
     expect(onRequestDelete).toHaveBeenCalledWith("c1");
+  });
+
+  it("toggles tax deductible and shows percent + tax line inputs", async () => {
+    const cat = makeCategory({ deductible: false, deduction_pct: 100, tax_line: null });
+    const { user, ...utils } = renderCategoryItem(cat);
+
+    await user.click(utils.getByRole("button", { name: /edit/i }));
+    const toggle = utils.getByRole("switch", { name: /tax deductible/i });
+    await user.click(toggle);
+
+    expect(utils.getByLabelText(/deduction %/i)).toBeInTheDocument();
+    expect(utils.getByLabelText(/tax line/i)).toBeInTheDocument();
   });
 
   it("shows a muted transaction-count hint", () => {

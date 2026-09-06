@@ -26,7 +26,7 @@ import { useFsaReviewScan } from "@/hooks/use-fsa-review-scan";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { cn } from "@/lib/utils";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { resolveDefaultAccountId } from "@/lib/ux-plan-logic";
 import { useFlatCategories, useIsClient, useDemoGuard } from "@/lib/hooks";
 import { toastApiError, toastPlainError } from "@/lib/toast-error";
@@ -816,7 +816,7 @@ function TransactionsContent() {
           <DialogHeader><DialogTitle>Transaction Details</DialogTitle></DialogHeader>
           {detailTxn && (
             <div className="space-y-3">
-              <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span>{new Date(detailTxn.date).toLocaleDateString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span>{formatDate(detailTxn.date)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Payee</span><span className="font-medium">{detailTxn.payee_name || "—"}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className={cn("font-mono font-medium", Number(detailTxn.amount) >= 0 ? "text-green-600" : "text-red-600")}>{formatCurrency(Number(detailTxn.amount))}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Category</span><span>{detailTxn.category_name || "Uncategorized"}</span></div>

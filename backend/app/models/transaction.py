@@ -19,6 +19,7 @@ class Transaction(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     category_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("categories.id"), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    deduction_pct_override: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True, default=None)
     cleared: Mapped[bool] = mapped_column(Boolean, default=False)
     reconciled: Mapped[bool] = mapped_column(Boolean, default=False)
     is_split: Mapped[bool] = mapped_column(Boolean, default=False)

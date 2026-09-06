@@ -9,7 +9,7 @@ import { AiRunStatus } from "@/components/llm/ai-run-status";
 import { userMessageFor } from "@/lib/llm/errors";
 import { interpretPrepareFeatureResult } from "@/lib/llm/prepare-feature-result";
 import type { Transaction } from "@/lib/api/transactions";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 
 interface Props {
@@ -23,7 +23,7 @@ const SYSTEM_PROMPT =
 
 function buildPrompt(t: Transaction): string {
   return [
-    `Date: ${new Date(t.date).toLocaleDateString()}`,
+    `Date: ${formatDate(t.date)}`,
     `Payee: ${t.payee_name || "Unknown"}`,
     `Amount: ${formatCurrency(Number(t.amount))}`,
     `Category: ${t.category_name || "Uncategorized"}`,
