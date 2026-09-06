@@ -11,7 +11,7 @@ from decimal import Decimal
 from sqlalchemy import select, extract
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Category, CategoryGroup, TaxSettings, Transaction
+from app.models import Account, Category, CategoryGroup, TaxSettings, Transaction
 from app.schemas.deductions import DeductionLine, DeductionsSummaryResponse
 
 _CENTS = Decimal("0.01")
@@ -22,10 +22,12 @@ async def compute_deductions_summary(db: AsyncSession, household_id: str, year: 
         select(Transaction, Category)
         .join(Category, Transaction.category_id == Category.id)
         .join(CategoryGroup, Category.group_id == CategoryGroup.id)
+        .join(Account, Transaction.account_id == Account.id)
         .where(
             Category.deductible.is_(True),
             extract("year", Transaction.date) == year,
             CategoryGroup.household_id == household_id,
+            Account.household_id == household_id,
         )
     )
     rows = result.all()

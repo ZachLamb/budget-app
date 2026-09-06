@@ -160,6 +160,27 @@ async def test_summary_route_returns_200(fixture):
 
 
 @pytest.mark.asyncio
+async def test_summary_scoped_per_household(fixture):
+    """A deductible transaction in household A must not appear in household
+    B's summary — scoping must hold through both CategoryGroup and Account."""
+    session, _ = fixture
+    hid_a, headers_a = await _seed_household(session)
+    hid_b, headers_b = await _seed_household(session)
+    cat = await _seed_deductible_category(session, hid_a, name="Cleaning", tax_line="Schedule E")
+    await _seed_txn(session, hid_a, cat.id, Decimal("500.00"), "2026-03-01")
+    await session.commit()
+
+    async with _client() as client:
+        resp_a = await client.get("/api/deductions/summary?year=2026", headers=headers_a)
+        resp_b = await client.get("/api/deductions/summary?year=2026", headers=headers_b)
+
+    assert float(resp_a.json()["total"]) == 500.0
+    body_b = resp_b.json()
+    assert float(body_b["total"]) == 0.0
+    assert body_b["lines"] == []
+
+
+@pytest.mark.asyncio
 async def test_summary_route_rejects_out_of_range_year(fixture):
     session, _ = fixture
     _, headers = await _seed_household(session)
