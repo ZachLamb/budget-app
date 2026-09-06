@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 
 from tests.test_categories_routes import fixture, _seed_household, _client
+from app.models import TaxSettings
 
 
 @pytest.mark.asyncio
@@ -18,6 +20,20 @@ async def test_get_tax_settings_defaults_to_empty(fixture):
         assert body["marginal_state_rate"] is None
         assert body["current_federal_withholding_per_period"] is None
         assert body["remaining_pay_periods_this_year"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_tax_settings_does_not_insert_a_row(fixture):
+    """GET must be side-effect-free: no row should exist after a GET on a
+    household that has never called PUT."""
+    session, _ = fixture
+    hid, headers = await _seed_household(session)
+    async with _client() as client:
+        resp = await client.get("/api/tax-settings", headers=headers)
+        assert resp.status_code == 200
+
+    result = await session.execute(select(TaxSettings).where(TaxSettings.household_id == hid))
+    assert result.scalar_one_or_none() is None
 
 
 @pytest.mark.asyncio
