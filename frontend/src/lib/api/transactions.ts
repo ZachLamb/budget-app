@@ -17,6 +17,7 @@ export interface Transaction {
   transfer_pair_id: string | null;
   import_id: string | null;
   created_at: string;
+  deduction_pct_override?: number | null;
 }
 
 export interface TransactionList {
@@ -35,6 +36,7 @@ export interface TransactionCreate {
   category_id?: string;
   notes?: string;
   cleared?: boolean;
+  deduction_pct_override?: number | null;
 }
 
 export interface TransactionFilters {

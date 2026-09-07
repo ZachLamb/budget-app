@@ -5,6 +5,7 @@ from app.models.account import Account, AccountSnapshot
 from app.models.payee import Payee
 from app.models.category import CategoryGroup, Category
 from app.models.transaction import Transaction
+from app.models.tax_settings import TaxSettings
 from app.models.budget import BudgetAssignment
 from app.models.rule import AutoCategorizationRule
 from app.models.recurring import RecurringTransaction
@@ -27,6 +28,7 @@ __all__ = [
     "CategoryGroup",
     "Category",
     "Transaction",
+    "TaxSettings",
     "BudgetAssignment",
     "AutoCategorizationRule",
     "RecurringTransaction",

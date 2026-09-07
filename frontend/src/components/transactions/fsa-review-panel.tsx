@@ -6,7 +6,7 @@ import { AI_COPY } from "@/lib/ai-copy";
 import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
 import { AiRunStatus } from "@/components/llm/ai-run-status";
 import { getApiErrorMessage } from "@/lib/hooks";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -294,7 +294,7 @@ export function FsaReviewPanel({
                       ) : null}
                       {filteredFsa.map((t) => (
                         <TableRow key={t.transaction_id} className={cn(t.status === "dismissed" && "opacity-50")}>
-                          <TableCell className="text-sm">{new Date(t.date).toLocaleDateString()}</TableCell>
+                          <TableCell className="text-sm">{formatDate(t.date)}</TableCell>
                           <TableCell className="font-medium">{t.payee_name}</TableCell>
                           <TableCell className="text-right font-mono">{formatCurrency(t.amount)}</TableCell>
                           <TableCell><Badge variant="outline">{t.fsa_category}</Badge></TableCell>

@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
 import { cn } from "@/lib/utils";
-import { formatCurrency, formatCurrencyNegative, getMonthString, navigateMonth, formatShortMonth } from "@/lib/format";
+import { formatCurrency, formatCurrencyNegative, getMonthString, navigateMonth, formatShortMonth, formatDate } from "@/lib/format";
 import { useIsClient, useChartColors, useInView } from "@/lib/hooks";
 import { QueryState, inlineErrorQueryMeta } from "@/components/page";
 import { MaybeAiErrorWithSettings } from "@/components/llm/ai-error-with-settings";
@@ -714,7 +714,7 @@ function DashboardContent() {
                         ) : null}
                       </span>
                       <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-                        {formatCurrency(r.amount)} · {new Date(r.next_date).toLocaleDateString()}
+                        {formatCurrency(r.amount)} · {formatDate(r.next_date)}
                       </span>
                     </li>
                   ))}
@@ -858,7 +858,7 @@ function DashboardContent() {
                     <div>
                       <p className="font-medium">{txn.payee_name || "Unknown"}</p>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(txn.date).toLocaleDateString()} {txn.category_name && `· ${txn.category_name}`}
+                        {formatDate(txn.date)} {txn.category_name && `· ${txn.category_name}`}
                       </p>
                     </div>
                     <p className="font-mono font-medium text-foreground tabular-nums">

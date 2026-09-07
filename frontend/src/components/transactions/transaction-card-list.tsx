@@ -2,7 +2,7 @@
 
 import type { Transaction } from "@/lib/api/transactions";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { CheckCircle, Circle } from "lucide-react";
 
@@ -44,7 +44,7 @@ export function TransactionCardList({
                 <div className="min-w-0">
                   <p className="font-medium truncate">{txn.payee_name || "—"}</p>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(txn.date).toLocaleDateString()}
+                    {formatDate(txn.date)}
                     {txn.category_name ? ` · ${txn.category_name}` : " · Uncategorized"}
                   </p>
                 </div>

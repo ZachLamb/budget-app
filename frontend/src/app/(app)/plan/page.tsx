@@ -25,7 +25,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { formatCurrency, formatCurrencyNegative } from "@/lib/format";
+import { formatCurrency, formatCurrencyNegative, formatDate } from "@/lib/format";
 import { useIsClient } from "@/lib/hooks";
 import { toastApiError, toastPlainError } from "@/lib/toast-error";
 import { appToast } from "@/lib/app-toast";
@@ -163,7 +163,7 @@ function GoalCard({ goal, onDelete, onToggle, onEdit, planFromAll }: {
             {goal.monthly_contribution && <span>{formatCurrency(goal.monthly_contribution)}/mo</span>}
             {goal.months_remaining != null && !goal.is_completed && <span>~{goal.months_remaining} months</span>}
             {goal.target_date && (
-              <span>By {new Date(goal.target_date).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</span>
+              <span>By {formatDate(goal.target_date, { month: "short", year: "numeric" })}</span>
             )}
           </div>
           <div className="flex gap-1 shrink-0">
