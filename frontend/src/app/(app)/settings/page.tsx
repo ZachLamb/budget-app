@@ -12,7 +12,6 @@ import {
 import { AiSettingsCard } from "@/components/llm/ai-settings-card";
 import { LocalServerCard } from "@/components/settings/local-server-card";
 import { PrivacyDataCard } from "@/components/settings/privacy-data-card";
-import { HostingHealthCard } from "@/components/settings/hosting-health-card";
 import { AdminUsersCard } from "@/components/settings/admin-users-card";
 import { BankSyncCard } from "@/components/settings/bank-sync-card";
 import { SettingsSectionNav } from "@/components/settings/settings-section-nav";
@@ -795,13 +794,6 @@ function SettingsContent() {
       <section id="privacy" className="scroll-mt-24">
         <PrivacyDataCard />
       </section>
-
-      {/* Backend gates /api/hosting/health to admins; hide the card for members. */}
-      {isAdmin && (
-        <section id="hosting" className="scroll-mt-24">
-          <HostingHealthCard />
-        </section>
-      )}
 
       {isAdmin && (
         <section id="admin" className="scroll-mt-24">
