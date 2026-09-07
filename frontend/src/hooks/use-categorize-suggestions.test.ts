@@ -30,7 +30,7 @@ vi.mock("@/lib/api/reports", () => ({
   },
 }));
 
-vi.mock("@/lib/demo-mode", () => ({ isDemoMode: false }));
+vi.mock("@/lib/hooks", () => ({ useDemoGuard: () => ({ isDemo: false }) }));
 
 vi.mock("@/lib/llm/run-structured", () => ({
   runStructuredJson: vi.fn(),

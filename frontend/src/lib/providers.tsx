@@ -6,6 +6,7 @@ import { authApi, type User } from "@/lib/api/auth";
 import { formatErrorDetail } from "@/lib/api/client";
 import { Toaster } from "@/components/ui/sonner";
 import { toastErrorDiagnostic, toastPlainError } from "@/lib/toast-error";
+import { appToast } from "@/lib/app-toast";
 
 /**
  * React Query retry predicate. Catches the cold-start window on the Fly
@@ -155,8 +156,12 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     // Server-side cookie clear is the authoritative step. Fire-and-forget;
     // we still wipe local state immediately so the UI flips to logged-out.
+    // If the server call fails, the session cookie may persist — tell the
+    // user so they know to close the browser on a shared device.
     void authApi.logout().catch(() => {
-      // Network failure shouldn't trap the user in a logged-in state.
+      appToast.warning(
+        "Signed out on this device, but couldn't confirm the server session ended. On a shared device, close all browser windows to be safe.",
+      );
     });
     localStorage.removeItem("token");
     localStorage.removeItem("user");

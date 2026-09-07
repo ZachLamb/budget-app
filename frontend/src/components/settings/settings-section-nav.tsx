@@ -10,7 +10,6 @@ export type SettingsSectionId =
   | "pay"
   | "ai"
   | "privacy"
-  | "hosting"
   | "admin";
 
 const BASE_SECTIONS: { id: SettingsSectionId; label: string }[] = [
@@ -30,13 +29,9 @@ export function SettingsSectionNav({
   showAdmin?: boolean;
   className?: string;
 }) {
-  // Hosting + Admin sections render for admins only (backend enforces too).
+  // Admin section renders for admins only (backend enforces too).
   const sections = showAdmin
-    ? [
-        ...BASE_SECTIONS,
-        { id: "hosting" as const, label: "Hosting" },
-        { id: "admin" as const, label: "Admin" },
-      ]
+    ? [...BASE_SECTIONS, { id: "admin" as const, label: "Admin" }]
     : BASE_SECTIONS;
 
   return (

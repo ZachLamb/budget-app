@@ -91,6 +91,21 @@ def test_income_categories_do_not_carry_and_fund_rta_cumulatively():
     assert r.ready_to_assign == D("1500")
 
 
+def test_assigning_to_an_income_category_does_not_reduce_rta():
+    """Income categories aren't envelopes — a stray "assigned" amount against
+    one (the UI shouldn't allow this, but the math must be safe regardless)
+    must not reduce Ready to Assign, since cum_income only ever counts income
+    category *activity*, never an assigned amount. Before this fix, RTA went
+    negative by the assigned amount with no way to recover it."""
+    r = compute_rollover(
+        assigned={(INC, "2026-06"): D("4800")},
+        activity={(INC, "2026-06"): D("0")},
+        income_category_ids=INCOME_IDS,
+        viewed_month="2026-06",
+    )
+    assert r.ready_to_assign == D("0")
+
+
 def test_reconciliation_invariant():
     """RTA + sum(available) + forgiven overspend == cum_income + cum_activity(spend)...
     concretely: money is conserved across two months with a mix of under/over spend."""

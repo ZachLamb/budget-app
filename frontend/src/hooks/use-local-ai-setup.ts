@@ -6,7 +6,7 @@ import type {
   WizardStep,
   VerifyStatus,
 } from "./local-ai-setup-types";
-import { isDemoMode } from "@/lib/demo-mode";
+import { useDemoGuard } from "@/lib/hooks";
 import {
   getModelDownloadStatus,
   invalidateModelDownloadStatus,
@@ -33,6 +33,7 @@ interface PendingPromise {
 }
 
 export function useLocalAiSetup(): UseLocalAiSetup {
+  const { isDemo } = useDemoGuard();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<WizardStep>("welcome");
   const [progress, setProgress] = useState(0);
@@ -136,7 +137,7 @@ export function useLocalAiSetup(): UseLocalAiSetup {
 
   const ensureReady = useCallback(
     async (): Promise<void> => {
-      if (isDemoMode) return;
+      if (isDemo) return;
 
       const cap = await getCapability(true);
       const downloadStatus = await getModelDownloadStatus(true);
@@ -171,7 +172,7 @@ export function useLocalAiSetup(): UseLocalAiSetup {
 
       return promise;
     },
-    [],
+    [isDemo],
   );
 
   const onNext = useCallback(() => {

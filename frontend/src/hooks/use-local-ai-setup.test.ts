@@ -30,10 +30,12 @@ vi.mock("@/lib/llm/features", () => ({
   getFeaturePolicy: (...args: unknown[]) => getFeaturePolicyMock(...args),
 }));
 
-vi.mock("@/lib/demo-mode", () => ({
-  get isDemoMode() {
-    return mockIsDemoMode;
-  },
+vi.mock("@/lib/hooks", () => ({
+  useDemoGuard: () => ({
+    get isDemo() {
+      return mockIsDemoMode;
+    },
+  }),
 }));
 
 vi.mock("@/lib/llm/consent", () => ({

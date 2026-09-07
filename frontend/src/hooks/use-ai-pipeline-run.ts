@@ -8,7 +8,7 @@ import type { FeatureId } from "@/lib/llm/features";
 import type { PipelineProgress } from "@/lib/llm/pipelines/types";
 import { interpretPrepareFeatureResult } from "@/lib/llm/prepare-feature-result";
 import { useLlm } from "@/lib/llm/useLlm";
-import { isDemoMode } from "@/lib/demo-mode";
+import { useDemoGuard } from "@/lib/hooks";
 
 /**
  * A cancelled run must never land in `error`. Cancellation reaches us three
@@ -34,6 +34,7 @@ const HEAVY_FEATURES = new Set<FeatureId>([
 ]);
 
 export function useAiPipelineRun<T>(feature: FeatureId) {
+  const { isDemo } = useDemoGuard();
   const gate = useAiFeatureGate();
   const llm = useLlm();
   const [progress, setProgress] = useState<PipelineProgress | null>(null);
@@ -111,7 +112,7 @@ export function useAiPipelineRun<T>(feature: FeatureId) {
       onChunk: (text: string) => void,
       opts?: { system?: string; maxTokens?: number },
     ): Promise<void> => {
-      if (isDemoMode) {
+      if (isDemo) {
         for (const ch of demoStreamText(feature)) onChunk(ch);
         return;
       }
@@ -154,7 +155,7 @@ export function useAiPipelineRun<T>(feature: FeatureId) {
         }
       }
     },
-    [feature, gate, llm],
+    [feature, gate, llm, isDemo],
   );
 
   return {

@@ -37,3 +37,7 @@ desktop/Snack's Budget/
 # it pins dependency versions).
 desktop/.build/
 desktop/.swiftpm/
+# Xcode derived data and user state
+*.xcuserstate
+xcuserdata/
+.neon

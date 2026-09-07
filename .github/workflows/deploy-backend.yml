@@ -11,11 +11,10 @@ name: Deploy backend
 # (`needs: test`) rather than trusting that main is green — an admin merge
 # that bypasses required checks, or a green-PR-that-goes-red-on-merge, must
 # not ship to prod and auto-run migrations.
+# Auto-deploy-on-push disabled: the backend moved off Fly.io (paused for
+# cost) to Render + Neon, which auto-deploys itself on push. Re-enable the
+# `push` trigger once this workflow targets Render instead, or delete it.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "backend/**"
   workflow_dispatch:
 
 concurrency:

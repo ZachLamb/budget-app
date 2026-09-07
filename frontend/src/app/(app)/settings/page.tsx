@@ -13,7 +13,6 @@ import { AiSettingsCard } from "@/components/llm/ai-settings-card";
 import { LocalServerCard } from "@/components/settings/local-server-card";
 import { LocalAiHandoffCard } from "@/components/settings/local-ai-handoff-card";
 import { PrivacyDataCard } from "@/components/settings/privacy-data-card";
-import { HostingHealthCard } from "@/components/settings/hosting-health-card";
 import { AdminUsersCard } from "@/components/settings/admin-users-card";
 import { BankSyncCard } from "@/components/settings/bank-sync-card";
 import { SettingsSectionNav } from "@/components/settings/settings-section-nav";
@@ -35,6 +34,7 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { useIsClient, getApiErrorMessage, useDemoGuard } from "@/lib/hooks";
+import { useTriggerFirstSync } from "@/hooks/use-trigger-first-sync";
 import { PageHeader, QueryState, inlineErrorQueryMeta } from "@/components/page";
 import {
   isSemiMonthlyPayAnchor,
@@ -57,6 +57,7 @@ function SimplefinSetupDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const queryClient = useQueryClient();
+  const triggerFirstSync = useTriggerFirstSync();
   const [step, setStep] = useState<SetupStep>("connect");
   const [token, setToken] = useState("");
   const [popupBlocked, setPopupBlocked] = useState(false);
@@ -126,14 +127,7 @@ function SimplefinSetupDialog({
     const count = claimedAccounts.length;
     handleClose();
     // Auto-trigger first sync so the user sees data immediately
-    syncApi.trigger()
-      .then(() => {
-        queryClient.invalidateQueries({ queryKey: ["syncStatus"] });
-        appToast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. First sync started — check back in a moment.`);
-      })
-      .catch(() => {
-        appToast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. Click "Sync Now" in the sidebar to import transactions.`);
-      });
+    triggerFirstSync(count, 'Click "Sync Now" in the sidebar to import transactions.');
   };
 
   return (
@@ -802,13 +796,6 @@ function SettingsContent() {
       <section id="privacy" className="scroll-mt-24">
         <PrivacyDataCard />
       </section>
-
-      {/* Backend gates /api/hosting/health to admins; hide the card for members. */}
-      {isAdmin && (
-        <section id="hosting" className="scroll-mt-24">
-          <HostingHealthCard />
-        </section>
-      )}
 
       {isAdmin && (
         <section id="admin" className="scroll-mt-24">

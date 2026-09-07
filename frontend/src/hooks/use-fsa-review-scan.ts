@@ -5,6 +5,7 @@ import { aiApi, type FsaReviewResponse } from "@/lib/api/ai";
 import type { FsaCandidateRow } from "@/lib/llm/contracts";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { useLlm } from "@/lib/llm/useLlm";
+import { useDemoGuard } from "@/lib/hooks";
 import { fsaBatchConfig, runBatchedStructuredJson } from "@/lib/llm/run-structured";
 import { FSA_SYSTEM_PROMPT, buildFsaBatchPrompt, formatFsaCandidateLine } from "@/lib/llm/prompts/fsa";
 import { getCapability } from "@/lib/llm/capability";
@@ -48,6 +49,7 @@ export function useFsaReviewScan(params: {
   dateTo: string;
   includeAllOutflows: boolean;
 }) {
+  const { isDemo } = useDemoGuard();
   const gate = useAiFeatureGate();
   const llm = useLlm();
   const [data, setData] = useState<FsaReviewResponse | undefined>();
@@ -128,7 +130,7 @@ export function useFsaReviewScan(params: {
         batches,
         signal: ac.signal,
         onProgress: (done, total) => setBatchProgress({ done, total }),
-      });
+      }, isDemo);
 
       const eligible = buildEligibleFromBatches(candidates, batchSize, batched.results);
       const total = eligible.reduce((s, t) => s + t.amount, 0);
@@ -151,7 +153,7 @@ export function useFsaReviewScan(params: {
       setBatchProgress(null);
       abortRef.current = null;
     }
-  }, [gate, llm, params]);
+  }, [gate, llm, params, isDemo]);
 
   return {
     data,

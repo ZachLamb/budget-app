@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   CheckCircle,
@@ -133,7 +133,7 @@ export function TransactionListSection({
                       )}
                     </button>
                   </TableCell>
-                  <TableCell className="text-sm">{new Date(txn.date).toLocaleDateString()}</TableCell>
+                  <TableCell className="text-sm">{formatDate(txn.date)}</TableCell>
                   <TableCell>
                     <button
                       type="button"

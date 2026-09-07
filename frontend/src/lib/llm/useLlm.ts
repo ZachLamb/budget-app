@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { isDemoMode } from "@/lib/demo-mode";
+import { useDemoGuard } from "@/lib/hooks";
 import { settingsApi } from "@/lib/api/settings";
 import type { FeatureId } from "./features";
 import type { CapabilitySnapshot, LLMProvider } from "./types";
@@ -29,6 +29,7 @@ import { runQaPipeline } from "./pipelines/qa";
 import { runAdvicePipeline } from "./pipelines/advice";
 import { runRatesPipeline } from "./pipelines/rates";
 import { resolveCascadeProviders } from "./cascade";
+import { createLocalServerProvider } from "./providers/local-server";
 
 /** Heavy features served by on-device pipelines (Nano-only in v1). */
 export const HEAVY_FEATURES: ReadonlySet<FeatureId> = new Set<FeatureId>([
@@ -84,6 +85,7 @@ export interface UseLlm {
 }
 
 export function useLlm(): UseLlm {
+  const { isDemo } = useDemoGuard();
   const [capability, setCapability] = useState<CapabilitySnapshot | null>(null);
 
   useEffect(() => {
@@ -128,14 +130,32 @@ export function useLlm(): UseLlm {
       opts?: { system?: string; maxTokens?: number; signal?: AbortSignal },
     ): AsyncIterable<string> => {
       const ctx = buildContext();
+      const preferLocal = Boolean(
+        (aiSettings.data as AiSettings | undefined)?.prefer_local_server,
+      );
       async function* gen(): AsyncIterable<string> {
+        // Local-server-first: mirrors the heavy-pipeline cascade (cascade.ts) so
+        // "Use as my primary AI model" applies to every AI feature, not just the
+        // verified pipelines. Any failure (unreachable, empty response) falls
+        // through to the normal on-device decision below — AI never hard-fails
+        // just because the local server hiccuped.
+        if (preferLocal) {
+          try {
+            yield* createLocalServerProvider(feature).generate(prompt, opts);
+            return;
+          } catch (err) {
+            if (opts?.signal?.aborted) throw err;
+            // fall through to on-device
+          }
+        }
+
         const decision = await routerDecide(feature, ctx);
         if (decision.kind !== "ready") throw new Error(decision.message);
         yield* decision.provider.generate(prompt, opts);
       }
       return gen();
     },
-    [buildContext],
+    [buildContext, aiSettings.data],
   );
 
   const runFeature = useCallback(
@@ -149,7 +169,7 @@ export function useLlm(): UseLlm {
           `runFeature is only for heavy pipeline features; got "${feature}"`,
         );
       }
-      if (isDemoMode) return demoStructuredResult(feature);
+      if (isDemo) return demoStructuredResult(feature);
 
       const cap = capability ?? (await getCapability());
       const preferLocal = Boolean(
@@ -183,7 +203,7 @@ export function useLlm(): UseLlm {
           throw new Error(`Unhandled heavy feature "${feature}"`);
       }
     },
-    [buildContext, capability, aiSettings.data],
+    [buildContext, capability, aiSettings.data, isDemo],
   );
 
   const refresh = useCallback(async () => {

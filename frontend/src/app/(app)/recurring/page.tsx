@@ -10,7 +10,7 @@ import {
 } from "@/lib/api/recurring";
 import { accountsApi, type Account } from "@/lib/api/accounts";
 import { payeesApi, type Payee } from "@/lib/api/payees";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { useFlatCategories, useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -451,7 +451,7 @@ function RecurringContent() {
                       {item.is_subscription && <Badge variant="outline" className="ml-2 text-xs">Sub</Badge>}
                     </TableCell>
                     <TableCell className="capitalize">{item.frequency}</TableCell>
-                    <TableCell>{new Date(item.next_date).toLocaleDateString()}</TableCell>
+                    <TableCell>{formatDate(item.next_date)}</TableCell>
                     <TableCell>{item.category_name ? <Badge variant="secondary">{item.category_name}</Badge> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{item.account_name || "—"}</TableCell>
                     <TableCell className={`text-right font-mono ${Number(item.amount) >= 0 ? "text-green-600" : "text-red-600"}`}>

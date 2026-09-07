@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(npx vitest *)",
+      "Bash(npx tsc *)",
+      "Bash(npx eslint *)",
+      "Bash(npx shadcn@latest list)",
+      "Bash(python -m pytest *)",
+      "Bash(.venv/bin/python -m pytest *)",
+      "Bash(venv/bin/python -m pytest *)",
+      "Bash(rg *)",
+      "Bash(grep *)",
+      "Bash(docker compose *)",
+      "Bash(chmod +x *)",
+      "Bash(lsof -nP -iTCP:* -sTCP:LISTEN*)",
+      "Bash(./scripts/ci-local.sh)",
+      "Bash(timeout * npm run *)",
+      "Bash(timeout * ./scripts/ci-local.sh)"
+    ]
+  }
+}

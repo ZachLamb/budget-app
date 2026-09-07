@@ -5,6 +5,15 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { categoriesApi, type Category, type CategoryGroup, type CategoryUsage } from "@/lib/api/categories";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Switch } from "radix-ui";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,6 +53,13 @@ export function CategoryItem({
   const [draft, setDraft] = useState(category.name);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [editing, setEditing] = useState(false);
+  const [formState, setFormState] = useState({
+    deductible: category.deductible,
+    deduction_pct: category.deduction_pct,
+    tax_line: category.tax_line,
+  });
+
   useEffect(() => {
     if (!renaming) return;
     const t = setTimeout(() => {
@@ -54,15 +70,41 @@ export function CategoryItem({
   }, [renaming]);
 
   const updateMutation = useMutation({
-    mutationFn: (data: Partial<{ name: string; group_id: string }>) =>
-      categoriesApi.update(category.id, data),
+    mutationFn: (
+      data: Partial<{
+        name: string;
+        group_id: string;
+        deductible: boolean;
+        deduction_pct: number;
+        tax_line: string | null;
+      }>,
+    ) => categoriesApi.update(category.id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categoryGroups"] });
       appToast.success("Category updated");
       setRenaming(false);
+      setEditing(false);
     },
     onError: (e) => toastApiError("Failed to update category", e),
   });
+
+  const openEdit = () => {
+    setFormState({
+      deductible: category.deductible,
+      deduction_pct: category.deduction_pct,
+      tax_line: category.tax_line,
+    });
+    setEditing(true);
+  };
+
+  const submitEdit = () => {
+    if (updateMutation.isPending) return;
+    updateMutation.mutate({
+      deductible: formState.deductible,
+      deduction_pct: Math.min(100, Math.max(0, formState.deduction_pct)),
+      tax_line: formState.tax_line,
+    });
+  };
 
   const commitRename = () => {
     const name = draft.trim();
@@ -117,6 +159,68 @@ export function CategoryItem({
           )}
         </span>
       )}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 px-1.5 text-xs text-muted-foreground"
+        aria-label={`Edit category ${category.name}`}
+        onClick={openEdit}
+      >
+        Edit
+      </Button>
+      <Dialog open={editing} onOpenChange={setEditing}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit {category.name}</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center gap-2">
+            <Switch.Root
+              id="deductible"
+              aria-label="Tax deductible"
+              checked={formState.deductible}
+              onCheckedChange={(checked) => setFormState((s) => ({ ...s, deductible: checked }))}
+              className="relative h-5 w-9 rounded-full bg-input data-[state=checked]:bg-primary"
+            >
+              <Switch.Thumb className="block h-4 w-4 translate-x-0.5 rounded-full bg-background transition-transform data-[state=checked]:translate-x-4" />
+            </Switch.Root>
+            <Label htmlFor="deductible">Tax deductible</Label>
+          </div>
+          {formState.deductible && (
+            <>
+              <div>
+                <Label htmlFor="deduction_pct">Deduction %</Label>
+                <Input
+                  id="deduction_pct"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={formState.deduction_pct}
+                  onChange={(e) =>
+                    setFormState((s) => ({
+                      ...s,
+                      deduction_pct: Math.min(100, Math.max(0, Number(e.target.value))),
+                    }))
+                  }
+                />
+              </div>
+              <div>
+                <Label htmlFor="tax_line">Tax line</Label>
+                <Input
+                  id="tax_line"
+                  value={formState.tax_line ?? ""}
+                  onChange={(e) => setFormState((s) => ({ ...s, tax_line: e.target.value || null }))}
+                  placeholder="e.g. Schedule E — Cleaning"
+                />
+              </div>
+            </>
+          )}
+          <DialogFooter>
+            <Button onClick={submitEdit} disabled={updateMutation.isPending}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button

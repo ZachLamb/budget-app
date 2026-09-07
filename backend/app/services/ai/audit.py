@@ -50,5 +50,5 @@ async def write(
         logger.warning("llm_audit insert failed: %s", e)
         try:
             await db.rollback()
-        except SQLAlchemyError:
-            pass
+        except SQLAlchemyError as rollback_err:
+            logger.warning("llm_audit rollback failed: %s", rollback_err)

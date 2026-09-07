@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { reportsApi, type LlmSuggestion, type SuggestCategoriesParams } from "@/lib/api/reports";
-import { isDemoMode } from "@/lib/demo-mode";
+import { useDemoGuard } from "@/lib/hooks";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { userMessageFor } from "@/lib/llm/errors";
 import { reportInlineError } from "@/lib/report-inline-error";
@@ -49,6 +49,7 @@ type RunScope = {
 };
 
 export function useCategorizeSuggestions() {
+  const { isDemo } = useDemoGuard();
   const gate = useAiFeatureGate();
   const llm = useLlm();
   const [loading, setLoading] = useState(false);
@@ -155,6 +156,7 @@ export function useCategorizeSuggestions() {
             maxTokens: maxTokensFor("categorize_transaction"),
             signal: scope.ac.signal,
           },
+          isDemo,
         );
         usedTier = batchTier;
         merged.push(...mapSuggestions(suggestions, payload.categories, slice));
@@ -166,7 +168,7 @@ export function useCategorizeSuggestions() {
       scope.setTierSafe(usedTier);
       return merged;
     },
-    [llm],
+    [llm, isDemo],
   );
 
   const suggestLocal = useCallback(
@@ -194,7 +196,7 @@ export function useCategorizeSuggestions() {
 
   const suggest = useCallback(
     async (params?: SuggestCategoriesParams): Promise<LlmSuggestion[]> => {
-      if (isDemoMode) return suggestLocal(params);
+      if (isDemo) return suggestLocal(params);
 
       const scope = beginRun();
       setLoading(true);
@@ -230,7 +232,7 @@ export function useCategorizeSuggestions() {
         scope.finish();
       }
     },
-    [gate, runInference, suggestLocal, beginRun],
+    [gate, runInference, suggestLocal, beginRun, isDemo],
   );
 
   return { suggest, suggestLocal, loading, error, tier, progress, batchProgress, cancel };
