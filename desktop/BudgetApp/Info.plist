@@ -23,5 +23,20 @@
     <string>1.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <!--
+      LM Studio and Ollama serve over plain HTTP on loopback. App Transport
+      Security blocks HTTP by default; NSAllowsLocalNetworking permits it for
+      local/loopback hosts ONLY, without opening up arbitrary HTTP to the
+      public internet. Without this, every local-server request fails with
+      the ATS error surfaced as LocalServerIssue.blockedByAppTransportSecurity.
+    -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+    <!-- Shown when macOS prompts for permission to reach local network devices. -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Snack's Budget connects to a model server running on your Mac (LM Studio or Ollama) so your financial data can be analyzed privately, without leaving your device.</string>
 </dict>
 </plist>

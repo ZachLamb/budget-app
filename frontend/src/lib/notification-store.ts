@@ -20,6 +20,22 @@ const DEDUPE_WINDOW_MS = 4000;
 
 let notifications: AppNotification[] = [];
 const listeners = new Set<() => void>();
+let idCounter = 0;
+
+/**
+ * Unique id, `crypto.randomUUID` when available.
+ *
+ * The fallback has to include a counter: a burst of notifications (a page that
+ * fires several failing requests at once) lands inside the same millisecond, and
+ * a bare timestamp would hand React duplicate keys for distinct rows.
+ */
+function nextId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  idCounter += 1;
+  return `n-${Date.now()}-${idCounter}`;
+}
 
 function emit() {
   listeners.forEach((l) => l());
@@ -53,7 +69,7 @@ export function pushNotification(
   const duplicate = findRecentDuplicate(input);
   if (duplicate) return duplicate.id;
 
-  const id = input.id ?? (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `n-${Date.now()}`);
+  const id = input.id ?? nextId();
   const n: AppNotification = {
     id,
     kind: input.kind,

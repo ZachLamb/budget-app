@@ -1,5 +1,10 @@
 import { NextRequest } from "next/server";
-import { buildForwardHeaders, getAiBackendBaseUrl, readProxyJsonBody } from "@/lib/ai-proxy";
+import {
+  postToBackend,
+  readProxyJsonBody,
+  readUpstreamJsonSafe,
+  STREAM_UPSTREAM_TIMEOUT_MS,
+} from "@/lib/ai-proxy";
 
 /**
  * Proxy POST /api/llm/cloud → backend FastAPI route. Pass SSE through.
@@ -17,16 +22,19 @@ export async function POST(req: NextRequest) {
   const parsed = await readProxyJsonBody(req);
   if (!parsed.ok) return parsed.response;
 
-  const BACKEND = getAiBackendBaseUrl();
-
-  const upstream = await fetch(`${BACKEND}/api/llm/cloud`, {
-    method: "POST",
-    headers: buildForwardHeaders(req),
-    body: JSON.stringify(parsed.body),
+  const result = await postToBackend("/api/llm/cloud", req, parsed.body, {
+    timeoutMs: STREAM_UPSTREAM_TIMEOUT_MS,
   });
+  if (!result.ok) return result.response;
 
+  const { upstream } = result;
+
+  // Error responses are JSON, not SSE. Normalize them so the client's
+  // `res.json()` always succeeds — a raw pass-through mislabels an HTML or
+  // empty upstream error body as application/json.
   if (!upstream.ok) {
-    return new Response(upstream.body, {
+    const data = await readUpstreamJsonSafe(upstream);
+    return new Response(JSON.stringify(data), {
       status: upstream.status,
       headers: { "Content-Type": "application/json" },
     });

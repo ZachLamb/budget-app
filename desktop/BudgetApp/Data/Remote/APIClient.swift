@@ -60,6 +60,9 @@ actor APIClient {
 
     func setToken(_ t: String?) { token = t }
 
+    /// Repoint the client after the user edits the backend URL in Settings.
+    func setBaseURL(_ url: URL) { baseURL = url }
+
     private func buildRequest(method: String, path: String) throws -> URLRequest {
         guard let url = URL(string: path, relativeTo: baseURL) else {
             throw APIError.invalidURL(path)

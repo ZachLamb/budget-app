@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlparse
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
@@ -123,6 +124,22 @@ _PROD_ENV_MARKERS = (
 )
 
 
+def _rp_id_covers_host(rp_id: str, host: str) -> bool:
+    """True when ``rp_id`` is usable as the WebAuthn RP ID for ``host``.
+
+    Per spec the RP ID must equal the page's effective domain or be a
+    registrable domain suffix of it ("example.com" covers "app.example.com",
+    but not the reverse and not an unrelated domain). Browsers enforce this
+    before any request reaches the backend, so a mismatch surfaces only as a
+    client-side SecurityError — hence the startup warning.
+    """
+    rp_id = rp_id.strip().lower().rstrip(".")
+    host = host.strip().lower().rstrip(".")
+    if not rp_id or not host:
+        return True  # nothing to compare; other guards cover the empty cases
+    return host == rp_id or host.endswith("." + rp_id)
+
+
 def _looks_like_production() -> bool:
     """True when at least one well-known prod env marker is set.
 
@@ -163,7 +180,21 @@ def get_settings() -> Settings:
     # someone else's "data" and the AI returns canned responses. Hard fail.
     if settings.demo_mode and _looks_like_production():
         import os
-        if not os.environ.get("DEMO_MODE_ALLOW_PRODUCTION", "").strip().lower() == "true":
+        if os.environ.get("DEMO_MODE_ALLOW_PRODUCTION", "").strip().lower() == "true":
+            # The escape hatch is honoured, but it must not be silent: a deploy
+            # left in this state looks like a normal production app while
+            # DemoGuardMiddleware 403s every sign-up and passkey registration
+            # ("This is a read-only demo"), which reads to users as "login is
+            # broken" with nothing in the logs to explain it.
+            logging.warning(
+                "DEMO_MODE=true is active on a production-marked deploy "
+                "(allowed via DEMO_MODE_ALLOW_PRODUCTION=true). This backend "
+                "is serving a READ-ONLY DEMO: fake data is seeded, Google "
+                "sign-in is disabled, and account/passkey registration returns "
+                "403. If this deploy is meant to be the real app, unset both "
+                "DEMO_MODE and DEMO_MODE_ALLOW_PRODUCTION."
+            )
+        else:
             raise RuntimeError(
                 "DEMO_MODE=true is set, but a production environment marker is "
                 "also set (one of VERCEL_ENV, RAILWAY_ENVIRONMENT, FLY_APP_NAME, "
@@ -202,6 +233,42 @@ def get_settings() -> Settings:
                 "in the browser with SecurityError. Set WEBAUTHN_RP_ID to the "
                 "domain the login page is served from (or set FRONTEND_URL "
                 "correctly to derive it)."
+            )
+        # The rename/redomain failure mode: FRONTEND_URL is moved to the new
+        # host but WEBAUTHN_RP_ID is left pointing at the old one. The browser
+        # rejects the ceremony locally, so the backend sees no request at all
+        # and the only symptom is "passkey login just fails".
+        _frontend_host = urlparse(settings.frontend_url).hostname or ""
+        if (
+            settings.webauthn_rp_id
+            and _frontend_host
+            and not _rp_id_covers_host(settings.webauthn_rp_id, _frontend_host)
+        ):
+            logging.warning(
+                "WEBAUTHN_RP_ID (%r) is not the host of FRONTEND_URL (%r) nor a "
+                "registrable suffix of it: passkey prompts will fail in the "
+                "browser with SecurityError. After a domain change, set "
+                "WEBAUTHN_RP_ID to the new login-page domain. Note that "
+                "passkeys already registered under the old RP ID are bound to "
+                "it and cannot be migrated — those users must re-register a "
+                "passkey (e.g. via magic-link sign-in).",
+                settings.webauthn_rp_id,
+                settings.frontend_url,
+            )
+        # Same class of breakage on the request path: auth routes reject any
+        # origin missing from CORS_ORIGINS with 400 "Invalid origin".
+        # Normalize trailing slashes on both sides the same way
+        # auth._get_allowed_origins() does, so a cosmetic "https://host/" in
+        # CORS_ORIGINS doesn't trip a false warning.
+        _normalized_origins = {o.rstrip("/") for o in _origins}
+        if _frontend_host and settings.frontend_url.rstrip("/") not in _normalized_origins:
+            logging.warning(
+                "FRONTEND_URL (%r) is not listed in CORS_ORIGINS (%r): the "
+                "browser origin will be rejected with 400 'Invalid origin' on "
+                "/api/auth/* requests. After a domain change, add the new "
+                "origin to CORS_ORIGINS.",
+                settings.frontend_url.rstrip("/"),
+                settings.cors_origins,
             )
     if settings.webauthn_debug and _looks_like_production():
         raise RuntimeError(

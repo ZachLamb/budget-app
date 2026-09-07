@@ -11,7 +11,7 @@
     "eval:ai": "promptfoo eval -c evals/promptfooconfig.yaml"
   },
   "devDependencies": {
-    "promptfoo": "^0.121.17"
+    "promptfoo": "^0.121.19"
   },
   "dependencies": {
     "@neon/config": "^1.3.0",

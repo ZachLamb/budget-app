@@ -6,13 +6,19 @@ struct DocumentImportView: View {
     @State private var isDragging = false
     @State private var isParsing = false
     @State private var parsedTransactions: [[String: String]] = []
+    @State private var issue: LocalServerIssue?
     @State private var error: String?
     @State private var rawText = ""
 
     var body: some View {
-        VStack(spacing: 24) {
-            Text("Import Bank Statement")
-                .font(.title2.bold())
+        VStack(spacing: Theme.Spacing.xl) {
+            VStack(spacing: Theme.Spacing.xs) {
+                Text("Import Bank Statement")
+                    .font(.title2.bold())
+                Text("Transactions are extracted locally — your statement stays on this Mac.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
 
             DropZone(isDragging: $isDragging) { urls in
                 Task { await importFiles(urls) }
@@ -58,46 +64,107 @@ struct DocumentImportView: View {
                 }
             }
 
-            if let err = error {
-                Text(err).foregroundStyle(.red)
+            if let issue {
+                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+                    InlineBanner(level: issue.level, title: issue.title, message: issue.summary)
+                    if !issue.steps.isEmpty {
+                        RecoverySteps(steps: issue.steps)
+                    }
+                }
+            } else if let err = error {
+                InlineBanner(level: .error, title: "Import failed", message: err)
             }
+
+            Spacer(minLength: 0)
         }
-        .padding(32)
+        .padding(Theme.Spacing.xxl)
         .navigationTitle("Import")
     }
 
+    /// JSON Schema for the parsed statement, so the local model constrains its
+    /// output at the sampler instead of us hoping it emits valid JSON.
+    private static let statementSchema = StructuredOutputSchema(json: """
+    {
+      "type": "object",
+      "properties": {
+        "transactions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "date": {"type": "string"},
+              "payee": {"type": "string"},
+              "amount": {"type": "string"}
+            },
+            "required": ["date", "payee", "amount"]
+          }
+        }
+      },
+      "required": ["transactions"]
+    }
+    """)
+
     private func importFiles(_ urls: [URL]) async {
         error = nil
+        issue = nil
+        parsedTransactions = []
         isParsing = true
         defer { isParsing = false }
 
         for url in urls {
-            guard url.startAccessingSecurityScopedResource() else { continue }
+            guard url.startAccessingSecurityScopedResource() else {
+                self.error = "macOS didn't grant access to that file. Try choosing it again."
+                continue
+            }
             defer { url.stopAccessingSecurityScopedResource() }
 
             let text: String
             do {
                 text = try String(contentsOf: url, encoding: .utf8)
             } catch {
-                self.error = "Could not read file: \(error.localizedDescription)"
+                self.error = "Could not read “\(url.lastPathComponent)”: \(error.localizedDescription)"
                 continue
             }
             rawText = text
 
             do {
-                let system = "You are a bank statement parser. Extract all transactions as JSON."
+                let system = "You are a bank-statement parser. Extract every transaction. Respond only with JSON matching the schema."
                 let prompt = "Parse all transactions from this statement:\n\(text.prefix(8000))"
-                let result = try await inference.complete(prompt: prompt, system: system)
-                if let data = result.data(using: .utf8),
-                   let arr = try? JSONDecoder().decode([[String: String]].self, from: data) {
-                    parsedTransactions = arr
+                let result = try await inference.complete(
+                    prompt: prompt,
+                    system: system,
+                    jsonSchema: Self.statementSchema
+                )
+                parsedTransactions = decodeTransactions(result)
+                if parsedTransactions.isEmpty {
+                    self.error = "The AI didn't return any transactions. The statement format may be unusual — check the extracted text preview."
+                }
+            } catch let inferenceError as InferenceError {
+                // A local-server problem carries its own recovery steps; show
+                // those rather than a bare message.
+                if let serverIssue = inferenceError.localServerIssue {
+                    self.issue = serverIssue
                 } else {
-                    self.error = "Could not parse AI response as transaction list"
+                    self.error = inferenceError.errorDescription
                 }
             } catch {
                 self.error = error.localizedDescription
             }
         }
+    }
+
+    /// Accepts either the schema's `{"transactions": [...]}` or a bare array,
+    /// since not every model honours the wrapper object.
+    private func decodeTransactions(_ raw: String) -> [[String: String]] {
+        guard let data = raw.data(using: .utf8) else { return [] }
+        struct Wrapper: Decodable { let transactions: [[String: String]] }
+        if let wrapped = try? JSONDecoder().decode(Wrapper.self, from: data) {
+            return wrapped.transactions
+        }
+        if let bare = try? JSONDecoder().decode([[String: String]].self, from: data) {
+            return bare
+        }
+        return []
     }
 }
 
@@ -115,10 +182,16 @@ struct DropZone: View {
             .overlay {
                 VStack(spacing: 8) {
                     Image(systemName: "arrow.down.doc")
-                        .font(.title)
+                        .font(.largeTitle)
+                        // `.accentColor` isn't a ShapeStyle member, so the
+                        // previous ternary didn't compile. `Color.accentColor`
+                        // is the value SwiftUI actually exposes.
                         .foregroundStyle(isDragging ? Color.accentColor : .secondary)
-                    Text("Drop CSV or text file here")
+                    Text("Drop a CSV or text bank statement here")
                         .foregroundStyle(.secondary)
+                    Text("Parsed on-device by your local AI")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
             }
             .onDrop(of: [.fileURL], isTargeted: $isDragging) { providers in

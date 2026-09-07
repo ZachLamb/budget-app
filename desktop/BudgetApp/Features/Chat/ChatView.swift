@@ -15,39 +15,54 @@ struct ChatView: View {
     @State private var inputText = ""
     @State private var isThinking = false
     @State private var error: String?
+    @State private var issue: LocalServerIssue?
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: Theme.Spacing.sm) {
                 Text("AI Chat")
-                    .font(.headline)
+                    .font(Theme.Font.cardTitle)
                 Spacer()
-                Text(inference.activeTier.rawValue)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                StatusPill(
+                    level: inference.activeTier.isPrivate ? .ok : .warning,
+                    text: inference.activeTier.rawValue
+                )
                 Button("Close", systemImage: "xmark") { onClose() }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
             }
-            .padding()
+            .padding(Theme.Spacing.lg)
             Divider()
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    LazyVStack(alignment: .leading, spacing: Theme.Spacing.md) {
+                        if messages.isEmpty && issue == nil && error == nil {
+                            emptyState
+                        }
                         ForEach(messages) { msg in
                             MessageBubble(message: msg)
                                 .id(msg.id)
                         }
                         if isThinking {
-                            HStack {
-                                ProgressView()
-                                Text("Thinking…").foregroundStyle(.secondary)
+                            HStack(spacing: Theme.Spacing.sm) {
+                                ProgressView().controlSize(.small)
+                                Text("Thinking…").foregroundStyle(.secondary).font(.callout)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal)
                         }
-                        if let err = error {
-                            Text(err).foregroundStyle(.red).padding(.horizontal)
+                        if let issue {
+                            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                                InlineBanner(level: issue.level, title: issue.title, message: issue.summary)
+                                if !issue.steps.isEmpty {
+                                    RecoverySteps(steps: issue.steps)
+                                }
+                            }
+                            .padding(.horizontal)
+                        } else if let err = error {
+                            InlineBanner(level: .error, title: "Something went wrong", message: err)
+                                .padding(.horizontal)
                         }
                     }
                     .padding()
@@ -58,15 +73,38 @@ struct ChatView: View {
             }
 
             Divider()
-            HStack {
+            HStack(spacing: Theme.Spacing.sm) {
                 TextField("Ask about your budget…", text: $inputText)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { Task { await sendMessage() } }
-                Button("Send") { Task { await sendMessage() } }
-                    .disabled(inputText.isEmpty || isThinking)
+                Button {
+                    Task { await sendMessage() }
+                } label: {
+                    Label("Send", systemImage: "arrow.up.circle.fill")
+                        .labelStyle(.iconOnly)
+                        .font(.title2)
+                }
+                .buttonStyle(.borderless)
+                .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty || isThinking)
             }
-            .padding()
+            .padding(Theme.Spacing.lg)
         }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: Theme.Spacing.sm) {
+            Image(systemName: "sparkles")
+                .font(.largeTitle)
+                .foregroundStyle(Theme.Palette.brand)
+            Text("Ask anything about your money")
+                .font(.callout.weight(.medium))
+            Text("“How much did I spend on groceries?” · “Am I over budget anywhere?”")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Theme.Spacing.xxl)
     }
 
     private func sendMessage() async {
@@ -76,13 +114,20 @@ struct ChatView: View {
         messages.append(ChatMessage(role: .user, text: text))
         isThinking = true
         error = nil
+        issue = nil
 
         do {
             let system = "You are a helpful personal finance assistant. Answer concisely based on the user's budget data."
             let result = try await inference.complete(prompt: text, system: system)
             messages.append(ChatMessage(role: .assistant, text: result))
-        } catch InferenceError.cloudFallbackDenied {
-            error = "Enable cloud AI in Settings to use the chat feature without Ollama."
+        } catch let inferenceError as InferenceError {
+            // Prefer the specific, actionable local-server diagnosis when there
+            // is one; fall back to the plain message otherwise.
+            if let serverIssue = inferenceError.localServerIssue {
+                self.issue = serverIssue
+            } else {
+                self.error = inferenceError.errorDescription
+            }
         } catch {
             self.error = error.localizedDescription
         }
@@ -95,13 +140,19 @@ struct MessageBubble: View {
 
     var body: some View {
         HStack {
-            if message.role == .user { Spacer() }
+            if message.role == .user { Spacer(minLength: 40) }
             Text(message.text)
-                .padding(10)
-                .background(message.role == .user ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
+                .textSelection(.enabled)
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.sm)
+                .background(
+                    message.role == .user
+                        ? AnyShapeStyle(Theme.Palette.brand)
+                        : AnyShapeStyle(Theme.Palette.surfaceSunken),
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.md)
+                )
                 .foregroundStyle(message.role == .user ? .white : .primary)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-            if message.role == .assistant { Spacer() }
+            if message.role == .assistant { Spacer(minLength: 40) }
         }
     }
 }

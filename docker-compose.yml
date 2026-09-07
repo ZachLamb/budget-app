@@ -42,6 +42,22 @@ services:
       DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-budget}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-budget_app}
       SIMPLEFIN_ACCESS_URL: ${SIMPLEFIN_ACCESS_URL:-}
       SECRET_KEY: ${SECRET_KEY}
+      # Grants admin + auto-approval to this email on next login. Without it
+      # every new account is stuck at status="pending" and login 403s, with no
+      # way to approve the first user — there is no admin yet to do it.
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      # Defaults below mirror app/config.py exactly, so an unset var in .env
+      # behaves identically to running the backend outside Docker.
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:80}
+      # WebAuthn relying party. RP ID is derived from FRONTEND_URL's host when
+      # left empty, which is correct for localhost.
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-Snack's Budget}
+      # Deep-link targets the desktop app may receive a one-time login code on.
+      NATIVE_CLIENT_REDIRECT_URIS: ${NATIVE_CLIENT_REDIRECT_URIS:-budget://auth/callback}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
       # Shared rate-limit / lockout state (optional). When unset, falls back

@@ -18,8 +18,14 @@ API entry: `backend/app/main.py` (`FastAPI`, routers under `/api`). Local backen
 Run everything CI runs, in one step (from repo root):
 
 ```bash
-./scripts/ci-local.sh
+./scripts/ci-local.sh          # both per-PR CI jobs
+./scripts/ci-local.sh --e2e    # ...plus the Playwright smoke suite (needs Docker, slow)
 ```
+
+This mirrors `.github/workflows/ci.yml` step for step, including the
+`pip-audit` and `npm audit --audit-level=high` dependency gates — a step
+missing here means CI can fail on a change that looked green locally. Keep the
+two in sync when editing either. Requires `pip-audit` (`pip install pip-audit`).
 
 Or individually:
 
@@ -89,7 +95,9 @@ cd backend && alembic stamp head
 
 **Frontend quality (after UI/TS changes):** `cd frontend && npm run quality:check` (lint, Vitest, fallow dead-code).
 
-**Full CI gate:** `./scripts/ci-local.sh` from repo root.
+**Full CI gate:** `./scripts/ci-local.sh` from repo root (add `--e2e` for the
+Playwright smoke suite). Mirrors `ci.yml` step for step, dependency audits
+included.
 
 **Deeper audit (periodic):** `cd frontend && npm run quality:audit` or personal `code-quality-audit` skill.
 

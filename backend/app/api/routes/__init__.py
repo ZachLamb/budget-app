@@ -3,7 +3,7 @@ from app.api.routes import (
     auth, accounts, payees, categories, transactions,
     rules, sync, budget, recurring, reports, categorization,
     goals, debt, ai, settings, subscriptions, tax_settings, cycle_commitments,
-    llm, me, hosting, magic_link, admin, facts, deductions,
+    llm, me, hosting, magic_link, admin, facts, deductions, ai_bundle,
 )
 from app.api.routes.inference_context import router as inference_context_router
 from app.api.routes.realtime import router as realtime_router
@@ -31,6 +31,7 @@ router.include_router(deductions.router, prefix="/deductions", tags=["deductions
 router.include_router(cycle_commitments.router, prefix="/cycle-commitments", tags=["cycle-commitments"])
 router.include_router(llm.router, prefix="/llm", tags=["llm"])
 router.include_router(me.router, prefix="/me", tags=["me"])
+router.include_router(ai_bundle.router, prefix="/ai-bundle", tags=["ai-bundle"])
 router.include_router(hosting.router, prefix="/hosting", tags=["hosting"])
 router.include_router(magic_link.router, prefix="/auth/magic-link", tags=["auth"])
 router.include_router(admin.router, prefix="/admin", tags=["admin"])

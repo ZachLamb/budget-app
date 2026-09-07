@@ -3,12 +3,27 @@
 import { useCallback, useRef, useState } from "react";
 import { useAiFeatureGate } from "@/lib/llm/ai-feature-gate";
 import { demoStreamText } from "@/lib/llm/contracts";
-import { userMessageFor } from "@/lib/llm/errors";
+import { OnDeviceError, userMessageFor } from "@/lib/llm/errors";
 import type { FeatureId } from "@/lib/llm/features";
 import type { PipelineProgress } from "@/lib/llm/pipelines/types";
 import { interpretPrepareFeatureResult } from "@/lib/llm/prepare-feature-result";
 import { useLlm } from "@/lib/llm/useLlm";
 import { useDemoGuard } from "@/lib/hooks";
+
+/**
+ * A cancelled run must never land in `error`. Cancellation reaches us three
+ * ways: a raw `AbortError` from fetch, the LLM layer's own
+ * `OnDeviceError("aborted")`, or — when a provider swallows the abort and just
+ * ends its stream — a downstream parse failure on a truncated response. The
+ * controller's own signal is the reliable tiebreaker for that last case.
+ */
+export function isCancellation(e: unknown, signal: AbortSignal): boolean {
+  if (signal.aborted) return true;
+  if (e instanceof OnDeviceError) return e.code === "aborted";
+  // Duck-typed on purpose: fetch rejects with a `DOMException`, which is not an
+  // `Error` subclass in every environment.
+  return typeof e === "object" && e !== null && (e as { name?: unknown }).name === "AbortError";
+}
 
 const HEAVY_FEATURES = new Set<FeatureId>([
   "budget_recommendations",
@@ -70,7 +85,7 @@ export function useAiPipelineRun<T>(feature: FeatureId) {
         })) as T;
         return result;
       } catch (e) {
-        if ((e as Error).name === "AbortError") {
+        if (isCancellation(e, ac.signal)) {
           setCancelled(true);
           throw e;
         }
@@ -78,9 +93,14 @@ export function useAiPipelineRun<T>(feature: FeatureId) {
         setError(msg);
         throw e;
       } finally {
-        setRunning(false);
-        setProgress(null);
-        abortRef.current = null;
+        // Only tear down if we still own the run. A newer run may already have
+        // installed its own controller and set `running` — clearing the ref
+        // here would leave that run uncancellable.
+        if (abortRef.current === ac) {
+          setRunning(false);
+          setProgress(null);
+          abortRef.current = null;
+        }
       }
     },
     [feature, gate, llm],
@@ -121,7 +141,7 @@ export function useAiPipelineRun<T>(feature: FeatureId) {
           onChunk(chunk);
         }
       } catch (e) {
-        if ((e as Error).name === "AbortError") {
+        if (isCancellation(e, ac.signal)) {
           setCancelled(true);
           throw e;
         }
@@ -129,8 +149,10 @@ export function useAiPipelineRun<T>(feature: FeatureId) {
         setError(msg);
         throw e;
       } finally {
-        setRunning(false);
-        abortRef.current = null;
+        if (abortRef.current === ac) {
+          setRunning(false);
+          abortRef.current = null;
+        }
       }
     },
     [feature, gate, llm, isDemo],

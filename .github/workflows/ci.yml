@@ -18,7 +18,7 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -44,9 +44,12 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          # Matches the Vercel project's Node 24.x build image and the
+          # engines range in frontend/package.json. Node 20 also tripped an
+          # EBADENGINE warning for fallow, which requires >=22.
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies

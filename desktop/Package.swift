@@ -17,6 +17,9 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "BudgetApp",
+            // Info.plist and entitlements are consumed by Xcode, not SwiftPM;
+            // excluding them silences "unhandled file" build warnings.
+            exclude: ["Info.plist"],
             swiftSettings: [
                 .unsafeFlags(["-strict-concurrency=complete"]),
             ]

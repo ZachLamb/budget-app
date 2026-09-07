@@ -25,7 +25,7 @@ from sqlalchemy.pool import StaticPool
 
 # Configure email envs BEFORE app loads so settings.resend_api_key is non-empty.
 os.environ.setdefault("RESEND_API_KEY", "test-resend-key")
-os.environ.setdefault("EMAIL_FROM_ADDRESS", "noreply@clarity.test")
+os.environ.setdefault("EMAIL_FROM_ADDRESS", "noreply@snacksbudget.test")
 os.environ.setdefault("FRONTEND_URL", "http://localhost:3001")
 
 from app.config import get_settings  # noqa: E402

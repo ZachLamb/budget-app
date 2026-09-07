@@ -1,5 +1,29 @@
 import Foundation
 
+// MARK: - Account
+
+/// The signed-in user, as returned by /api/auth/me and the native token
+/// exchange. Mirrors the backend's UserResponse.
+struct AuthUser: Codable, Equatable, Sendable {
+    let id: String
+    let email: String
+    let name: String
+    let householdID: String
+    let role: String
+    /// "pending" | "approved" | "rejected". Display only — the gate is
+    /// enforced server-side.
+    let status: String
+    let isDemoUser: Bool
+
+    var isAdmin: Bool { role == "admin" }
+
+    enum CodingKeys: String, CodingKey {
+        case id, email, name, role, status
+        case householdID = "household_id"
+        case isDemoUser = "is_demo_user"
+    }
+}
+
 // MARK: - Transaction
 struct RemoteTransaction: Codable, Identifiable {
     let id: String

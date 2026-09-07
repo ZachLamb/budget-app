@@ -29,7 +29,7 @@ import { runQaPipeline } from "./pipelines/qa";
 import { runAdvicePipeline } from "./pipelines/advice";
 import { runRatesPipeline } from "./pipelines/rates";
 import { resolveCascadeProviders } from "./cascade";
-import { streamCloudGenerate } from "./providers/cloud";
+import { createLocalServerProvider } from "./providers/local-server";
 
 /** Heavy features served by on-device pipelines (Nano-only in v1). */
 export const HEAVY_FEATURES: ReadonlySet<FeatureId> = new Set<FeatureId>([
@@ -141,14 +141,7 @@ export function useLlm(): UseLlm {
         // just because the local server hiccuped.
         if (preferLocal) {
           try {
-            const text = await streamCloudGenerate({
-              feature,
-              system: opts?.system ?? "",
-              prompt,
-              maxTokens: opts?.maxTokens,
-              signal: opts?.signal,
-            });
-            yield text;
+            yield* createLocalServerProvider(feature).generate(prompt, opts);
             return;
           } catch (err) {
             if (opts?.signal?.aborted) throw err;
@@ -179,10 +172,14 @@ export function useLlm(): UseLlm {
       if (isDemo) return demoStructuredResult(feature);
 
       const cap = capability ?? (await getCapability());
-      const cascade = await resolveCascadeProviders(feature, buildContext(), cap);
       const preferLocal = Boolean(
         (aiSettings.data as AiSettings | undefined)?.prefer_local_server,
       );
+      // Resolved with `preferLocal` so a browser with no on-device tier can
+      // still run on the user's own server instead of erroring out.
+      const cascade = await resolveCascadeProviders(feature, buildContext(), cap, {
+        preferLocal,
+      });
       const pctx: PipelineContext = {
         provider: cascade.primary,
         cascade,

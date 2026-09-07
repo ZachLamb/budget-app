@@ -1068,6 +1068,39 @@ class NativeTokenRequest(BaseModel):
     code_verifier: str = Field(..., min_length=43, max_length=128)
 
 
+class NativeCodeResponse(BaseModel):
+    code: str
+
+
+def _assert_native_redirect_allowed(redirect_uri: str) -> None:
+    """Reject redirect targets outside the native-client allowlist."""
+    allowed = {
+        u.strip()
+        for u in get_settings().native_client_redirect_uris.split(",")
+        if u.strip()
+    }
+    if redirect_uri not in allowed:
+        raise HTTPException(status_code=400, detail="redirect_uri not in allowed list")
+
+
+@router.post("/native/code", response_model=NativeCodeResponse)
+async def native_code(
+    redirect_uri: str,
+    user: User = Depends(get_current_user),
+):
+    """Mint a one-time code that a native client can exchange for a JWT.
+
+    Called by the web login page when it is running inside a native auth sheet
+    (`?native=1`). Authentication is the session cookie that the preceding
+    passkey/password login just set, so this hands the *already authenticated*
+    browser session off to the native app without ever putting a JWT in a URL.
+    """
+    _assert_native_redirect_allowed(redirect_uri)
+    code = secrets.token_urlsafe(32)
+    await auth_challenges.put_native_login_code(code, user.id)
+    return NativeCodeResponse(code=code)
+
+
 class NativeTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -1088,16 +1121,31 @@ async def native_token(
     The redirect_uri must match the NATIVE_CLIENT_REDIRECT_URIS allowlist to
     prevent code injection from an attacker-controlled redirect target.
     """
-    if data.grant_type != "google_code":
+    if data.grant_type not in ("google_code", "native_code"):
         raise HTTPException(status_code=400, detail="Unsupported grant_type")
 
     settings = get_settings()
     if settings.demo_mode:
         raise HTTPException(status_code=403, detail="Google sign-in is disabled in demo mode")
 
-    allowed = {u.strip() for u in settings.native_client_redirect_uris.split(",") if u.strip()}
-    if data.redirect_uri not in allowed:
-        raise HTTPException(status_code=400, detail="redirect_uri not in allowed list")
+    _assert_native_redirect_allowed(data.redirect_uri)
+
+    # native_code: a one-time code minted by /native/code for a browser session
+    # that already authenticated (passkey, password, …). Redeeming it is atomic,
+    # so a replayed code fails closed.
+    if data.grant_type == "native_code":
+        user_id = await auth_challenges.pop_native_login_code(data.code)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid or expired code")
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise HTTPException(status_code=401, detail="Invalid or expired code")
+        check_approved(user)
+        return NativeTokenResponse(
+            access_token=_create_token(user),
+            user=UserResponse.model_validate(user),
+        )
 
     if not settings.google_client_id:
         raise HTTPException(status_code=503, detail="Google OAuth not configured")
