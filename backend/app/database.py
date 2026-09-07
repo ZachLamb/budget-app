@@ -1,4 +1,5 @@
 import asyncio
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -12,12 +13,26 @@ class Base(DeclarativeBase):
     pass
 
 
-_settings = get_settings()
+# libpq-only query params that providers (Neon, Supabase, ...) put in their
+# connection strings. SQLAlchemy's asyncpg dialect forwards every query param
+# as a literal kwarg to asyncpg.connect(), which doesn't accept these —
+# "TypeError: connect() got an unexpected keyword argument 'sslmode'". asyncpg
+# still negotiates TLS with servers that require it (Neon does) once they're
+# stripped, so this only removes params asyncpg can't consume, not TLS itself.
+_ASYNCPG_INCOMPATIBLE_PARAMS = {"sslmode", "channel_binding"}
 
-# Railway (and other PaaS) provide postgresql:// but asyncpg needs postgresql+asyncpg://
-_db_url = _settings.database_url
-if _db_url.startswith("postgresql://"):
-    _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+def normalize_asyncpg_url(url: str) -> str:
+    """postgresql:// -> postgresql+asyncpg://, minus libpq-only query params."""
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    parts = urlsplit(url)
+    query = [(k, v) for k, v in parse_qsl(parts.query) if k not in _ASYNCPG_INCOMPATIBLE_PARAMS]
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
+_settings = get_settings()
+_db_url = normalize_asyncpg_url(_settings.database_url)
 
 engine = create_async_engine(
     _db_url,
