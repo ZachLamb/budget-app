@@ -6,7 +6,7 @@ import { useLlm } from "@/lib/llm/useLlm";
 import { parseJsonResponse } from "@/lib/llm/contracts";
 import { userMessageFor } from "@/lib/llm/errors";
 import { collectAcceptedRefinements } from "@/lib/llm/refine-merchant-name";
-import { isDemoMode } from "@/lib/demo-mode";
+import { useDemoGuard } from "@/lib/hooks";
 
 export interface RefineItem {
   /** Stable id echoed back by the model. */
@@ -29,6 +29,7 @@ const SYSTEM =
  * an empty map so callers keep their deterministic values.
  */
 export function useMerchantNameRefine() {
+  const { isDemo } = useDemoGuard();
   const gate = useAiFeatureGate();
   const llm = useLlm();
   const [loading, setLoading] = useState(false);
@@ -39,7 +40,7 @@ export function useMerchantNameRefine() {
       setError(null);
       if (items.length === 0) return {};
       // On-device refinement needs a real model; the demo has none.
-      if (isDemoMode) {
+      if (isDemo) {
         setError("AI name cleanup runs on-device — not available in the demo.");
         return {};
       }
@@ -83,7 +84,7 @@ export function useMerchantNameRefine() {
         setLoading(false);
       }
     },
-    [gate, llm],
+    [gate, llm, isDemo],
   );
 
   return { refine, loading, error, clearError: () => setError(null) };

@@ -2,7 +2,6 @@
  * Structured JSON completions for batch features (FSA, categorize).
  */
 
-import { isDemoMode } from "@/lib/demo-mode";
 import type { FeatureId } from "./features";
 import type { LLMProvider } from "./types";
 import type { RouterContext } from "./router";
@@ -76,9 +75,10 @@ export async function runStructuredJson<T extends FsaStructuredResult | Categori
   feature: FeatureId,
   ctx: RouterContext,
   opts: RunStructuredOptions,
+  isDemo: boolean,
   resolved?: ResolvedStructuredProvider,
 ): Promise<RunStructuredResult<T>> {
-  if (isDemoMode) {
+  if (isDemo) {
     const raw = demoStructuredResult(feature);
     return { data: parseForFeature(feature, raw) as T, tier: 2 };
   }
@@ -163,6 +163,7 @@ export async function runBatchedStructuredJson<T extends FsaStructuredResult>(
   feature: FeatureId,
   ctx: RouterContext,
   opts: RunBatchedOptions,
+  isDemo: boolean,
 ): Promise<RunBatchedResult<T>> {
   const results: (T | null)[] = [];
   let tier: 1 | 2 = 2;
@@ -187,7 +188,7 @@ export async function runBatchedStructuredJson<T extends FsaStructuredResult>(
         prompt: opts.batches[i]!.prompt,
         signal: opts.signal,
         maxTokens: opts.maxTokens,
-      }, resolved);
+      }, isDemo, resolved);
       tier = one.tier;
       results.push(one.data);
     } catch (e) {

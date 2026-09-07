@@ -7,7 +7,7 @@ const decideMock = vi.fn();
 const ensureReadyMock = vi.fn();
 const refreshMock = vi.fn();
 
-vi.mock("@/lib/demo-mode", () => ({ isDemoMode: false }));
+vi.mock("@/lib/hooks", () => ({ useDemoGuard: () => ({ isDemo: false }) }));
 
 vi.mock("@/lib/app-toast", () => ({
   appToast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },

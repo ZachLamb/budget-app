@@ -5,14 +5,13 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/providers";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { settingsApi, type SimplefinClaimAccount } from "@/lib/api/settings";
-import { syncApi } from "@/lib/api/sync";
+import { useTriggerFirstSync } from "@/hooks/use-trigger-first-sync";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, AlertCircle, ExternalLink, Loader2, Wallet, ArrowRight, Banknote, TrendingUp, Eye } from "lucide-react";
-import { appToast } from "@/lib/app-toast";
 import { getApiErrorMessage } from "@/lib/hooks";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -318,7 +317,7 @@ function AllSetStep({ onDashboard }: { onDashboard: () => void }) {
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const triggerFirstSync = useTriggerFirstSync();
   const { user, loading: authLoading } = useAuth();
   const [step, setStep] = useState<OnboardingStep>(1);
 
@@ -347,17 +346,8 @@ export default function OnboardingPage() {
   };
 
   const handleBankConnected = (accounts: SimplefinClaimAccount[]) => {
-    const count = accounts.length;
     // Auto-trigger first sync
-    syncApi
-      .trigger()
-      .then(() => {
-        queryClient.invalidateQueries({ queryKey: ["syncStatus"] });
-        appToast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. First sync started!`);
-      })
-      .catch(() => {
-        appToast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. Click "Sync Now" to import transactions.`);
-      });
+    triggerFirstSync(accounts.length);
     setStep(3);
   };
 

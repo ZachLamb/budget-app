@@ -116,7 +116,7 @@ struct DropZone: View {
                 VStack(spacing: 8) {
                     Image(systemName: "arrow.down.doc")
                         .font(.title)
-                        .foregroundStyle(isDragging ? .accentColor : .secondary)
+                        .foregroundStyle(isDragging ? Color.accentColor : .secondary)
                     Text("Drop CSV or text file here")
                         .foregroundStyle(.secondary)
                 }

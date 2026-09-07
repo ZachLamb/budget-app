@@ -35,7 +35,7 @@ struct BudgetView: View {
 
     private func load() async {
         do {
-            categories = try AppDatabase.shared.read { db in
+            categories = try await AppDatabase.shared.read { db in
                 try LocalBudgetCategory.order(Column("group_name"), Column("name")).fetchAll(db)
             }
         } catch { categories = [] }
@@ -51,7 +51,7 @@ struct BudgetCategoryRow: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text(cat.available, format: .currency(code: "USD"))
-                    .foregroundStyle(cat.available >= 0 ? .primary : .red)
+                    .foregroundStyle(cat.available >= 0 ? Color.primary : .red)
                     .fontWeight(.medium)
                 Text("of \(cat.assigned, format: .currency(code: "USD"))")
                     .font(.caption)

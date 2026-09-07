@@ -120,7 +120,7 @@ async def probe_backend() -> dict:
         ]
         result = {"configured": True, "reachable": True, "models": models, "is_local": is_local}
     except (httpx.HTTPError, ValueError) as e:
-        logger.info("LLM backend probe failed: %s", type(e).__name__)
+        logger.warning("LLM backend probe failed: %s", type(e).__name__)
         result = {"configured": True, "reachable": False, "models": [], "is_local": is_local}
 
     _probe_cache[settings.ollama_url] = (time.monotonic(), result)

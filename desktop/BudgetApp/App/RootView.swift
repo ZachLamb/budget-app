@@ -1,22 +1,9 @@
 import SwiftUI
 
 struct RootView: View {
-    @State private var auth: AuthManager
-    @State private var api: APIClient
-    @State private var sync: SyncCoordinator
-    @State private var inference: InferenceManager
-
-    init() {
-        let backendURL = URL(
-            string: UserDefaults.standard.string(forKey: "backendBaseURL") ?? "https://your-backend.fly.dev"
-        )!
-        let apiClient = APIClient(baseURL: backendURL)
-        let a = AuthManager()
-        _auth = State(initialValue: a)
-        _api = State(initialValue: apiClient)
-        _sync = State(initialValue: SyncCoordinator(api: apiClient))
-        _inference = State(initialValue: InferenceManager(api: apiClient))
-    }
+    @Environment(AuthManager.self) private var auth
+    @Environment(SyncCoordinator.self) private var sync
+    @Environment(InferenceManager.self) private var inference
 
     var body: some View {
         Group {
@@ -26,7 +13,7 @@ struct RootView: View {
                     .environment(sync)
                     .environment(inference)
                     .task {
-                        await api.setToken(auth.token)
+                        await sync.updateToken(auth.token)
                         await sync.syncAll()
                         await inference.detectTier()
                     }

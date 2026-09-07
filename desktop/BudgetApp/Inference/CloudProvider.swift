@@ -26,10 +26,14 @@ struct CloudProvider {
             maxTokens: 1024
         )
 
-        var lastChunk = ""
+        // Reference box lets the @Sendable closure mutate state without
+        // violating Swift 6 strict concurrency — postSSE calls onChunk serially.
+        final class Box: @unchecked Sendable { var value = "" }
+        let last = Box()
         try await api.postSSE("api/llm/cloud", body: req) { chunk in
-            lastChunk = chunk
+            last.value = chunk
         }
+        let lastChunk = last.value
 
         if let data = lastChunk.data(using: .utf8),
            let resp = try? JSONDecoder().decode(CloudResponse.self, from: data) {

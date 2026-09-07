@@ -217,8 +217,8 @@ async def logout(
                 if user is not None:
                     user.session_version += 1
                     await db.commit()
-        except jwt.PyJWTError:
-            pass
+        except jwt.PyJWTError as e:
+            logger.info("logout_token_decode_failed: %s", type(e).__name__)
     return {"ok": True}
 
 
@@ -942,19 +942,29 @@ async def google_callback(
         return _oauth_complete_redirect(frontend_url, "/login?error=server_error", is_secure=oauth_cookie_secure)
 
 
-async def _fetch_google_user_info(code: str, redirect_uri: str) -> dict:
-    """Exchange a Google auth code for user info. Raises HTTPException on failure."""
+async def _fetch_google_user_info(
+    code: str, redirect_uri: str, code_verifier: Optional[str] = None
+) -> dict:
+    """Exchange a Google auth code for user info. Raises HTTPException on failure.
+
+    `code_verifier` is the PKCE verifier for the native flow (proves this caller
+    is the one that started the /google/login redirect); omitted for the browser
+    flow, which relies on the confidential `client_secret` instead.
+    """
     settings = get_settings()
+    token_data = {
+        "code": code,
+        "client_id": settings.google_client_id,
+        "client_secret": settings.google_client_secret,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+    }
+    if code_verifier:
+        token_data["code_verifier"] = code_verifier
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
         token_resp = await client.post(
             "https://oauth2.googleapis.com/token",
-            data={
-                "code": code,
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
-                "redirect_uri": redirect_uri,
-                "grant_type": "authorization_code",
-            },
+            data=token_data,
         )
     if not token_resp.is_success:
         raise HTTPException(status_code=400, detail="Google token exchange failed")
@@ -1011,6 +1021,43 @@ async def google_oauth_exchange(
     return _token_response(response, token, user)
 
 
+@router.get("/google/login")
+async def google_native_login(redirect_uri: str, code_challenge: str):
+    """Start Google OAuth for native (non-browser) clients.
+
+    The caller provides `redirect_uri` (must be in NATIVE_CLIENT_REDIRECT_URIS allowlist)
+    and a PKCE `code_challenge` (S256 of a client-generated `code_verifier`). This
+    endpoint redirects to Google's consent screen with that redirect_uri so Google
+    sends the auth code directly to the native app's custom URL scheme, bypassing the
+    backend's /google/callback entirely. The client then POSTs the code AND the
+    matching `code_verifier` to /native/token — PKCE binds the code to the client
+    that started the flow, standing in for the state-cookie CSRF defense the
+    browser flow uses (there's no cookie/session to fixate here).
+    """
+    settings = get_settings()
+    if not settings.google_client_id:
+        raise HTTPException(status_code=501, detail="Google sign-in is not configured")
+    if settings.demo_mode:
+        raise HTTPException(status_code=403, detail="Google sign-in is disabled in demo mode")
+
+    allowed = {u.strip() for u in settings.native_client_redirect_uris.split(",") if u.strip()}
+    if redirect_uri not in allowed:
+        raise HTTPException(status_code=400, detail="redirect_uri not in allowed list")
+    if not (43 <= len(code_challenge) <= 128):
+        raise HTTPException(status_code=400, detail="Invalid code_challenge")
+
+    params = {
+        "client_id": settings.google_client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "access_type": "online",
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    return RedirectResponse(url=f"{GOOGLE_AUTH_URL}?{urlencode(params)}", status_code=302)
+
+
 # --- Native client auth ---
 
 
@@ -1018,6 +1065,7 @@ class NativeTokenRequest(BaseModel):
     grant_type: str = Field(..., min_length=1, max_length=64)
     code: str = Field(..., min_length=1, max_length=2048)
     redirect_uri: str = Field(..., min_length=1, max_length=512)
+    code_verifier: str = Field(..., min_length=43, max_length=128)
 
 
 class NativeTokenResponse(BaseModel):
@@ -1044,6 +1092,8 @@ async def native_token(
         raise HTTPException(status_code=400, detail="Unsupported grant_type")
 
     settings = get_settings()
+    if settings.demo_mode:
+        raise HTTPException(status_code=403, detail="Google sign-in is disabled in demo mode")
 
     allowed = {u.strip() for u in settings.native_client_redirect_uris.split(",") if u.strip()}
     if data.redirect_uri not in allowed:
@@ -1052,7 +1102,7 @@ async def native_token(
     if not settings.google_client_id:
         raise HTTPException(status_code=503, detail="Google OAuth not configured")
 
-    user_info = await _fetch_google_user_info(data.code, data.redirect_uri)
+    user_info = await _fetch_google_user_info(data.code, data.redirect_uri, data.code_verifier)
     email = user_info.get("email", "").lower().strip()
     google_id = user_info.get("sub", "")
     name = user_info.get("name", email)

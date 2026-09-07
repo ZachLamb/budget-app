@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AuthManager.self) private var auth
     @Environment(InferenceManager.self) private var inference
-    @AppStorage("backendBaseURL") private var backendURL = "https://your-backend.fly.dev"
+    @AppStorage("backendBaseURL") private var backendURL = "https://clarity-backend.fly.dev"
     @AppStorage("ollamaModel") private var ollamaModel = "qwen2.5:7b"
 
     var body: some View {

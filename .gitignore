@@ -32,3 +32,10 @@ caddy_config/
 /node_modules
 /public
 desktop/Snack's Budget/
+# Xcode-generated SPM workspace state (user-local, regenerated on open)
+desktop/.swiftpm/
+# Xcode derived data and user state
+*.xcuserstate
+xcuserdata/
+desktop/.build/
+.neon

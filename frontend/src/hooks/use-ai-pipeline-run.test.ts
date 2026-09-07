@@ -18,6 +18,8 @@ vi.mock("@/lib/llm/useLlm", () => ({
   }),
 }));
 
+vi.mock("@/lib/hooks", () => ({ useDemoGuard: () => ({ isDemo: false }) }));
+
 const { useAiPipelineRun } = await import("./use-ai-pipeline-run");
 
 beforeEach(() => {

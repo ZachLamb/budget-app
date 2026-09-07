@@ -1,4 +1,4 @@
-import GRDB
+@preconcurrency import GRDB
 import Foundation
 
 final class AppDatabase {
@@ -15,7 +15,9 @@ final class AppDatabase {
         return queue
     }()
 
-    static var migrator: DatabaseMigrator = {
+    // nonisolated(unsafe) because DatabaseMigrator contains non-Sendable closures;
+    // safe here — the value is written once at startup before any concurrent access.
+    nonisolated(unsafe) static let migrator: DatabaseMigrator = {
         var m = DatabaseMigrator()
 
         m.registerMigration("v1_initial") { db in

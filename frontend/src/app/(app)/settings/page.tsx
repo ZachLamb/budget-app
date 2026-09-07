@@ -34,6 +34,7 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { useIsClient, getApiErrorMessage, useDemoGuard } from "@/lib/hooks";
+import { useTriggerFirstSync } from "@/hooks/use-trigger-first-sync";
 import { PageHeader, QueryState, inlineErrorQueryMeta } from "@/components/page";
 import {
   isSemiMonthlyPayAnchor,
@@ -56,6 +57,7 @@ function SimplefinSetupDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const queryClient = useQueryClient();
+  const triggerFirstSync = useTriggerFirstSync();
   const [step, setStep] = useState<SetupStep>("connect");
   const [token, setToken] = useState("");
   const [popupBlocked, setPopupBlocked] = useState(false);
@@ -125,14 +127,7 @@ function SimplefinSetupDialog({
     const count = claimedAccounts.length;
     handleClose();
     // Auto-trigger first sync so the user sees data immediately
-    syncApi.trigger()
-      .then(() => {
-        queryClient.invalidateQueries({ queryKey: ["syncStatus"] });
-        appToast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. First sync started — check back in a moment.`);
-      })
-      .catch(() => {
-        appToast.success(`Connected ${count} account${count !== 1 ? "s" : ""}. Click "Sync Now" in the sidebar to import transactions.`);
-      });
+    triggerFirstSync(count, 'Click "Sync Now" in the sidebar to import transactions.');
   };
 
   return (

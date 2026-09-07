@@ -3,12 +3,25 @@ import SwiftUI
 @main
 struct BudgetApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    @State private var sync = SyncCoordinator(api: APIClient(baseURL: URL(string: "https://your-backend.fly.dev")!))
-    @State private var inference = InferenceManager(api: APIClient(baseURL: URL(string: "https://your-backend.fly.dev")!))
+    @State private var auth = AuthManager()
+    @State private var sync: SyncCoordinator
+    @State private var inference: InferenceManager
+
+    init() {
+        let backendURL = URL(
+            string: UserDefaults.standard.string(forKey: "backendBaseURL") ?? "https://clarity-backend.fly.dev"
+        )!
+        let client = APIClient(baseURL: backendURL)
+        _sync = State(initialValue: SyncCoordinator(api: client))
+        _inference = State(initialValue: InferenceManager(api: client))
+    }
 
     var body: some Scene {
         WindowGroup {
             RootView()
+                .environment(auth)
+                .environment(sync)
+                .environment(inference)
                 .onOpenURL { url in
                     NotificationCenter.default.post(
                         name: .budgetDeepLink,

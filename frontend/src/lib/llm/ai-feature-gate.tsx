@@ -20,7 +20,7 @@ import type { LocalSetupSnapshot } from "@/hooks/local-ai-setup-types";
 import { type FeatureId } from "@/lib/llm/features";
 import { useLlm } from "@/lib/llm/useLlm";
 import type { Decision } from "@/lib/llm/router";
-import { isDemoMode } from "@/lib/demo-mode";
+import { useDemoGuard } from "@/lib/hooks";
 import { toastAiAvailability } from "@/lib/llm/ai-toast";
 import { AI_SETTINGS_PATH } from "@/lib/llm/ai-settings-link";
 
@@ -51,6 +51,7 @@ export function useAiFeatureGate(): AiFeatureGateContextValue {
 }
 
 export function AiFeatureGateProvider({ children }: { children: ReactNode }) {
+  const { isDemo } = useDemoGuard();
   const llm = useLlm();
   const localAi = useLocalAiSetup();
   const [helpOpen, setHelpOpen] = useState(false);
@@ -85,7 +86,7 @@ export function AiFeatureGateProvider({ children }: { children: ReactNode }) {
 
   const prepareFeature = useCallback(
     async (feature: FeatureId): Promise<PrepareFeatureResult> => {
-      if (isDemoMode) {
+      if (isDemo) {
         return { ok: true };
       }
 
@@ -135,7 +136,7 @@ export function AiFeatureGateProvider({ children }: { children: ReactNode }) {
       toastAiAvailability("Could not prepare AI for this feature. Check AI settings and try again.");
       return { ok: false, reason: "unavailable" };
     },
-    [llm, localAi, openOnDeviceHelp],
+    [llm, localAi, openOnDeviceHelp, isDemo],
   );
 
   return (

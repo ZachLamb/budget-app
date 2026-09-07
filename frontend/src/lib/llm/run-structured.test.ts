@@ -51,7 +51,7 @@ describe("runStructuredJson schema wiring", () => {
     const res = await runStructuredJson("fsa_review", fakeCtx, {
       system: "sys",
       prompt: "prompt",
-    });
+    }, false);
 
     expect(res.tier).toBe(1);
     expect(recorded).toHaveLength(1);
@@ -67,7 +67,7 @@ describe("runStructuredJson schema wiring", () => {
     const res = await runStructuredJson("fsa_review", fakeCtx, {
       system: "sys",
       prompt: "prompt",
-    });
+    }, false);
 
     expect(res.tier).toBe(2);
     expect(recorded).toHaveLength(1);
@@ -95,7 +95,7 @@ describe("runStructuredJson schema wiring", () => {
     const res = await runStructuredJson("categorize_transaction", fakeCtx, {
       system: "sys",
       prompt: "prompt",
-    });
+    }, false);
 
     expect(res.tier).toBe(1);
     expect(recorded).toHaveLength(2);
@@ -205,7 +205,7 @@ describe("runBatchedStructuredJson alignment", () => {
         { system: "s", prompt: "FAIL batch1" },
         { system: "s", prompt: "batch2" },
       ],
-    });
+    }, false);
 
     expect(res.results).toHaveLength(3);
     expect(res.results[1]).toBeNull();
