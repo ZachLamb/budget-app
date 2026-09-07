@@ -1,7 +1,8 @@
 # Render Blueprint for the Snack's Budget FastAPI backend.
-# Deploy: Render dashboard -> New -> Blueprint -> point at this repo, root
-# directory `backend/`. Builds from the existing Dockerfile (entrypoint.sh
-# runs `alembic upgrade head` before uvicorn, same as the Fly deploy did).
+# Deploy: Render dashboard -> New -> Blueprint -> point at this repo. This
+# file MUST live at the repo root — Render's Blueprint scanner does not look
+# in subdirectories. Builds from backend/Dockerfile (entrypoint.sh runs
+# `alembic upgrade head` before uvicorn, same as the Fly deploy did).
 #
 # Postgres is NOT defined here — this app was moved off Fly's paid Postgres
 # to Neon's free tier instead. Create a Neon project, copy its pooled
@@ -15,11 +16,16 @@ services:
   - type: web
     name: budget-app-backend
     runtime: docker
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     plan: free
     healthCheckPath: /api/health
     envVars:
+      # backend/entrypoint.sh hardcodes `uvicorn --port 8000`; PORT tells
+      # Render's proxy which port to route to (Docker services don't infer
+      # this from the Dockerfile).
+      - key: PORT
+        value: "8000"
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
