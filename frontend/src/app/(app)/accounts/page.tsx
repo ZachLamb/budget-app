@@ -67,7 +67,8 @@ function DebtFields({ form, setField }: {
           <Input type="number" step="0.01" min="0" max="100" className="pr-8"
             value={form.interest_rate}
             onChange={(e) => setField("interest_rate", e.target.value)}
-            placeholder="e.g. 24.99" />
+            placeholder="e.g. 24.99"
+            aria-label="Interest Rate (APR %)" />
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">%</span>
         </div>
       </div>
@@ -78,7 +79,8 @@ function DebtFields({ form, setField }: {
           <Input type="number" step="1" min="0" className="pl-7"
             value={form.minimum_payment}
             onChange={(e) => setField("minimum_payment", e.target.value)}
-            placeholder="e.g. 25" />
+            placeholder="e.g. 25"
+            aria-label="Minimum Monthly Payment" />
         </div>
       </div>
     </>
@@ -216,25 +218,25 @@ function AccountsContent() {
               className="space-y-4"
             >
               <div className="space-y-2">
-                <Label>Name</Label>
-                <Input value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} required />
+                <Label htmlFor="create-account-name">Name</Label>
+                <Input id="create-account-name" value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} required />
               </div>
               <div className="space-y-2">
-                <Label>Type</Label>
+                <Label htmlFor="create-account-type">Type</Label>
                 <Select value={createForm.account_type} onValueChange={(v) => setCreateForm({ ...createForm, account_type: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="create-account-type"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {ACCOUNT_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Institution</Label>
-                <Input value={createForm.institution} onChange={(e) => setCreateForm({ ...createForm, institution: e.target.value })} placeholder="e.g. Chase, Wells Fargo" />
+                <Label htmlFor="create-account-institution">Institution</Label>
+                <Input id="create-account-institution" value={createForm.institution} onChange={(e) => setCreateForm({ ...createForm, institution: e.target.value })} placeholder="e.g. Chase, Wells Fargo" />
               </div>
               <div className="space-y-2">
-                <Label>Starting Balance</Label>
-                <Input type="number" step="0.01" value={createForm.starting_balance} onChange={(e) => setCreateForm({ ...createForm, starting_balance: e.target.value })} />
+                <Label htmlFor="create-account-balance">Starting Balance</Label>
+                <Input id="create-account-balance" type="number" step="0.01" value={createForm.starting_balance} onChange={(e) => setCreateForm({ ...createForm, starting_balance: e.target.value })} />
               </div>
               {DEBT_TYPES.includes(createForm.account_type) && (
                 <DebtFields
@@ -320,10 +322,10 @@ function AccountsContent() {
                     <p className={cn("font-mono text-lg font-semibold", balanceColor(acct))}>
                       {displayBalance(acct)}
                     </p>
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(acct)} className="h-8 w-8 text-muted-foreground">
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(acct)} className="h-8 w-8 text-muted-foreground" aria-label={`Edit ${acct.name}`}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(acct.id)} className="h-8 w-8 text-muted-foreground hover:text-destructive">
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(acct.id)} className="h-8 w-8 text-muted-foreground hover:text-destructive" aria-label={`Delete ${acct.name}`}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -342,21 +344,21 @@ function AccountsContent() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Name</Label>
-              <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+              <Label htmlFor="edit-account-name">Name</Label>
+              <Input id="edit-account-name" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
             </div>
             <div className="space-y-2">
-              <Label>Type</Label>
+              <Label htmlFor="edit-account-type">Type</Label>
               <Select value={editForm.account_type} onValueChange={(v) => setEditForm({ ...editForm, account_type: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="edit-account-type"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {ACCOUNT_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Institution</Label>
-              <Input value={editForm.institution} onChange={(e) => setEditForm({ ...editForm, institution: e.target.value })} placeholder="e.g. Chase, Wells Fargo" />
+              <Label htmlFor="edit-account-institution">Institution</Label>
+              <Input id="edit-account-institution" value={editForm.institution} onChange={(e) => setEditForm({ ...editForm, institution: e.target.value })} placeholder="e.g. Chase, Wells Fargo" />
             </div>
             {DEBT_TYPES.includes(editForm.account_type) && (
               <DebtFields

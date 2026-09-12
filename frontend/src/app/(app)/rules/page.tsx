@@ -433,7 +433,7 @@ function RulesContent() {
                       </Button>
                     </TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteId(rule.id)}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteId(rule.id)} aria-label={`Delete rule for ${rule.match_value}`}>
                         <Trash2 className="h-3 w-3" />
                       </Button>
                     </TableCell>

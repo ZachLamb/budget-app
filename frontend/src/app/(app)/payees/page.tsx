@@ -152,8 +152,8 @@ function PayeesContent() {
             <DialogHeader><DialogTitle>Add Payee</DialogTitle></DialogHeader>
             <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate(form); }} className="space-y-4">
               <div className="space-y-2">
-                <Label>Name</Label>
-                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Starbucks" />
+                <Label htmlFor="create-payee-name">Name</Label>
+                <Input id="create-payee-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Starbucks" />
               </div>
               <div className="space-y-2">
                 <Label>Default Category</Label>
@@ -187,8 +187,8 @@ function PayeesContent() {
           <DialogHeader><DialogTitle>Edit Payee</DialogTitle></DialogHeader>
           <form onSubmit={(e) => { e.preventDefault(); if (editId) updateMutation.mutate({ id: editId, data: form }); }} className="space-y-4">
             <div className="space-y-2">
-              <Label>Name</Label>
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <Label htmlFor="edit-payee-name">Name</Label>
+              <Input id="edit-payee-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
             <div className="space-y-2">
               <Label>Default Category</Label>
@@ -298,7 +298,7 @@ function PayeesContent() {
         <CardHeader>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input className="pl-9" placeholder="Search payees..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Input className="pl-9" placeholder="Search payees..." aria-label="Search payees" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
         </CardHeader>
         <CardContent>
@@ -338,10 +338,10 @@ function PayeesContent() {
                     )}
                     <TableCell>
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(payee)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(payee)} aria-label={`Edit ${payee.name}`}>
                           <Pencil className="h-3 w-3" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteId(payee.id)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteId(payee.id)} aria-label={`Delete ${payee.name}`}>
                           <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>

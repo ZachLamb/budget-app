@@ -10,7 +10,7 @@
  *   else if (decision.kind === "needs_consent") ...show download dialog...
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useDemoGuard } from "@/lib/hooks";
 import { settingsApi } from "@/lib/api/settings";
@@ -216,5 +216,8 @@ export function useLlm(): UseLlm {
     [buildContext],
   );
 
-  return { capability, getContext, decide, run, runFeature, refresh };
+  return useMemo(
+    () => ({ capability, getContext, decide, run, runFeature, refresh }),
+    [capability, getContext, decide, run, runFeature, refresh],
+  );
 }

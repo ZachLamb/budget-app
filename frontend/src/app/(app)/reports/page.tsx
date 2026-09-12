@@ -101,9 +101,9 @@ function SpendingTab() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-center gap-2">
-        <Button variant="outline" size="icon" onClick={() => nav(-1)}><ChevronLeft className="h-4 w-4" /></Button>
+        <Button variant="outline" size="icon" onClick={() => nav(-1)} aria-label="Previous month"><ChevronLeft className="h-4 w-4" /></Button>
         <span className="w-44 text-center font-semibold">{monthLabel}</span>
-        <Button variant="outline" size="icon" onClick={() => nav(1)}><ChevronRight className="h-4 w-4" /></Button>
+        <Button variant="outline" size="icon" onClick={() => nav(1)} aria-label="Next month"><ChevronRight className="h-4 w-4" /></Button>
       </div>
 
       <QueryState

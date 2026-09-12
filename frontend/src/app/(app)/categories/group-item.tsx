@@ -189,6 +189,7 @@ export function GroupItem({
             <Input
               className="h-8 text-sm"
               placeholder="Add category..."
+              aria-label={`Add category to ${group.name}`}
               value={newCat}
               onChange={(e) => setNewCat(e.target.value)}
               onKeyDown={(e) => {

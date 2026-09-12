@@ -139,16 +139,19 @@ export function AiFeatureGateProvider({ children }: { children: ReactNode }) {
     [llm, localAi, openOnDeviceHelp, isDemo],
   );
 
+  const contextValue = useMemo(
+    () => ({
+      prepareFeature,
+      ensureLocalSetup,
+      openOnDeviceHelp,
+      localSetup,
+      aiSettingsPath: AI_SETTINGS_PATH,
+    }),
+    [prepareFeature, ensureLocalSetup, openOnDeviceHelp, localSetup],
+  );
+
   return (
-    <AiFeatureGateContext.Provider
-      value={{
-        prepareFeature,
-        ensureLocalSetup,
-        openOnDeviceHelp,
-        localSetup,
-        aiSettingsPath: AI_SETTINGS_PATH,
-      }}
-    >
+    <AiFeatureGateContext.Provider value={contextValue}>
       {children}
       <LocalAiSetupWizard {...localAi.wizardProps} />
       <OnDeviceAiHelpDialog

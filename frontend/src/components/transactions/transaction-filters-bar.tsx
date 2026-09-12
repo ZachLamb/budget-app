@@ -31,6 +31,7 @@ export function TransactionFiltersBar({
               <Input
                 className="pl-9"
                 placeholder="Search transactions..."
+                aria-label="Search transactions"
                 value={filters.search || ""}
                 onChange={(e) => onFiltersChange({ search: e.target.value, page: 1 })}
               />
@@ -84,6 +85,7 @@ export function TransactionFiltersBar({
                   onFiltersChange({ date_from: e.target.value || undefined, page: 1 })
                 }
                 placeholder="From"
+                aria-label="From date"
               />
               <Input
                 type="date"
@@ -93,6 +95,7 @@ export function TransactionFiltersBar({
                   onFiltersChange({ date_to: e.target.value || undefined, page: 1 })
                 }
                 placeholder="To"
+                aria-label="To date"
               />
             </div>
           </div>
