@@ -187,7 +187,7 @@ function GoalCard({ goal, onDelete, onToggle, onEdit, planFromAll }: {
             >
               {goal.is_completed ? "Reopen" : "Mark done"}
             </Button>
-            <Button variant="ghost" size="icon" onClick={onDelete} className="h-7 w-7 text-muted-foreground hover:text-destructive">
+            <Button variant="ghost" size="icon" onClick={onDelete} className="h-7 w-7 text-muted-foreground hover:text-destructive" aria-label={`Delete ${goal.name}`}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -729,7 +729,7 @@ function DebtTab() {
                   <p className="text-sm whitespace-pre-wrap">{aiAdvice.advice}</p>
                   <p className="text-xs text-muted-foreground">{aiAdvice.disclaimer}</p>
                 </div>
-                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setAiDismissed(true)}>
+                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setAiDismissed(true)} aria-label="Dismiss AI recommendation">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -878,7 +878,7 @@ function DebtTab() {
                       <span>Min: {acct.minimum_payment != null ? formatCurrency(Number(acct.minimum_payment)) : <span className="text-amber-500">not set</span>}</span>
                     </div>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => openEdit(acct)}>
+                  <Button variant="ghost" size="icon" onClick={() => openEdit(acct)} aria-label={`Edit ${acct.name}`}>
                     <Edit2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -917,7 +917,8 @@ function DebtTab() {
                   <Input type="number" min="0" step="10" className="pl-7"
                     value={extraMonthly || ""}
                     onChange={(e) => handleExtraChange(parseFloat(e.target.value) || 0)}
-                    placeholder="0" />
+                    placeholder="0"
+                    aria-label="Extra monthly payment" />
                 </div>
                 <p className="text-xs text-muted-foreground">Extra above minimums each month.</p>
               </div>

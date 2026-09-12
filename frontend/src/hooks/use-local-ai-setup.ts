@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import type {
   UseLocalAiSetup,
   WizardStep,
@@ -230,9 +230,8 @@ export function useLocalAiSetup(): UseLocalAiSetup {
   const nanoStatus = capability?.nano.status ?? "unsupported";
   const freeStorage = capability?.webgpu.storageQuotaBytes;
 
-  return {
-    ensureReady,
-    wizardProps: {
+  const wizardProps = useMemo(
+    () => ({
       open,
       step,
       setupPath,
@@ -251,6 +250,28 @@ export function useLocalAiSetup(): UseLocalAiSetup {
       onRetry,
       onGrantConsent,
       onToggleLite,
-    },
-  };
+    }),
+    [
+      open,
+      step,
+      setupPath,
+      nanoStatus,
+      modelSize,
+      freeStorage,
+      progress,
+      progressText,
+      verifyStatus,
+      verifyResult,
+      deviceUnsupported,
+      downloadError,
+      onNext,
+      onCancel,
+      onComplete,
+      onRetry,
+      onGrantConsent,
+      onToggleLite,
+    ],
+  );
+
+  return useMemo(() => ({ ensureReady, wizardProps }), [ensureReady, wizardProps]);
 }

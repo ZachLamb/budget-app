@@ -28,6 +28,9 @@ _DEMO_NON_AI_MUTATION_PATHS = frozenset({
     "/api/settings/pay-schedule",
     "/api/settings/cycle-review",
     "/api/recurring/suggestions/dismiss",
+    # POST for the request body only — computes a plan from existing
+    # accounts, writes nothing, so it's safe (and necessary) in demo mode.
+    "/api/debt/payoff-plan",
 })
 _DEMO_NON_AI_MUTATION_PREFIXES = (
     "/api/cycle-commitments",

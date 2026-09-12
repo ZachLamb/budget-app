@@ -166,6 +166,7 @@ function CategoriesContent() {
             <Input
               ref={groupInputRef}
               placeholder="New category group..."
+              aria-label="New category group name"
               value={newGroup}
               onChange={(e) => setNewGroup(e.target.value)}
               onKeyDown={(e) => {
@@ -175,6 +176,7 @@ function CategoriesContent() {
             <label className="flex items-center gap-1.5 whitespace-nowrap text-sm text-muted-foreground">
               <input
                 type="checkbox"
+                id="new-group-income"
                 className="h-4 w-4 accent-primary"
                 checked={newGroupIncome}
                 onChange={(e) => setNewGroupIncome(e.target.checked)}

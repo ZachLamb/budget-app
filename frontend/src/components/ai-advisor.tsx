@@ -446,6 +446,7 @@ function AiAdvisorInner() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKey}
               placeholder="Ask about your finances… (Enter to send)"
+              aria-label="Ask about your finances"
               rows={1}
               className="resize-none min-h-[40px] max-h-28 flex-1 bg-background text-sm rounded-xl border-muted-foreground/20"
               disabled={streaming || unavailable}
@@ -455,6 +456,7 @@ function AiAdvisorInner() {
               onClick={() => void send()}
               disabled={!input.trim() || streaming || unavailable}
               className="h-10 w-10 rounded-xl shrink-0"
+              aria-label="Send message"
             >
               {streaming
                 ? <Loader2 className="h-4 w-4 animate-spin" />
