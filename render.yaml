@@ -40,5 +40,17 @@ services:
         sync: false
       - key: DEMO_MODE
         value: "false"
+      # Google sign-in. The backend gates the button and the /api/auth/google
+      # route on GOOGLE_CLIENT_ID; unset means "disabled" and the route 501s.
+      # BACKEND_PUBLIC_URL must be this service's public https origin — it is
+      # what the OAuth redirect_uri is built from, and Google matches that
+      # string exactly. Declared here (not just in a comment) so a missing
+      # value is visible in the Blueprint rather than silent.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: BACKEND_PUBLIC_URL
+        sync: false
       # Optional — leave unset to disable. See .env.example for the full list
       # (Google OAuth, Resend, Upstash rate-limit store, LLM_BACKEND_*, etc.)

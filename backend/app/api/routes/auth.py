@@ -735,8 +735,14 @@ GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
 
 def _build_redirect_uri(request: Request) -> str:
-    """Build the callback URL that Google will redirect to (this backend)."""
-    base = str(request.base_url).rstrip("/")
+    """Build the callback URL that Google will redirect to (this backend).
+
+    Google compares redirect_uri as an exact string, so prefer the configured
+    public origin over anything derived from the request. See
+    Settings.backend_public_url for why the request is not trustworthy here.
+    """
+    configured = get_settings().backend_public_url.strip()
+    base = (configured or str(request.base_url)).rstrip("/")
     return f"{base}/api/auth/google/callback"
 
 

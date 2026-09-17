@@ -54,6 +54,9 @@ def _demo_oauth_settings(*, demo_mode: bool = True) -> SimpleNamespace:
         google_client_id="test.apps.googleusercontent.com",
         google_client_secret="test-secret",
         frontend_url="http://localhost:3001",
+        # Empty => _build_redirect_uri falls back to the request's base_url,
+        # which is what these tests assert against.
+        backend_public_url="",
         demo_mode=demo_mode,
     )
 
