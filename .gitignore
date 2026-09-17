@@ -44,3 +44,4 @@ xcuserdata/
 
 # Personal local compose overrides (host port clashes, etc.)
 docker-compose.override.yml
+.vercel
