@@ -1,178 +1,191 @@
 # Deployment security checklist
 
-Operational reference for the Vercel + Fly.io stack. Lists **environment variable names only** — never commit values.
+Operational reference for the **Vercel + Render + Neon** stack. Lists
+**environment variable names only** — never commit values.
+
+> Rewritten 2026-09-13. This document previously described a Fly.io backend with
+> Fly Postgres. That stack is retired and its apps are paused. Following the old
+> version during an incident actively misled the reader.
 
 ## Architecture
 
-| Component | Platform | App / resource name |
-|-----------|----------|---------------------|
-| Frontend | Vercel (Next.js) | Linked via `vercel link` in `frontend/` |
-| API | Fly.io | `clarity-backend` ([`backend/fly.toml`](../backend/fly.toml)) |
-| Postgres | Fly.io | `clarity-db` (attached to backend via `fly postgres attach`) |
-| Shared rate limits / auth challenges | Upstash Redis | REST API; same credentials as rate-limit store |
-| Cloud LLM (Tier 4) | Modal | See [`infra/modal/README.md`](../infra/modal/README.md) |
+| Component | Platform | Resource name | Notes |
+|---|---|---|---|
+| Frontend | Vercel | `snacks-budget` | Next.js, root directory `frontend`, https://snacks-budget.vercel.app |
+| API | Render | `budget-app-backend` | Docker from `backend/Dockerfile`, free plan, oregon, https://budget-app-backend-mdy0.onrender.com (`srv-daf30te7bikc73cn3i0g`) |
+| Database | Neon | Postgres free tier | Not managed by Render; connection strings are pasted into Render env vars |
+| Blueprint | Render | `render.yaml` (repo root) | Vars marked `sync: false` are **not** auto-populated |
+
+**Auth methods that exist:** password, passkey (WebAuthn), Google OAuth
+(currently disabled). There is **no magic-link email sign-in** — `auth.py` has no
+such route. `config.py` still warns about `RESEND_API_KEY` on boot; that warning
+refers to a feature that does not exist and can be ignored until one is built.
+Password sign-in is the account-recovery path.
+
+## Failure modes unique to this stack
+
+| Symptom | Likely cause | Where to look |
+|---|---|---|
+| API answers `curl` fine but the web app can do nothing | Browser `Origin` not in `CORS_ORIGINS`, **or the running container predates the current env vars** | Preflight assertion below; Render env vars |
+| Backend silently frozen on old code | Render auto-deploy branch was deleted from origin, so nothing triggers | Render deploy history — check the date of the newest deploy |
+| Passkey prompt fails instantly, no network request | `WEBAUTHN_RP_ID` does not match the login-page domain | Browser console (`SecurityError`); `WEBAUTHN_RP_ID` |
+| First request takes ~35s | Free-plan cold start, **not** an outage | Normal; login page shows a wake-up strip |
+
+## Render (backend)
+
+No `render` CLI is installed locally and the Render MCP server's write path
+returns `500`, so operate via the REST API with a key from
+**dashboard.render.com → Account Settings → API Keys**.
+
+```bash
+export RENDER_API_KEY=...            # keep out of shell history / commits
+SVC=srv-daf30te7bikc73cn3i0g
+
+# Names + values of every env var
+curl -sS -H "Authorization: Bearer $RENDER_API_KEY" \
+  "https://api.render.com/v1/services/$SVC/env-vars?limit=100" | jq -r '.[].envVar.key'
+
+# Set ONE var (merge — does not disturb the others)
+curl -sS -X PUT -H "Authorization: Bearer $RENDER_API_KEY" \
+  -H 'Content-Type: application/json' -d '{"key":"KEY","value":"VALUE"}' \
+  "https://api.render.com/v1/services/$SVC/env-vars/KEY"
+
+# Which branch auto-deploy watches, and the newest deploy
+curl -sS -H "Authorization: Bearer $RENDER_API_KEY" \
+  "https://api.render.com/v1/services/$SVC" | jq '{branch, autoDeploy}'
+curl -sS -H "Authorization: Bearer $RENDER_API_KEY" \
+  "https://api.render.com/v1/services/$SVC/deploys?limit=1" \
+  | jq -r '.[0].deploy | "\(.status) \(.createdAt) \(.commit.id[0:8])"'
+
+# Deploy now (env-var edits alone may not restart the container)
+curl -sS -X POST -H "Authorization: Bearer $RENDER_API_KEY" \
+  -H 'Content-Type: application/json' -d '{"clearCache":"clear"}' \
+  "https://api.render.com/v1/services/$SVC/deploys"
+```
+
+> **The whole PUT body replaces that one variable only.** Do not use the
+> collection endpoint with a partial list — it replaces every variable.
+
+| Secret / env | Purpose |
+|---|---|
+| `SECRET_KEY` | JWT signing (required, ≥32 chars) |
+| `DATABASE_URL` / `DATABASE_URL_SYNC` | Neon pooled connection strings (async + sync) |
+| `CORS_ORIGINS` | Comma-separated browser origins. **Must contain the Vercel app URL.** |
+| `FRONTEND_URL` | OAuth redirects, cookie `Secure` detection, WebAuthn RP-ID derivation |
+| `WEBAUTHN_RP_ID` | Passkey RP ID — the login-page hostname |
+| `TRUSTED_PROXIES` | `10.0.0.0/8` on Render (see below) |
+| `ADMIN_EMAIL` | Bootstrap admin approval |
+| `DEMO_MODE` | Must be `false` in production |
+| `PORT` | `8000` — `entrypoint.sh` hardcodes it; Render needs telling |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | Shared rate-limit + auth ephemeral store (aliases: `KV_REST_API_URL` / `KV_REST_API_TOKEN`) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional Google OAuth |
+
+### `TRUSTED_PROXIES`
+
+Set to `10.0.0.0/8` — Render's proxy addresses the app sees are in that range
+(observed: `10.213.25.181`, `10.28.241.110`, `10.31.110.3`). Without it, Render's
+edge is the rate-limit key and **all clients share one bucket**.
+
+### Rate-limit store
+
+`rate_limit_store.py` speaks the **Upstash REST API only** (`rest_url` +
+`rest_token`) — not the Redis wire protocol. Render's own Key Value product is
+therefore **not** a drop-in; it would need a new store class. Provision Upstash
+(directly, or via the Vercel Marketplace which supplies `KV_REST_API_*`) and copy
+both values to Render.
+
+Until then `/api/health` reports `rate_limit_store: memory`: limits and
+WebAuthn/OAuth challenges are per-instance and lost on restart. Safe only at one
+instance.
 
 ## Vercel (frontend)
 
-**Monorepo layout:** Next.js lives in `frontend/`. **Root Directory** = `frontend` is configured in the Vercel project. [`frontend/vercel.json`](../frontend/vercel.json) holds install/build. Before pushing UI changes, run `./scripts/vercel-build-check.sh` or `./scripts/ci-local.sh`.
-
-Verify in the Vercel dashboard or `vercel env ls` (from `frontend/`):
+Root Directory is `frontend`; `frontend/vercel.json` holds install/build.
 
 | Variable | Purpose |
-|----------|---------|
-| `NEXT_PUBLIC_API_URL` | Rewrite target for `/api/*` (public Fly API URL in production) |
+|---|---|
+| `NEXT_PUBLIC_API_URL` | Rewrite target for `/api/*` — the public Render URL |
 | `NEXT_PUBLIC_APP_URL` | Canonical app URL for SSR / links |
-| `VERCEL_ENV` | `production` / `preview` / `development` (read-only, set by Vercel) |
+| `NEXT_PUBLIC_DEMO_MODE` | Build-time demo flag |
 
-**Integrations to confirm**
-
-- Upstash (Vercel Marketplace) may provision `KV_REST_API_URL` / `KV_REST_API_TOKEN` on the **Vercel** project. The **Fly backend** must also receive these (or `UPSTASH_REDIS_REST_*` aliases) — rate limits, lockout, and WebAuthn/OAuth ephemeral state do not run on Vercel.
-
-**Hardening**
-
-- Enable Deployment Protection for preview deployments if the repository is public.
-- Scope secrets per environment (Production vs Preview); use separate `SECRET_KEY` and databases for previews when possible.
-- Confirm no backend secrets appear in `NEXT_PUBLIC_*` variables.
-
-## Fly.io (backend)
-
-```bash
-fly secrets list -a clarity-backend   # names only
-fly status -a clarity-backend
-```
-
-| Secret / env | Purpose |
-|--------------|---------|
-| `SECRET_KEY` | JWT signing (required, ≥32 chars) |
-| `DATABASE_URL` | Postgres (set by `fly postgres attach`) |
-| `CORS_ORIGINS` | Comma-separated browser origins (Vercel app URL(s)) |
-| `FRONTEND_URL` | OAuth redirects, cookie `Secure` detection |
-| `TRUSTED_PROXIES` | CIDRs allowed to set `X-Forwarded-For` (see below) |
-| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Shared rate limit + auth ephemeral store |
-| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Vercel Marketplace alias (accepted by backend config) |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional Google OAuth |
-| `WEBAUTHN_RP_ID` | Passkey RP ID (production hostname) |
-| `LLM_BACKEND_URL` / `LLM_BACKEND_API_KEY` | Modal vLLM in production |
-| `RESEND_API_KEY` / `EMAIL_FROM_ADDRESS` | Magic-link email |
-| `ADMIN_EMAIL` | Bootstrap admin approval |
-| `AUTH_RATE_LIMIT_STRICT` | When `true` and Upstash is set, `/api/auth/*` returns 429 if Redis is unreachable (default `false`) |
-| `FLY_APP_NAME` | Set automatically on Fly (production marker) |
-
-### `TRUSTED_PROXIES` (required for correct per-IP rate limits)
-
-Without this, Fly’s edge proxy is the rate-limit key and all clients share one bucket.
-
-```bash
-fly secrets set TRUSTED_PROXIES='172.16.0.0/12,10.0.0.0/8' -a clarity-backend
-```
-
-After deploy, confirm `/api/health` reports `rate_limit_store: upstash` (or `memory` in dev) and `rate_limit_store_status: ok` when Upstash is configured.
-
-### Machine count vs auth challenges
-
-OAuth login codes and WebAuthn challenges use the shared Upstash store when Redis credentials are set. With Upstash configured, multiple Fly machines are safe. Without Upstash, keep **one machine** or accept broken passkey/OAuth during restarts.
+**Backend variables do not belong here.** `CORS_ORIGINS` and `FRONTEND_URL` were
+found set on the Vercel project on 2026-09-13, where they are inert; they were
+removed. The backend reads them from Render and nowhere else.
 
 ## Health verification
 
+`curl` ignores CORS, so a green health check proves nothing about whether the
+browser can talk to the API. **Assert the preflight separately** — this is the
+check that would have caught the 2026-09-07 outage:
+
 ```bash
-curl -sS "https://<your-fly-app>/api/health" | jq .
+API=https://budget-app-backend-mdy0.onrender.com
+APP=https://snacks-budget.vercel.app
+
+curl -sS --max-time 90 "$API/api/health" | jq .     # status + db + rate_limit_store
+curl -sS --max-time 90 "$API/api/config" | jq .     # server-authoritative demo_mode
+
+curl -sS -o /dev/null -D - --max-time 90 -X OPTIONS "$API/api/auth/login" \
+  -H "Origin: $APP" -H 'Access-Control-Request-Method: POST' \
+  | grep -i access-control-allow-origin     # MUST echo $APP
 ```
 
-Expect `components.rate_limit_store` and `components.rate_limit_store_status`.
+`.github/workflows/prod-health.yml` runs all three every 30 minutes.
 
 ## Changing the app's domain (login-critical)
 
-Moving the frontend to a new hostname breaks sign-in in three separate ways.
-All three are runtime env/secrets — no code change fixes them.
+Moving the frontend to a new hostname breaks sign-in in three ways. All three are
+runtime env vars on Render — no code change fixes them.
 
 1. **`WEBAUTHN_RP_ID`** — must be the new login-page domain (or a registrable
-   suffix of it, e.g. `snacksbudget.app` covers `app.snacksbudget.app`). If it
-   still names the old domain the browser aborts the passkey ceremony with
+   suffix). Otherwise the browser aborts the passkey ceremony with
    `SecurityError` and *no request reaches the backend*.
-2. **`CORS_ORIGINS`** — must contain the new origin. Otherwise `/api/auth/*`
-   rejects the browser origin with `400 Invalid origin`.
-3. **`FRONTEND_URL`** — magic-link and OAuth redirects point here; a stale
-   value sends users back to the old domain.
+2. **`CORS_ORIGINS`** — must contain the new origin, or `/api/auth/*` rejects the
+   browser with `400 Invalid origin`.
+3. **`FRONTEND_URL`** — OAuth redirects point here.
 
-```bash
-fly secrets set \
-  WEBAUTHN_RP_ID='<new-domain>' \
-  CORS_ORIGINS='https://<new-domain>' \
-  FRONTEND_URL='https://<new-domain>' \
-  -a clarity-backend
-```
+Set all three, then **deploy** — editing env vars does not reliably restart the
+container (see the 2026-09-13 incident). `config.py` logs a startup warning for
+each mismatch; check the logs after deploying.
 
-Both mismatches now emit a startup warning (`app/config.py`); check
-`fly logs -a clarity-backend` after the deploy.
+> **Existing passkeys do not survive a domain change.** A passkey is bound to the
+> RP ID it was created under. Affected users must sign in with their password and
+> register a new passkey.
 
-> **Existing passkeys do not survive a domain change.** A passkey is
-> cryptographically bound to the RP ID it was created under, so credentials
-> registered on the old domain can never be asserted on the new one — there is
-> no migration. Affected users must sign in by another method (magic link) and
-> register a new passkey. Keep `RESEND_API_KEY` + `EMAIL_FROM_ADDRESS` working
-> before the cutover, or everyone is locked out.
+## Incident: prod unreachable from the browser for six days (2026-09-13)
+
+**Symptom:** the app loaded at `snacks-budget.vercel.app` but nothing worked.
+`/api/health` returned `status: ok, db: ok` throughout.
+
+**Cause:** PR #117 merged and its branch `feat/ai-features-lm-studio` was deleted.
+Render's auto-deploy still watched that branch, so **no deploy ran for six days**.
+Correct `CORS_ORIGINS` had been saved to Render, but the container still running
+predated it and served the compiled-in default (`localhost:3000,3001`). It
+rejected the production origin as `400 Disallowed CORS origin` — identically to a
+hostile one.
+
+**Why it went unnoticed:** `prod-health.yml` still probed the paused Fly app, so
+it had been failing every run for weeks. A permanently-red alert carries no
+signal.
+
+**Fix:** repointed the service to `main`, deployed. Verified by preflight —
+the production origin echoed back, and `localhost` flipped to `400`, proving the
+container had restarted with real config.
+
+**Lessons:**
+- A deleted deploy branch fails *silently*: green dashboard, stale code, no alert.
+- Curl-based health checks cannot see CORS. Assert the preflight.
+- Env vars saved but never deployed are not in effect. Confirm from the outside.
 
 ## Incident: production stuck in demo mode (2026-07-25)
 
-**Symptom:** could not sign in or create an account on `snacks-budget.vercel.app`.
+**Symptom:** could not sign in or create an account.
 
-**Cause:** the backend had `DEMO_MODE=true` *and* `DEMO_MODE_ALLOW_PRODUCTION=true`
-set as Fly secrets. The second is the deliberate escape hatch that bypasses the
-hard-fail gate in `app/config.py`, so the app booted normally — but
-`DemoGuardMiddleware` was installed, and it 403s every mutation not on its
-allowlist. Registration is not on that allowlist:
+**Cause:** `DEMO_MODE=true` *and* `DEMO_MODE_ALLOW_PRODUCTION=true` were set. The
+second bypasses the hard-fail gate in `config.py`, so the app booted normally —
+but `DemoGuardMiddleware` 403s every mutation not on its allowlist, and
+registration is not on it. Sign-*in* was permitted; sign-*up* was not.
 
-```
-POST /api/auth/register           → 403 "This is a read-only demo"
-POST /api/auth/passkey/register/* → 403 "This is a read-only demo"
-```
-
-Sign-*in* was permitted; sign-*up* and passkey enrolment were not — so there was
-no way to establish an account on the new domain. The frontend was built with
-`NEXT_PUBLIC_DEMO_MODE` empty, so the UI never revealed itself as a demo. This
-is exactly the build-time/runtime drift the `/api/config` docstring warns about.
-
-**Fix:** `fly secrets unset DEMO_MODE DEMO_MODE_ALLOW_PRODUCTION -a clarity-backend`
-
-**Diagnosis shortcut** — `curl -sS https://<backend>/api/config` is
-server-authoritative and answers "is this deploy a demo?" in one request. Check
-it first when sign-up misbehaves; the domain/passkey settings below are a
-separate failure class with different symptoms.
-
-`app/config.py` now logs a loud `READ-ONLY DEMO` warning whenever the escape
-hatch is active, so this state can't sit unnoticed again.
-
-Also cleared in the same pass: `WEBAUTHN_RP_NAME` was still set to `Clarity` on
-Fly, overriding the renamed code default, so OS passkey prompts read "Clarity".
-Unset it — the `app/config.py` default (`Snack's Budget`) is now authoritative.
-
-## MCP / ops log (2026-05-17)
-
-Executed on production:
-
-| Step | Status |
-|------|--------|
-| Fly deploy (`clarity-backend`) with security code | Done — migration `0006_add_user_session_version` applied on boot |
-| Vercel production deploy (`clarity`) | Done — production alias (see Vercel dashboard) |
-| `TRUSTED_PROXIES` on Fly | Done |
-| `KV_REST_API_*` synced to Fly | Set from Vercel env — **hostname was NXDOMAIN** (stale uninstalled integration) |
-| Upstash reprovision | New store `clarity-rate-limit` created; **project env link needs dashboard finish** |
-
-### Upstash remediation (required for shared rate limits / auth challenges)
-
-The old `budget-app-rate-limit` integration was **Uninstalled** but left dead `KV_*` env vars. Those vars were removed from Vercel; a new store `clarity-rate-limit` was provisioned.
-
-**Finish in Vercel** (one-time): [Upstash integration dashboard](https://vercel.com/zach-lambs-projects/~/integrations/upstash) → connect `clarity-rate-limit` to project **clarity** (or run `vercel integration add upstash/upstash-kv` and complete the browser step).
-
-Then sync to Fly (do not commit pulled env files):
-
-```bash
-cd frontend && vercel env pull /tmp/clarity-vercel-prod.env --environment=production --yes
-set -a && source /tmp/clarity-vercel-prod.env && set +a
-fly secrets set KV_REST_API_URL="$KV_REST_API_URL" KV_REST_API_TOKEN="$KV_REST_API_TOKEN" -a clarity-backend
-rm -f /tmp/clarity-vercel-prod.env
-```
-
-Confirm: `curl -sS "https://<your-fly-app>/api/health"` shows `rate_limit_store_status: ok` (not `unavailable`).
-
-Until then, rate limiting and OAuth/passkey challenges use **in-memory fallback per Fly machine** (degraded but functional on a single instance).
+**Fix:** unset both. `curl -sS "$API/api/config"` is server-authoritative and
+answers "is this deploy a demo?" in one request — check it first when sign-up
+misbehaves.

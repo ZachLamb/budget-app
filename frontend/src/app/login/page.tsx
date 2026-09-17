@@ -15,6 +15,7 @@ import { appToast } from "@/lib/app-toast";
 import { passkeyRegisterErrorAction } from "@/lib/passkey-register-error";
 import { buildNativeCallbackURL, parseNativeHandoff } from "@/lib/native-handoff";
 import { useDemoGuard } from "@/lib/hooks";
+import { BackendWakeStrip } from "@/components/backend-wake-strip";
 
 const ERROR_MESSAGES: Record<string, string> = {
   access_denied: "Google sign-in was cancelled or denied.",
@@ -227,7 +228,9 @@ function LoginPageContent() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
-      <Card className="w-full max-w-sm">
+      <div className="w-full max-w-sm">
+        <BackendWakeStrip />
+        <Card className="w-full">
         <CardHeader className="text-center pb-2">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Wallet className="h-6 w-6 text-primary" />
@@ -389,7 +392,8 @@ function LoginPageContent() {
             </p>
           )}
         </CardContent>
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }
