@@ -78,6 +78,31 @@ describe("nanoProvider.generate with schema", () => {
   });
 });
 
+describe("nanoProvider.generate output language", () => {
+  it("declares outputLanguage on the prompt call", async () => {
+    // Chrome logs "No output language was specified in a LanguageModel API
+    // request" on every prompt unless outputLanguage is passed here. Setting
+    // expectedOutputs at session creation does not satisfy it — the warning
+    // was observed in production with expectedOutputs already set.
+    let captured: Record<string, unknown> | undefined;
+    (globalThis as Record<string, unknown>).LanguageModel = {
+      availability: vi.fn().mockResolvedValue("available"),
+      create: vi.fn(async () => ({
+        promptStreaming: (_p: string, o?: Record<string, unknown>) => {
+          captured = o;
+          return (async function* () {
+            yield "ok";
+          })();
+        },
+        destroy: vi.fn(),
+      })),
+    };
+    const out: string[] = [];
+    for await (const c of nanoProvider.generate("p")) out.push(c);
+    expect(captured?.outputLanguage).toBe("en");
+  });
+});
+
 function makeSession() {
   return {
     promptStreaming: () =>
