@@ -1,46 +1,92 @@
 name: Prod health alert
 
-# Every 30 minutes: fail loudly if any Fly health check on the backend or
-# the Postgres machine is not passing, or if /api/health degrades. A failing
-# run triggers GitHub's workflow-failure notification — this is the alert.
-# Added after the clarity-db `vm` check sat critical (memory starvation,
-# intermittent 500s) with zero visibility for an unknown period.
+# Fail loudly if the production API is unhealthy. A failing run triggers
+# GitHub's workflow-failure notification — this is the alert.
+#
+# 2026-09-13 rewrite: this workflow previously probed clarity-backend.fly.dev
+# and ran `flyctl checks list` against clarity-backend / clarity-db. The backend
+# moved to Render + Neon and the Fly apps were paused, so EVERY run failed from
+# that point on. A permanently-red alert carries no signal: the backend then sat
+# broken for six days (deleted auto-deploy branch, stale container rejecting the
+# production CORS origin) and this workflow never distinguished it from the
+# noise. Alert on the thing you actually run.
 on:
   workflow_dispatch:
   schedule:
+    # Every 30 minutes. Render's free plan spins the service down after ~15
+    # minutes idle, so most scheduled runs pay a cold start — hence the
+    # generous timeouts below, which are NOT arbitrary padding.
+    #
+    # Changing this to "*/10 * * * *" would keep the service permanently warm
+    # and eliminate user-facing cold starts, but an always-on free service
+    # burns ~730 of the 750 free instance-hours/month, leaving almost no
+    # margin. Left at 30 deliberately; the login page handles cold starts
+    # gracefully (see frontend/src/components/backend-wake-strip.tsx).
     - cron: "*/30 * * * *"
+
+concurrency:
+  group: prod-health
+  cancel-in-progress: true
 
 jobs:
   health:
-    name: Fly checks + API health
+    name: Render API health
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
+    env:
+      API: https://budget-app-backend-mdy0.onrender.com
+      APP_ORIGIN: https://snacks-budget.vercel.app
     steps:
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-
       - name: API health endpoint
         run: |
-          body=$(curl -sf --max-time 15 https://clarity-backend.fly.dev/api/health)
+          # A cold start is a successful-but-slow response, not an outage.
+          # Measured p50 ~35s on the free plan, so allow 90s and retry twice
+          # before calling it down. The old 15s timeout would have reported
+          # every cold start as a failure.
+          body=$(curl -sS --max-time 90 --retry 2 --retry-all-errors \
+                   --retry-delay 5 "$API/api/health") || {
+            echo "::error::/api/health unreachable after retries"; exit 1; }
           echo "$body"
           echo "$body" | jq -e '.status == "ok" and .db == "ok"' >/dev/null \
-            || { echo "::error::/api/health degraded" >&2; exit 1; }
+            || { echo "::error::/api/health degraded (status/db not ok)"; exit 1; }
 
-      - name: Fly machine checks (backend + database)
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_READONLY_TOKEN }}
+      - name: Browser origin is accepted (CORS)
         run: |
-          # JSON shape: { "<machine_id>": [ {name, status, output, ...}, ... ] }
-          # Assert every check on every machine reports status == "passing" —
-          # never substring-grep the human-formatted table (check names or
-          # HTTP outputs legitimately contain words like "error").
-          fail=0
-          for app in clarity-backend clarity-db; do
-            echo "== $app =="
-            out=$(flyctl checks list -a "$app" --json) || { echo "::error::flyctl checks failed for $app"; fail=1; continue; }
-            echo "$out" | jq -r '.[][] | "\(.name): \(.status)"'
-            if ! echo "$out" | jq -e '[.[][] | .status] | length > 0 and all(. == "passing")' >/dev/null; then
-              echo "::error::$app has a non-passing health check"
-              fail=1
-            fi
-          done
-          exit $fail
+          # Guards the exact failure that took prod down on 2026-09-07: the API
+          # answers curl perfectly while rejecting the browser's Origin, so
+          # every request from the real frontend fails. A plain health check
+          # cannot see this — it must be asserted separately.
+          acao=$(curl -sS -o /dev/null -D - --max-time 90 --retry 2 \
+                   --retry-all-errors --retry-delay 5 \
+                   -X OPTIONS "$API/api/auth/login" \
+                   -H "Origin: $APP_ORIGIN" \
+                   -H 'Access-Control-Request-Method: POST' \
+                   -H 'Access-Control-Request-Headers: content-type' \
+                 | tr -d '\r' | awk -F': ' 'tolower($1)=="access-control-allow-origin"{print $2}')
+          echo "access-control-allow-origin: ${acao:-<none>}"
+          [ "$acao" = "$APP_ORIGIN" ] || {
+            echo "::error::API does not accept the production browser origin ($APP_ORIGIN). Check CORS_ORIGINS on Render and that the running deploy picked it up."
+            exit 1; }
+
+      - name: Deployed commit matches main
+        run: |
+          # Catches silent deploy drift — e.g. an auto-deploy branch that was
+          # deleted, which is how the backend fell six days behind main with a
+          # green dashboard. Warns rather than fails: a deploy in flight is a
+          # legitimate transient mismatch.
+          deployed=$(curl -sS --max-time 90 "$API/api/config" >/dev/null 2>&1 && echo ok || echo unreachable)
+          echo "config endpoint: $deployed"
+          if [ -n "${RENDER_API_KEY:-}" ]; then
+            live=$(curl -sS --max-time 30 -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=1" \
+              | jq -r '.[0].deploy.commit.id // empty')
+            echo "deployed commit: ${live:-unknown}"
+            echo "main commit:     $GITHUB_SHA"
+            [ -z "$live" ] || [ "$live" = "$GITHUB_SHA" ] \
+              || echo "::warning::Render is running $live but main is $GITHUB_SHA"
+          else
+            echo "RENDER_API_KEY not set — skipping deploy-drift check."
+          fi
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: srv-daf30te7bikc73cn3i0g
