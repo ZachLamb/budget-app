@@ -73,7 +73,7 @@ function LoginPageContent() {
   // Expand "more options" if user clicked toggle OR passkeys aren't available
   const moreOptionsOpen = moreOptionsToggled || !canUsePasskey;
 
-  const { serverDemoMode: isDemo } = useDemoGuard();
+  const { serverDemoMode: isDemo, googleEnabled } = useDemoGuard();
   const { user, loading: authLoading, login } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -342,7 +342,7 @@ function LoginPageContent() {
                     </Button>
                   )}
 
-                  {!isDemo && (
+                  {!isDemo && googleEnabled && (
                     <Button
                       type="button"
                       variant="outline"

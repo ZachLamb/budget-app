@@ -86,6 +86,11 @@ export function useDemoGuard() {
     isDemo,
     // Server-wide flag: used by the login page to show "Try the Demo" button.
     serverDemoMode: data?.demo_mode ?? buildTimeDemoMode,
+    // Which sign-in methods the backend will actually honor. Google is gated
+    // on GOOGLE_CLIENT_ID being set, so offering the button unconditionally
+    // sends the user to /api/auth/google for a 501. Default false: only claim
+    // a method works once the server has said so.
+    googleEnabled: data?.auth_methods?.google ?? false,
     loading: isLoading,
     readOnlyMessage:
       "Demo is read-only — run your own copy locally to make changes.",
