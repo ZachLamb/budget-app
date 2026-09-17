@@ -735,14 +735,23 @@ GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
 
 def _build_redirect_uri(request: Request) -> str:
-    """Build the callback URL that Google will redirect to (this backend).
+    """Build the callback URL that Google will redirect to.
 
-    Google compares redirect_uri as an exact string, so prefer the configured
-    public origin over anything derived from the request. See
-    Settings.backend_public_url for why the request is not trustworthy here.
+    This is the FRONTEND origin, not this service's own host, and that is load
+    bearing. The login button navigates the browser to the frontend's
+    /api/auth/google, which the frontend rewrites to this service; the 302 to
+    Google sets `oauth_state` with no Domain attribute, so the browser scopes
+    that cookie host-only to the frontend origin. Sending Google to the
+    backend's own host would put the callback on a different host, the browser
+    would withhold oauth_state, and google_callback would see cookie_state=None
+    and redirect to /login?error=invalid_state — Google sign-in never completes.
+
+    The frontend proxies /api/:path* here, so the callback still reaches this
+    route. Whatever this returns must be registered verbatim in the Google
+    console: Google compares redirect_uri as an exact string, and it is sent
+    again at token exchange, where it must match the auth request.
     """
-    configured = get_settings().backend_public_url.strip()
-    base = (configured or str(request.base_url)).rstrip("/")
+    base = get_settings().frontend_url.rstrip("/")
     return f"{base}/api/auth/google/callback"
 
 
