@@ -23,13 +23,7 @@ import type { PipelineProgress } from "@/lib/llm/pipelines/types";
 import api from "@/lib/api/client";
 import { AiUnavailable } from "@/components/llm/ai-unavailable";
 import { AiRunStatus } from "@/components/llm/ai-run-status";
-
-const SUGGESTIONS = [
-  "How can I pay off my debt faster?",
-  "Where am I overspending this month?",
-  "Help me create a savings plan",
-  "What should I prioritize financially?",
-];
+import { suggestionsForPath } from "@/lib/llm/advisor-suggestions";
 
 interface Message {
   role: "user" | "assistant";
@@ -355,7 +349,7 @@ function AiAdvisorInner() {
                 </Link>
               </div>
               <div className="grid grid-cols-1 gap-2 w-full max-w-[320px]">
-                {SUGGESTIONS.map((s) => (
+                {suggestionsForPath(pathname).map((s) => (
                   <button
                     key={s}
                     onClick={() => { setInput(s); }}

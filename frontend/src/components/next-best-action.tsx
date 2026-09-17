@@ -41,7 +41,8 @@ export function NextBestAction({ className }: { className?: string }) {
     enabled: isClient,
   });
   const { data: txnProbe } = useQuery({
-    queryKey: ["transactions", "nba-probe"],
+    // Shared with setup-checklist's identical probe — see the note there.
+    queryKey: ["transactions", "existence-probe"],
     queryFn: () => transactionsApi.list({ page: 1, page_size: 1 }),
     enabled: isClient,
   });

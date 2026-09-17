@@ -10,7 +10,12 @@ import type { GenerateOptions, LLMProvider, NanoSetupState } from "../types";
 interface NanoSession {
   promptStreaming(
     input: string,
-    opts?: { signal?: AbortSignal; responseConstraint?: Record<string, unknown>; omitResponseConstraintInput?: boolean },
+    opts?: {
+      signal?: AbortSignal;
+      responseConstraint?: Record<string, unknown>;
+      omitResponseConstraintInput?: boolean;
+      outputLanguage?: string;
+    },
   ): AsyncIterable<string>;
   destroy?: () => void;
 }
@@ -123,6 +128,12 @@ class NanoProvider implements LLMProvider {
       signal: opts.signal,
       responseConstraint: opts.schema,
       omitResponseConstraintInput: opts.schema ? true : undefined,
+      // Chrome warns "No output language was specified in a LanguageModel API
+      // request" on every prompt without this, and says it affects output
+      // quality and safety attestation. Declaring expectedOutputs at session
+      // creation does not satisfy it — the warning was observed in production
+      // with expectedOutputs already set, so it is needed per request.
+      outputLanguage: "en",
     });
   }
 }

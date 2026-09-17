@@ -39,12 +39,16 @@ export function SetupChecklist({
     enabled: isClient,
   });
   const { data: txnProbe } = useQuery({
-    queryKey: ["transactions", "setup-probe"],
+    // Shared with next-best-action's identical probe so the endpoint is
+    // fetched once per dashboard load, not once per component.
+    queryKey: ["transactions", "existence-probe"],
     queryFn: () => transactionsApi.list({ page: 1, page_size: 1 }),
     enabled: isClient,
   });
   const { data: budget } = useQuery({
-    queryKey: ["budget", month, "setup"],
+    // Same key as the dashboard and next-best-action: identical request, so a
+    // distinct key here just refetched the month a second time.
+    queryKey: ["budget", month],
     queryFn: () => budgetApi.getMonth(month),
     enabled: isClient,
   });
