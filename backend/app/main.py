@@ -146,6 +146,11 @@ async def public_config():
             "password": True,
             "passkey": True,
             "google": bool(s.google_client_id) and not s.demo_mode,
+            # Magic link needs a working email sender. Without both of these
+            # services/email/resend.py returns ok=False and the button is dead,
+            # so don't advertise it.
+            "magic_link": bool(s.resend_api_key and s.email_from_address)
+            and not s.demo_mode,
         },
     }
 

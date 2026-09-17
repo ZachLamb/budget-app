@@ -14,6 +14,7 @@ interface AuthMethods {
   password: boolean;
   passkey: boolean;
   google: boolean;
+  magic_link: boolean;
 }
 
 export interface AppConfig {
