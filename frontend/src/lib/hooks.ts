@@ -91,6 +91,9 @@ export function useDemoGuard() {
     // sends the user to /api/auth/google for a 501. Default false: only claim
     // a method works once the server has said so.
     googleEnabled: data?.auth_methods?.google ?? false,
+    // Magic link needs a configured email sender; the backend reports whether
+    // it has one. Default false so a dead button is never offered.
+    magicLinkEnabled: data?.auth_methods?.magic_link ?? false,
     loading: isLoading,
     readOnlyMessage:
       "Demo is read-only — run your own copy locally to make changes.",

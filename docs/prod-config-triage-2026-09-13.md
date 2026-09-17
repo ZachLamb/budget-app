@@ -96,7 +96,7 @@ Legend: ✅ verified good · ❌ broken · ⚠️ degraded/needs confirming · �
 | B1 | Upstash / shared rate-limit store | ⚠️ | `/api/health` reports `rate_limit_store: memory`. OAuth codes + WebAuthn challenges are per-instance and lost on restart. Safe only at 1 instance. |
 | B2 | `TRUSTED_PROXIES` | ⚠️ | Not in `render.yaml`. Behind Render's proxy, every client shares one rate-limit bucket. |
 | B3 | `ADMIN_EMAIL` | ✅ | Confirmed set. |
-| B4 | `RESEND_API_KEY` / `EMAIL_FROM_ADDRESS` | ⚠️ | Confirmed **unset** (startup warning). Harmless today: there is **no magic-link route** in `auth.py` — auth is password + passkey + (disabled) Google. The warning and the checklist doc both describe a feature that does not exist. Password login is the recovery path. |
+| B4 | `RESEND_API_KEY` / `EMAIL_FROM_ADDRESS` | ⚠️ | Confirmed **unset** (startup warning). **Corrected 2026-09-17:** the original entry claimed there is no magic-link route and that the warning was therefore harmless. That was wrong — it only checked `auth.py`. The route lives in `backend/app/api/routes/magic_link.py` (plus `models/magic_link.py`, a rate-limit entry, and `services/email/resend.py`), and the live OpenAPI exposes `/api/auth/magic-link/request` and `/verify`. The login page offered the button gated on `!isDemo` only, so it was a reachable path failing with `RESEND_API_KEY not configured`. The button is now gated on `auth_methods.magic_link`; it returns on its own if an email sender is ever configured. Password + passkey remain the recovery paths. |
 | B5 | Free-plan cold start | ⚠️ | First request measured **35.7 s**. Reads as "app is broken" to a user. |
 | B6 | `docs/deployment-security-checklist.md` | ⚠️ | Documents Fly.io + Fly Postgres. Actively misleading during an incident. |
 

@@ -73,7 +73,7 @@ function LoginPageContent() {
   // Expand "more options" if user clicked toggle OR passkeys aren't available
   const moreOptionsOpen = moreOptionsToggled || !canUsePasskey;
 
-  const { serverDemoMode: isDemo, googleEnabled } = useDemoGuard();
+  const { serverDemoMode: isDemo, googleEnabled, magicLinkEnabled } = useDemoGuard();
   const { user, loading: authLoading, login } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -321,7 +321,7 @@ function LoginPageContent() {
                     <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
                   </div>
 
-                  {magicLinkSent ? (
+                  {magicLinkEnabled && (magicLinkSent ? (
                     <div className="flex items-start gap-3 rounded-md border border-green-600/30 bg-green-50/30 dark:bg-green-950/20 p-3 text-sm">
                       <CheckCircle2 className="size-4 mt-0.5 shrink-0 text-green-600" />
                       <div>
@@ -340,7 +340,7 @@ function LoginPageContent() {
                     >
                       {magicLinkSending ? "Sending…" : <><Mail className="mr-2 h-4 w-4" />Email me a sign-in link</>}
                     </Button>
-                  )}
+                  ))}
 
                   {!isDemo && googleEnabled && (
                     <Button
