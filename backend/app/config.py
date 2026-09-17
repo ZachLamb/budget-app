@@ -17,16 +17,6 @@ class Settings(BaseSettings):
     # Google OAuth (optional; leave empty to disable "Sign in with Google")
     google_client_id: str = ""
     google_client_secret: str = ""
-    # Public https origin of THIS backend, e.g.
-    # https://budget-app-backend-mdy0.onrender.com — used to build the Google
-    # OAuth redirect URI. Empty falls back to the request's base_url, which is
-    # right for local dev but wrong behind a proxy: uvicorn only trusts
-    # X-Forwarded-Proto from 127.0.0.1 by default, so base_url arrives as http
-    # and Google rejects the redirect_uri. Set this in production; do NOT widen
-    # uvicorn's --forwarded-allow-ips to fix the scheme, because that lets a
-    # client rewrite request.client.host via X-Forwarded-For and the auth rate
-    # limiter buckets on exactly that value.
-    backend_public_url: str = ""
     # Frontend URL for OAuth redirect after login (e.g. http://localhost:3001)
     frontend_url: str = "http://localhost:3001"
     # WebAuthn / passkeys: rp_id must match the host the login page is served
