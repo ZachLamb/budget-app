@@ -89,6 +89,7 @@ stack down on exit.
 
 ## Known issues / TODO
 
+- **Local LLM server unreachable from Docker**: if you point `LLM_BACKEND_URL`/`OLLAMA_URL` at a model server (LM Studio, Ollama) running on your host machine rather than the bundled `ollama` service, use `http://host.docker.internal:<port>` — not `localhost`, which inside the backend container resolves to the container itself. See `.env.example`.
 - **Dashboard "AI Suggestions" card is empty**: The collapsible card renders with no content when no AI suggestions are available. It should either be hidden when there's nothing to show, or display a meaningful empty state (e.g. "No suggestions yet — connect a bank account to get started"). Currently it just shows an empty collapsed box with a chevron.
 - **Fly.io app names still use "clarity"**: `clarity-backend` and `clarity-db` are the live Fly.io resource identifiers and can't be renamed by a code change alone. If the apps are ever migrated/recreated, update `backend/fly.toml`, `backend/app/services/hosting/fly.py`, and the test fixtures in `backend/tests/test_hosting_fly.py`.
 - **Encryption salt references "clarity"**: `b"clarity-column-encryption-v1"` in `backend/app/services/crypto.py` must never be changed — it's baked into all existing encrypted values in the database. If ever rotated, a full re-encryption migration is required.

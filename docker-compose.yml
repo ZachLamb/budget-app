@@ -36,6 +36,13 @@ services:
 
   backend:
     build: ./backend
+    # Lets the container resolve host.docker.internal to the host machine on
+    # Linux (Docker Desktop on Mac/Windows already provides this). Needed so
+    # OLLAMA_URL/LLM_BACKEND_URL can point at a local server (LM Studio,
+    # Ollama outside Docker) running on the host instead of "localhost",
+    # which inside the container means the container itself.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       DEMO_MODE: ${DEMO_MODE:-false}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-budget}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-budget_app}

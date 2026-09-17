@@ -14,7 +14,7 @@
       "Bash(grep *)",
       "Bash(docker compose *)",
       "Bash(chmod +x *)",
-      "Bash(lsof -nP -iTCP:* -sTCP:LISTEN*)",
+      "Bash(lsof -nP -iTCP *)",
       "Bash(./scripts/ci-local.sh)",
       "Bash(timeout * npm run *)",
       "Bash(timeout * ./scripts/ci-local.sh)"

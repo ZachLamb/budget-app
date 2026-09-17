@@ -41,3 +41,6 @@ desktop/.swiftpm/
 *.xcuserstate
 xcuserdata/
 .neon
+
+# Personal local compose overrides (host port clashes, etc.)
+docker-compose.override.yml
