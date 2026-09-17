@@ -20,6 +20,7 @@ import { Plus, Upload, Trash2, Download, ArrowLeftRight, MoreHorizontal, Message
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { appToast } from "@/lib/app-toast";
 import api from "@/lib/api/client";
+import { invalidateTransactionDerived } from "@/lib/query-invalidation";
 import { aiApi } from "@/lib/api/ai";
 import { AnomalyExplain } from "@/components/transactions/anomaly-explain";
 import { useFsaReviewScan } from "@/hooks/use-fsa-review-scan";
@@ -88,8 +89,7 @@ function TransactionsContent() {
       type === "transaction.updated" ||
       type === "transaction.deleted"
     ) {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      invalidateTransactionDerived(queryClient);
     }
   });
 
@@ -201,7 +201,7 @@ function TransactionsContent() {
   const applyCategorySuggestionsMutation = useMutation({
     mutationFn: reportsApi.applySuggestions,
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      invalidateTransactionDerived(queryClient);
       setLlmCategorySuggestions([]);
       setCategoryReviewOverrides({});
       setCategoryReviewOpen(false);
@@ -214,7 +214,7 @@ function TransactionsContent() {
     mutationFn: (payload: { transaction_id: string; category_id: string }) =>
       reportsApi.applySuggestions([payload]),
     onSuccess: (data, vars) => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      invalidateTransactionDerived(queryClient);
       setLlmCategorySuggestions((prev) => prev.filter((s) => s.transaction_id !== vars.transaction_id));
       setCategoryReviewOverrides((o) => {
         const next = { ...o };
@@ -236,8 +236,7 @@ function TransactionsContent() {
   const createMutation = useMutation({
     mutationFn: transactionsApi.create,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      invalidateTransactionDerived(queryClient);
       appToast.success("Transaction added");
       setAddOpen(false);
     },
@@ -247,8 +246,7 @@ function TransactionsContent() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<TransactionCreate> }) => transactionsApi.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      invalidateTransactionDerived(queryClient);
       appToast.success("Transaction updated");
       setEditTxn(null);
     },
@@ -259,8 +257,7 @@ function TransactionsContent() {
     mutationFn: ({ id, category_id }: { id: string; category_id: string | null }) =>
       transactionsApi.update(id, { category_id }),
     onSuccess: (_d, vars) => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      invalidateTransactionDerived(queryClient);
       setLlmCategorySuggestions((prev) => prev.filter((s) => s.transaction_id !== vars.id));
     },
     onError: (e) => toastApiError("Could not update category", e),
@@ -269,8 +266,7 @@ function TransactionsContent() {
   const deleteMutation = useMutation({
     mutationFn: transactionsApi.delete,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      invalidateTransactionDerived(queryClient);
       appToast.success("Transaction deleted");
     },
     onError: (e) => toastApiError("Failed to delete transaction", e),
@@ -280,8 +276,7 @@ function TransactionsContent() {
     mutationFn: (data: typeof transferForm) =>
       api.post("/transactions/transfer", data).then((r) => r.data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      invalidateTransactionDerived(queryClient);
       appToast.success("Transfer created");
       setTransferOpen(false);
     },
@@ -292,7 +287,7 @@ function TransactionsContent() {
     mutationFn: ({ id, splits }: { id: string; splits: TransactionSplitLinePayload[] }) =>
       api.post(`/transactions/${id}/split`, { splits }).then((r) => r.data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      invalidateTransactionDerived(queryClient);
       appToast.success("Transaction split");
       setSplitTxn(null);
     },
@@ -322,7 +317,7 @@ function TransactionsContent() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      invalidateTransactionDerived(queryClient);
     },
   });
 
@@ -361,8 +356,7 @@ function TransactionsContent() {
     try {
       const res = await api.post("/upload/csv", formData, { headers: { "Content-Type": "multipart/form-data" } });
       appToast.success(`Imported ${res.data.imported} transactions (${res.data.skipped} skipped)`);
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      invalidateTransactionDerived(queryClient);
     } catch (e) {
       toastApiError("CSV import failed", e);
     }

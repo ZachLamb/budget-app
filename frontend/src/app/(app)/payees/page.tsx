@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { payeesApi, type Payee, type PayeeCreate, type DuplicateCluster } from "@/lib/api/payees";
+import { invalidateTransactionDerived } from "@/lib/query-invalidation";
 import { accountsApi, type Account } from "@/lib/api/accounts";
 import { useFlatCategories, useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
@@ -95,7 +96,8 @@ function PayeesContent() {
     onSuccess: (_res, c) => {
       queryClient.invalidateQueries({ queryKey: ["payees"] });
       queryClient.invalidateQueries({ queryKey: ["payeeDuplicates"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      // Merging payees reassigns their transactions, so category totals move too.
+      invalidateTransactionDerived(queryClient);
       appToast.success(`Merged ${c.duplicate_ids.length + 1} payees into ${canonicalNameFor(c)}`);
     },
     onError: (e) => toastApiError("Failed to merge payees", e),
