@@ -119,6 +119,22 @@ export function NextBestAction({ className }: { className?: string }) {
       };
     }
 
+    // Ranked above the pay-schedule and recurring prompts on purpose.
+    // Uncategorized transactions zero out the whole app: budget ACTIVITY,
+    // spending-by-category and every report derive from categories, so a
+    // backlog here makes an account with hundreds of transactions look empty.
+    // A pay schedule only reframes the dashboard's date window, and recurring
+    // suggestions are a refinement — neither is worth surfacing while the
+    // numbers everywhere else are still zero.
+    if (uncatTotal > 0) {
+      return {
+        title: `${uncatTotal} uncategorized transaction${uncatTotal === 1 ? "" : "s"}`,
+        detail: "Rules and reports only work when spending has categories.",
+        href: "/transactions?uncategorized=1",
+        primaryLabel: "Categorize",
+      };
+    }
+
     if (payScheduleReady && paySchedule && !paySchedule.pay_frequency) {
       return {
         title: "Set your pay schedule",
@@ -135,15 +151,6 @@ export function NextBestAction({ className }: { className?: string }) {
         detail: "Confirm or dismiss detected patterns so your recurring list stays trustworthy.",
         href: "/recurring",
         primaryLabel: "Review recurring",
-      };
-    }
-
-    if (uncatTotal > 0) {
-      return {
-        title: `${uncatTotal} uncategorized transaction${uncatTotal === 1 ? "" : "s"}`,
-        detail: "Rules and reports only work when spending has categories.",
-        href: "/transactions?uncategorized=1",
-        primaryLabel: "Categorize",
       };
     }
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useId, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { accountsApi, type Account } from "@/lib/api/accounts";
 import { transactionsApi } from "@/lib/api/transactions";
+import { spendingEmptyState } from "@/lib/dashboard/spending-empty-state";
 import { budgetApi } from "@/lib/api/budget";
 import { reportsApi } from "@/lib/api/reports";
 import { goalsApi, type FinancialGoal } from "@/lib/api/goals";
@@ -457,6 +458,14 @@ function DashboardContent() {
     enabled: isClient,
     meta: inlineErrorQueryMeta,
   });
+  // Same key and request as next-best-action's probe, so this is served from
+  // the shared cache entry and adds no network call on the dashboard.
+  const { data: uncatProbe } = useQuery({
+    queryKey: ["transactions", "uncategorized-count"],
+    queryFn: () => transactionsApi.list({ uncategorized: true, page: 1, page_size: 1 }),
+    enabled: isClient,
+  });
+
   const { data: goals = [] } = useQuery({
     queryKey: ["goals"],
     queryFn: goalsApi.list,
@@ -748,11 +757,19 @@ function DashboardContent() {
               error={spendingErr}
               onRetry={() => refetchSpending()}
               isEmpty={!spendingLoading && pieData.length === 0}
-              emptyDescription="No spending in this window yet."
+              emptyDescription={spendingEmptyState(uncatProbe?.total ?? 0).description}
               emptyAction={
-                <Button variant="outline" size="sm" asChild>
-                  <Link href="/transactions">Add or import transactions</Link>
-                </Button>
+                spendingEmptyState(uncatProbe?.total ?? 0).showCategorizeAction ? (
+                  // Telling someone with a categorize backlog to "add or import
+                  // transactions" sends them the wrong way entirely.
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href="/transactions?uncategorized=1">Categorize transactions</Link>
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href="/transactions">Add or import transactions</Link>
+                  </Button>
+                )
               }
               loadingFallback={
                 <div className="h-[180px] animate-pulse rounded-md bg-muted" />
