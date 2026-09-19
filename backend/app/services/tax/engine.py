@@ -15,6 +15,7 @@ from app.services.tax.inputs import (
     TaxInputs,
     TaxProjection,
 )
+from app.services.tax.limitations import allowed_rental_loss
 from app.services.tax.rates.registry import (
     FilingStatus,
     RateSet,
@@ -75,16 +76,44 @@ def project(inputs: TaxInputs, rates: RateSet) -> TaxProjection:
         "Year-to-date actuals plus projected remaining pay.",
     ))
 
-    # --- Schedule E (unlimited here; Task 4 applies the loss limit) -----
-    schedule_e_net = inputs.schedule_e.net if inputs.schedule_e else ZERO
-    allowed_loss = -schedule_e_net if schedule_e_net < ZERO else ZERO
-    suspended_loss = ZERO
-
     # MAGI for the passive-loss phase-out EXCLUDES the passive loss itself
-    # (IRS Pub 925). Task 4 consumes this.
+    # (IRS Pub 925) -- which is why this is a single forward pass and not
+    # a fixed-point solve. See limitations.py.
     magi_for_pal = income_tax_wages
 
-    agi = income_tax_wages + schedule_e_net
+    if inputs.schedule_e is None:
+        allowed_loss = ZERO
+        suspended_loss = ZERO
+        schedule_e_contribution = ZERO
+    else:
+        allowance = allowed_rental_loss(
+            magi_for_pal,
+            inputs.schedule_e.net,
+            inputs.schedule_e.active_participation,
+            rates.passive_loss,
+        )
+        if inputs.schedule_e.is_loss:
+            allowed_loss = allowance.allowed
+            suspended_loss = allowance.suspended
+            schedule_e_contribution = -allowance.allowed
+            explain.append(ExplainStep(
+                "Rental loss allowed this year", _cents(allowed_loss),
+                f"Of {_cents(-inputs.schedule_e.net)} in rental loss, "
+                f"{_cents(suspended_loss)} is suspended and carries forward "
+                "because your income is above the passive-loss threshold."
+                if suspended_loss > ZERO else
+                "Your full rental loss is usable this year.",
+            ))
+        else:
+            allowed_loss = ZERO
+            suspended_loss = ZERO
+            schedule_e_contribution = inputs.schedule_e.net
+            explain.append(ExplainStep(
+                "Rental income", _cents(inputs.schedule_e.net),
+                "Net rental income after expenses and depreciation.",
+            ))
+
+    agi = income_tax_wages + schedule_e_contribution
     explain.append(ExplainStep(
         "Adjusted gross income", _cents(agi),
         "Wages less pre-tax deferrals, plus rental income or allowed loss.",
