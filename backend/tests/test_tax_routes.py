@@ -178,3 +178,69 @@ async def test_prior_year_upsert_round_trips(fixture):
         select(PriorYearReturn).where(PriorYearReturn.household_id == hid)
     )
     assert result.scalar_one().year == 2025
+
+
+@pytest.mark.asyncio
+async def test_negative_total_tax_is_rejected(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        response = await client.put("/api/tax/prior-year/2025", headers=headers, json={
+            "total_tax": "-100.00",
+        })
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_negative_total_withheld_is_rejected(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        response = await client.put("/api/tax/prior-year/2025", headers=headers, json={
+            "total_withheld": "-50.00",
+        })
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_negative_agi_is_accepted_and_round_trips(fixture):
+    """Regression guard: AGI can be negative (e.g. a large rental/business
+    loss). Do not blanket-apply ge=0 across PriorYearReturnUpdate."""
+    session, _ = fixture
+    hid, headers = await _seed_household(session)
+    async with _client() as client:
+        response = await client.put("/api/tax/prior-year/2025", headers=headers, json={
+            "agi": "-15000.00",
+        })
+        assert response.status_code == 200
+        fetched = await client.get("/api/tax/prior-year/2025", headers=headers)
+
+    assert fetched.json()["agi"] == "-15000.00"
+    result = await session.execute(
+        select(PriorYearReturn).where(PriorYearReturn.household_id == hid)
+    )
+    stored = result.scalar_one()
+    assert stored.agi == Decimal("-15000.00")
+    assert stored.agi < 0
+
+
+@pytest.mark.asyncio
+async def test_negative_schedule_e_net_is_accepted_and_round_trips(fixture):
+    """Regression guard: schedule_e_net is signed by design (a rental loss
+    is negative). Do not blanket-apply ge=0 across PriorYearReturnUpdate."""
+    session, _ = fixture
+    hid, headers = await _seed_household(session)
+    async with _client() as client:
+        response = await client.put("/api/tax/prior-year/2025", headers=headers, json={
+            "schedule_e_net": "-8200.00",
+        })
+        assert response.status_code == 200
+        fetched = await client.get("/api/tax/prior-year/2025", headers=headers)
+
+    assert fetched.json()["schedule_e_net"] == "-8200.00"
+    result = await session.execute(
+        select(PriorYearReturn).where(PriorYearReturn.household_id == hid)
+    )
+    stored = result.scalar_one()
+    assert stored.schedule_e_net == Decimal("-8200.00")
+    assert stored.schedule_e_net < 0

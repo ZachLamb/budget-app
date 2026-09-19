@@ -74,14 +74,21 @@ class PaystubResponse(PaystubCreate):
     id: str
 
 
+_MONEY_OPTIONAL = Field(default=None, ge=Decimal("0"), max_digits=14, decimal_places=2)
+
+
 class PriorYearReturnUpdate(BaseModel):
     filing_status: Optional[str] = None
+    # AGI can legitimately be negative -- a large rental or business loss
+    # (e.g. this household's Airbnb) produces one. Do not add ge=0 here.
     agi: Optional[Decimal] = None
-    taxable_income: Optional[Decimal] = None
-    total_tax: Optional[Decimal] = None
-    total_withheld: Optional[Decimal] = None
+    taxable_income: Optional[Decimal] = _MONEY_OPTIONAL
+    total_tax: Optional[Decimal] = _MONEY_OPTIONAL
+    total_withheld: Optional[Decimal] = _MONEY_OPTIONAL
     itemized: bool = False
-    itemized_amount: Optional[Decimal] = None
+    itemized_amount: Optional[Decimal] = _MONEY_OPTIONAL
+    # Signed by design: a rental/business loss on Schedule E is negative,
+    # and that sign is the entire point of the field. Do not add ge=0 here.
     schedule_e_net: Optional[Decimal] = None
     passive_loss_carryforward: Decimal = _MONEY
     capital_loss_carryforward: Decimal = _MONEY
