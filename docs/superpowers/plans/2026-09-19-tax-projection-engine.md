@@ -3969,7 +3969,7 @@ manual columns."
 **Files:**
 - Create: `frontend/src/lib/api/tax.ts`, `frontend/src/lib/api/tax.test.ts`
 - Modify: `frontend/src/lib/api/deductions.ts`, `frontend/src/lib/api/deductions.test.ts`
-- Delete: `frontend/src/lib/api/tax-settings.ts` and its test
+- (`frontend/src/lib/api/tax-settings.ts` is deleted in Task 15, not here — `deductions/page.tsx` still imports it until then, and deleting it early leaves the tree un-typecheckable.)
 
 **Interfaces:**
 - Consumes: routes from Tasks 9–11
@@ -4306,7 +4306,7 @@ and inside `coerceSummary`'s returned object:
 
 Also add `deduction_kind: string;` to the `DeductionLine` interface.
 
-Delete `frontend/src/lib/api/tax-settings.ts` and its test file.
+Leave `frontend/src/lib/api/tax-settings.ts` in place — `deductions/page.tsx` still imports it. Task 15 removes that import and deletes the module in the same commit.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -4317,7 +4317,6 @@ Expected: PASS
 
 ```bash
 git add frontend/src/lib/api/tax.ts frontend/src/lib/api/tax.test.ts frontend/src/lib/api/deductions.ts frontend/src/lib/api/deductions.test.ts
-git rm frontend/src/lib/api/tax-settings.ts frontend/src/lib/api/tax-settings.test.ts
 git commit -m "feat(tax): add the tax API client
 
 Coerces the backend's Decimal-as-string wire format to numbers once at
@@ -5041,7 +5040,7 @@ labeled by the amount it spans."
 **Files:**
 - Modify: `frontend/src/app/(app)/deductions/deductions-summary-table.tsx` and its test
 - Modify: `frontend/src/app/(app)/deductions/page.tsx`
-- Delete: `frontend/src/app/(app)/deductions/tax-settings-card.tsx` and its test
+- Delete: `frontend/src/app/(app)/deductions/tax-settings-card.tsx` and its test, and `frontend/src/lib/api/tax-settings.ts` and its test
 
 **Interfaces:**
 - Consumes: the extended `DeductionsSummary` (Task 12)
@@ -5210,7 +5209,7 @@ Group the line table under two headings driven by `deduction_kind`:
 })}
 ```
 
-In `deductions/page.tsx`: drop the `taxSettingsApi` query, the `saveSettings` mutation, and the `TaxSettingsCard` render; remove both imports. Add a link to `/taxes` in the page description. Delete `tax-settings-card.tsx` and `tax-settings-card.test.tsx`.
+In `deductions/page.tsx`: drop the `taxSettingsApi` query, the `saveSettings` mutation, and the `TaxSettingsCard` render; remove both imports. Add a link to `/taxes` in the page description. Then delete `tax-settings-card.tsx`, `tax-settings-card.test.tsx`, and — now that its last importer is gone — `frontend/src/lib/api/tax-settings.ts` and `frontend/src/lib/api/tax-settings.test.ts`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -5221,7 +5220,7 @@ Expected: all three pass — the **full** frontend suite
 
 ```bash
 git add "frontend/src/app/(app)/deductions/"
-git rm "frontend/src/app/(app)/deductions/tax-settings-card.tsx" "frontend/src/app/(app)/deductions/tax-settings-card.test.tsx"
+git rm "frontend/src/app/(app)/deductions/tax-settings-card.tsx" "frontend/src/app/(app)/deductions/tax-settings-card.test.tsx" frontend/src/lib/api/tax-settings.ts frontend/src/lib/api/tax-settings.test.ts
 git commit -m "feat(tax): explain a zero saving on the Deductions page
 
 After the engine change a personal deduction below the standard
