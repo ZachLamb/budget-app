@@ -1,17 +1,21 @@
-"""Aggregates deductible transactions into a per-tax-line summary, with an
-optional estimated-tax-savings and withholding nudge driven by manually
-entered TaxSettings. No IRS bracket logic — arithmetic on user-supplied
-rates only. See docs/superpowers/specs/2026-09-05-tax-deductions-design.md.
+"""Aggregates deductible transactions into a per-tax-line summary.
+
+NOTE: the manually entered TaxSettings that used to drive an estimated-tax-
+savings/withholding nudge here were removed in the tax-projection-engine
+migration (see backend/alembic/versions/0013_tax_projection_engine.py).
+This service is rewritten to use the new engine in a later task; for now
+the estimated-tax-savings fields are always None so the module stays
+importable. See docs/superpowers/specs/2026-09-05-tax-deductions-design.md.
 """
 from __future__ import annotations
 
 from collections import defaultdict
 from decimal import Decimal
 
-from sqlalchemy import select, extract
+from sqlalchemy import extract
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Account, Category, CategoryGroup, TaxSettings, Transaction
+from app.models import Account, Category, CategoryGroup, Transaction
 from app.schemas.deductions import DeductionLine, DeductionsSummaryResponse
 
 _CENTS = Decimal("0.01")
@@ -49,22 +53,11 @@ async def compute_deductions_summary(db: AsyncSession, household_id: str, year: 
 
     lines = [DeductionLine(tax_line=label, amount=amount) for label, amount in totals.items()]
 
-    settings_result = await db.execute(select(TaxSettings).where(TaxSettings.household_id == household_id))
-    settings = settings_result.scalar_one_or_none()
-
+    # Estimated-tax-savings/withholding nudge previously came from
+    # TaxSettings (removed this migration); recomputing it from the new
+    # tax-projection engine is done in a later task.
     estimated_tax_savings: Decimal | None = None
     suggested_withholding_reduction_per_period: Decimal | None = None
-    if settings and settings.marginal_federal_rate is not None and settings.marginal_state_rate is not None:
-        combined_rate = (settings.marginal_federal_rate + settings.marginal_state_rate) / Decimal("100")
-        estimated_tax_savings = (grand_total * combined_rate).quantize(_CENTS)
-        if (
-            settings.current_federal_withholding_per_period is not None
-            and settings.remaining_pay_periods_this_year is not None
-            and settings.remaining_pay_periods_this_year > 0
-        ):
-            suggested_withholding_reduction_per_period = (
-                estimated_tax_savings / settings.remaining_pay_periods_this_year
-            ).quantize(_CENTS)
 
     return DeductionsSummaryResponse(
         year=year,
