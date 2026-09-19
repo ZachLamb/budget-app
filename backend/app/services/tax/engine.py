@@ -10,6 +10,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from app.services.tax.inputs import (
     ZERO,
+    Change,
     ExplainStep,
     SafeHarborResult,
     TaxInputs,
@@ -206,3 +207,21 @@ def project(inputs: TaxInputs, rates: RateSet, remaining_periods: int = 0) -> Ta
         ),
         explain=explain,
     )
+
+
+def impact_of(inputs: TaxInputs, change: Change, rates: RateSet) -> Decimal:
+    """Dollars of ADDITIONAL tax from applying `change`. Negative means the
+    change reduces tax.
+
+    This is the engine's entire marginal surface. It perturbs by the
+    ACTUAL amount under consideration rather than a fixed step, because a
+    fixed step gives a step-dependent answer near a bracket edge -- at
+    wages just below one, a $1 step and a $10,000 step differ by ten
+    percentage points. Callers that want a percentage divide by the
+    amount and label it as blended over that amount.
+
+    `inputs` is never mutated; Change.apply() returns a copy.
+    """
+    base = project(inputs, rates).total_liability
+    changed = project(change.apply(inputs), rates).total_liability
+    return _cents(changed - base)
