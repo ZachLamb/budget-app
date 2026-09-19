@@ -2689,6 +2689,14 @@ async def build_tax_inputs(
     if latest_stub is None:
         missing.append("paystub")
 
+    # The gate comes BEFORE the prior-year lookup on purpose: when the
+    # projection is blocked outright, `missing` should list only what is
+    # blocking it. Reporting a missing prior-year return alongside is
+    # noise -- the safe-harbor check it feeds is downstream of there
+    # being a projection at all.
+    if profile is None or not profile.filing_status or latest_stub is None:
+        return AssemblyResult(inputs=None, remaining_periods=0, missing=missing)
+
     prior = (
         await db.execute(
             select(PriorYearReturn)
@@ -2700,9 +2708,6 @@ async def build_tax_inputs(
     ).scalar_one_or_none()
     if prior is None or prior.total_tax is None:
         missing.append("prior_year_return")
-
-    if profile is None or not profile.filing_status or latest_stub is None:
-        return AssemblyResult(inputs=None, remaining_periods=0, missing=missing)
 
     household = await db.get(Household, household_id)
     periods = remaining_pay_periods(
