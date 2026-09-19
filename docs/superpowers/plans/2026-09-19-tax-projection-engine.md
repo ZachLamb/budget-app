@@ -1410,6 +1410,18 @@ guarded by an explicit regression test."
 
 Underpayment is generally avoided by paying the lesser of 90% of this year's tax or 100% of last year's — **110%** when prior-year AGI exceeds $150,000. When prior-year data is absent the result is `"unknown"`, never `"met"`.
 
+**Partial prior-year data is an ordinary path, not an edge case.**
+`PriorYearReturn.agi` and `.total_tax` are independently nullable, so a user
+can easily record one without the other. Treating a missing AGI as "not high
+income" measures against 100% of prior tax when 110% may apply —
+understating the requirement and permitting a false `"met"`.
+
+But do **not** return `"unknown"` whenever AGI is missing; that discards
+answers we can compute. The requirement is `min(90% of current, f x prior)`
+with `f` of 1.0 or 1.1. When 90%-of-current is already the lesser figure
+under 1.0, it is lesser under 1.1 too — the multiplier is irrelevant and the
+answer is certain. The AGI only matters when the prior-year test binds.
+
 - [ ] **Step 1: Write the failing test**
 
 ```python
@@ -1552,21 +1564,50 @@ def evaluate_safe_harbor(
         )
 
     current_year_requirement = total_liability * CURRENT_YEAR_FRACTION
+    prior_year_100_percent = prior_year_total_tax * PRIOR_YEAR_FRACTION
 
-    high_income = prior_year_agi is not None and prior_year_agi > HIGH_INCOME_AGI_THRESHOLD
-    prior_fraction = (
-        PRIOR_YEAR_FRACTION_HIGH_INCOME if high_income else PRIOR_YEAR_FRACTION
-    )
-    prior_year_requirement = prior_year_total_tax * prior_fraction
-
-    if current_year_requirement <= prior_year_requirement:
+    # If 90% of current is the binding constraint, it applies regardless of
+    # which prior-year multiplier (1.0 or 1.1) would apply -- so the answer
+    # is definitive even when prior-year AGI is missing.
+    if current_year_requirement <= prior_year_100_percent:
         required = current_year_requirement
         test_used = "90_percent_current"
-    else:
-        required = prior_year_requirement
-        test_used = (
-            "110_percent_prior" if high_income else "100_percent_prior"
+    elif prior_year_agi is None:
+        # The prior-year test binds, but we cannot tell which multiplier
+        # applies. Treating a missing AGI as "not high income" here would
+        # understate required_payment and permit a false "met" -- the worst
+        # output this module can produce. Say we do not know, and ask for
+        # the one figure that would settle it.
+        return SafeHarborResult(
+            status="unknown",
+            test_used="none",
+            required_payment=None,
+            projected_payment=_cents(projected_withholding),
+            shortfall=None,
+            per_period_to_close=None,
+            reason=(
+                "To finish this check we need last year's adjusted gross income. "
+                "The rule uses 110% of last year's tax when last year's AGI was over "
+                "$150,000, and 100% otherwise, so without it we can't tell which applies to you."
+            ),
         )
+    else:
+        high_income = prior_year_agi > HIGH_INCOME_AGI_THRESHOLD
+        prior_fraction = (
+            PRIOR_YEAR_FRACTION_HIGH_INCOME if high_income else PRIOR_YEAR_FRACTION
+        )
+        prior_year_requirement = prior_year_total_tax * prior_fraction
+
+        # Still required: with high_income the 1.1x figure can exceed 90% of
+        # current even though the 1.0x figure did not.
+        if current_year_requirement <= prior_year_requirement:
+            required = current_year_requirement
+            test_used = "90_percent_current"
+        else:
+            required = prior_year_requirement
+            test_used = (
+                "110_percent_prior" if high_income else "100_percent_prior"
+            )
 
     required = _cents(required)
     projected = _cents(projected_withholding)
