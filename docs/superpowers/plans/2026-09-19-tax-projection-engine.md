@@ -26,6 +26,21 @@
 - **MAGI for the passive-loss phase-out excludes the passive loss itself** (IRS Pub 925). Using AGI-after-loss is wrong and creates a false circularity. This note must appear in `limitations.py`.
 - **Privacy:** no SSN, no employer, no address, no document blobs anywhere in the models. Back-test inputs are gitignored.
 - **Before opening a PR:** `cd backend && pytest -q` and `cd frontend && npm run lint && npm test -- --run && npm run build` must all pass.
+- **Backend test-harness contract** (applies to every task with route
+  tests — the plan's own test snippets get this WRONG and must be adapted,
+  as Task 9 did). Verified against `backend/tests/test_categories_routes.py`
+  and `backend/tests/test_tax_routes.py`:
+  - `fixture` yields `(session, engine)` — so `session, _ = fixture`.
+    It is NOT `(session, app)`.
+  - `_seed_household(session)` returns `(household_id, headers)`. The
+    headers carry authentication and must be passed on every request.
+  - `_client()` takes NO arguments: `async with _client() as client:`.
+  - **All routes are mounted under `/api`** (`app.include_router(api_router,
+    prefix="/api")` in `app/main.py`). A test hitting `/tax/profile` rather
+    than `/api/tax/profile` gets a 404 that looks like a routing bug.
+  - So the shape is:
+    `session, _ = fixture` → `hid, headers = await _seed_household(session)`
+    → `async with _client() as client:` → `await client.get("/api/tax/...", headers=headers)`.
 - **Apostrophes:** `&apos;` in **JSX text only** (ESLint `react/no-unescaped-entities`). In JS string literals and JSX attribute values use a plain `'` — `&apos;` there is not an entity and renders literally on screen.
 
 ## Blast radius (verified by direct search; the GitNexus index is stale at `fb04c54` and does not contain these symbols)
