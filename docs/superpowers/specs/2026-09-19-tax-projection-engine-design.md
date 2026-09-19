@@ -106,7 +106,20 @@ Underpayment is generally avoided by paying the lesser of 90% of this
 year's tax or 100% of last year's (110% when prior-year AGI exceeds
 $150,000). Returns which test is being met, the shortfall if any, and
 the per-paycheck amount that would close it. Returns "unknown" — never
-"safe" — when `prior_year_total_tax` is absent.
+"safe" — when `prior_year_total_tax` is absent, and also when
+`prior_year_agi` is absent *while the prior-year test is the binding
+one*.
+
+`PriorYearReturn.agi` and `.total_tax` are independently nullable, so
+partial prior-year data is an ordinary path, not an edge case. Treating
+a missing AGI as "not high income" measures against 100% of prior tax
+when 110% may apply — understating the requirement and permitting a
+false "met", the worst output this module can produce.
+
+The converse over-correction is also wrong: when 90%-of-current is
+already the lesser figure under the 1.0x multiplier, it is lesser under
+1.1x too, so the answer is certain and a missing AGI is irrelevant
+there. Return "unknown" only when the prior-year test actually binds.
 
 ### `rates/`
 
@@ -246,8 +259,12 @@ standard-vs-itemized comparison.
   MAGI excludes the passive loss.
 - **Property**: additivity of `impact_of` (two $5,000 moves equal one
   $10,000 move); monotonicity of liability in income.
-- **Safe harbor**: the 110% variant above $150,000 prior-year AGI;
-  "unknown" when prior-year data is absent.
+- **Safe harbor**: the 110% variant above $150,000 prior-year AGI, in a
+  scenario where that figure is genuinely binding (not one where
+  90%-of-current wins anyway); "unknown" when prior-year total tax is
+  absent; AGI absent but 90%-of-current provably binds (must NOT be
+  "unknown"); AGI absent and the prior-year test binds (must be
+  "unknown").
 - **Projection**: YTD anchoring across a mid-year raise.
 - **Migration**: `TaxSettings` rows survive; the deductions summary
   response shape is unchanged.
