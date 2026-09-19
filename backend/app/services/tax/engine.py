@@ -21,6 +21,7 @@ from app.services.tax.rates.registry import (
     RateSet,
     UnsupportedFilingStatusError,
 )
+from app.services.tax.safe_harbor import evaluate_safe_harbor
 
 CENTS = Decimal("0.01")
 
@@ -42,18 +43,7 @@ def _bracket_tax(taxable: Decimal, brackets) -> Decimal:
     return tax
 
 
-_UNKNOWN_SAFE_HARBOR = SafeHarborResult(
-    status="unknown",
-    test_used="none",
-    required_payment=None,
-    projected_payment=None,
-    shortfall=None,
-    per_period_to_close=None,
-    reason="Safe harbor is computed in safe_harbor.py (Task 5).",
-)
-
-
-def project(inputs: TaxInputs, rates: RateSet) -> TaxProjection:
+def project(inputs: TaxInputs, rates: RateSet, remaining_periods: int = 0) -> TaxProjection:
     if inputs.filing_status not in rates.supported_statuses:
         raise UnsupportedFilingStatusError(
             f"{inputs.filing_status} is not populated for {rates.year}. "
@@ -207,6 +197,12 @@ def project(inputs: TaxInputs, rates: RateSet) -> TaxProjection:
         effective_rate=effective_rate,
         schedule_e_allowed_loss=_cents(allowed_loss),
         schedule_e_suspended_loss=_cents(suspended_loss),
-        safe_harbor=_UNKNOWN_SAFE_HARBOR,
+        safe_harbor=evaluate_safe_harbor(
+            total_liability=total_liability,
+            projected_withholding=total_withheld,
+            prior_year_total_tax=inputs.prior_year_total_tax,
+            prior_year_agi=inputs.prior_year_agi,
+            remaining_periods=remaining_periods,
+        ),
         explain=explain,
     )
