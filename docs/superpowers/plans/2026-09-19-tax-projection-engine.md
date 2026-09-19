@@ -31,7 +31,7 @@
 ## Blast radius (verified by direct search; the GitNexus index is stale at `fb04c54` and does not contain these symbols)
 
 - `compute_deductions_summary` — 1 caller (`app/api/routes/deductions.py:22`) + 8 test call sites in `backend/tests/test_deductions_summary.py`
-- `TaxSettings` — `app/models/tax_settings.py`, `app/models/__init__.py`, `app/schemas/tax_settings.py`, `app/api/routes/tax_settings.py`, `app/services/deductions.py:52`, and 3 test files
+- `TaxSettings` — `app/models/tax_settings.py`, `app/models/__init__.py`, `app/schemas/tax_settings.py`, `app/api/routes/tax_settings.py`, `app/services/deductions.py:52`, and 3 test files. **The two non-test importers are load-bearing:** `app.main` pulls in the routes package, so deleting the model without removing them at the same time makes the entire app unimportable and every test uncollectable. Task 7 removes all of them together.
 - Frontend consumers: `frontend/src/lib/api/deductions.ts`, `frontend/src/lib/api/tax-settings.ts`, `frontend/src/app/(app)/deductions/{page,deductions-summary-table,tax-settings-card}.tsx` and their tests
 
 ### Spec gap resolved here
@@ -1954,7 +1954,8 @@ and a business expense past rental income is worth zero at high income."
 - Create: `backend/app/models/tax_profile.py`
 - Create: `backend/alembic/versions/0013_tax_projection_engine.py`
 - Modify: `backend/app/models/__init__.py`, `backend/app/models/category.py`
-- Delete: `backend/app/models/tax_settings.py`
+- Delete: `backend/app/models/tax_settings.py`, `backend/app/schemas/tax_settings.py`, `backend/app/api/routes/tax_settings.py`
+- Modify: `backend/app/api/routes/__init__.py` (drop the tax_settings include), `backend/app/services/deductions.py` (drop its `TaxSettings` read)
 - Test: `backend/tests/test_tax_models.py`
 
 **Interfaces:**
@@ -1962,6 +1963,15 @@ and a business expense past rental income is worth zero at high income."
 - Produces: `TaxProfile`, `Paystub`, `PriorYearReturn` models; `Category.deduction_kind`
 
 **Privacy constraint:** no SSN, no employer name, no address, no document blob. If a field is not consumed by the engine, it does not belong here.
+
+**Deleting the model breaks `app.main`, not just tests.**
+`app/api/routes/tax_settings.py` and `app/services/deductions.py` both
+import `TaxSettings` directly, so removing the model makes the whole app
+unimportable and *every* test uncollectable — not merely the three test
+files noted below. This task therefore also deletes the tax-settings
+route and schema and strips the `TaxSettings` read out of
+`deductions.py`, whose two estimate fields return `None` (never `0`)
+until Task 11 recomputes them through the engine.
 
 Match the existing migration style in `0012_tax_deductions.py` — the `_columns()` / `_tables()` inspector helpers and idempotent guards.
 
@@ -2310,7 +2320,7 @@ def upgrade() -> None:
             op.execute(
                 "INSERT INTO tax_profiles (id, household_id, filing_status, "
                 "de_minimis_election, created_at) "
-                "SELECT id, household_id, NULL, 0, created_at FROM tax_settings"
+                "SELECT id, household_id, NULL, FALSE, created_at FROM tax_settings"
             )
 
     if "paystubs" not in tables:
@@ -2756,7 +2766,7 @@ nothing."
 **Files:**
 - Create: `backend/app/schemas/tax.py`, `backend/app/api/routes/tax.py`
 - Modify: `backend/app/api/routes/__init__.py`
-- Delete: `backend/app/schemas/tax_settings.py`, `backend/app/api/routes/tax_settings.py`, `backend/tests/test_tax_settings_routes.py`
+- Delete: `backend/tests/test_tax_settings_routes.py` (the schema and route modules were already removed in Task 7 — see its note)
 - Test: `backend/tests/test_tax_routes.py`
 
 **Interfaces:**
@@ -3285,7 +3295,7 @@ In `backend/app/api/routes/__init__.py`: remove `tax_settings` from the import l
 router.include_router(tax.router, prefix="/tax", tags=["tax"])
 ```
 
-Delete `backend/app/schemas/tax_settings.py`, `backend/app/api/routes/tax_settings.py`, and `backend/tests/test_tax_settings_routes.py`.
+Delete `backend/tests/test_tax_settings_routes.py`. (`app/schemas/tax_settings.py` and `app/api/routes/tax_settings.py` were already removed in Task 7, because leaving them would have made `app.main` unimportable the moment the model was deleted.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -3296,7 +3306,7 @@ Expected: PASS (10 tests)
 
 ```bash
 git add backend/app/schemas/tax.py backend/app/api/routes/tax.py backend/app/api/routes/__init__.py backend/tests/test_tax_routes.py
-git rm backend/app/schemas/tax_settings.py backend/app/api/routes/tax_settings.py backend/tests/test_tax_settings_routes.py
+git rm backend/tests/test_tax_settings_routes.py
 git commit -m "feat(tax): add profile, paystub, and prior-year routes
 
 Replaces the tax-settings routes. Every query filters on household_id so
