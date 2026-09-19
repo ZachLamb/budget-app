@@ -8,7 +8,12 @@ vi.mock("./client", () => ({
 
 describe("deductionsApi.summary", () => {
   it("requests the summary for the given year", async () => {
-    const mockData = { year: 2026, lines: [], total: 0, estimated_tax_savings: null, suggested_withholding_reduction_per_period: null };
+    const mockData = {
+      year: 2026, lines: [], total: 0, estimated_tax_savings: null,
+      suggested_withholding_reduction_per_period: null,
+      business_total: 0, personal_itemized_total: 0,
+      personal_itemized_value: null, standard_deduction: null,
+    };
     (api.get as ReturnType<typeof vi.fn>).mockResolvedValue({ data: mockData });
 
     const result = await deductionsApi.summary(2026);
@@ -54,5 +59,21 @@ describe("deductionsApi.summary", () => {
 
     expect(result.estimated_tax_savings).toBeNull();
     expect(result.suggested_withholding_reduction_per_period).toBeNull();
+  });
+
+  it("coerces the new business and personal fields", async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: {
+        year: 2026, lines: [], total: "5000.00",
+        estimated_tax_savings: "0.00",
+        suggested_withholding_reduction_per_period: null,
+        business_total: "0.00", personal_itemized_total: "5000.00",
+        personal_itemized_value: "0.00", standard_deduction: "16100.00",
+      },
+    });
+    const result = await deductionsApi.summary(2026);
+    expect(result.personal_itemized_value).toBe(0);
+    expect(result.standard_deduction).toBe(16100);
+    expect(result.estimated_tax_savings).toBe(0);
   });
 });
