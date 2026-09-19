@@ -42,27 +42,53 @@ def evaluate_safe_harbor(
             shortfall=None,
             per_period_to_close=None,
             reason=(
-                "Enter prior year's total tax to check whether this year's "
+                "Enter last year's total tax to check whether this year's "
                 "withholding is high enough to avoid an underpayment penalty."
             ),
         )
 
     current_year_requirement = total_liability * CURRENT_YEAR_FRACTION
+    prior_year_100_percent = prior_year_total_tax * PRIOR_YEAR_FRACTION
 
-    high_income = prior_year_agi is not None and prior_year_agi > HIGH_INCOME_AGI_THRESHOLD
-    prior_fraction = (
-        PRIOR_YEAR_FRACTION_HIGH_INCOME if high_income else PRIOR_YEAR_FRACTION
-    )
-    prior_year_requirement = prior_year_total_tax * prior_fraction
-
-    if current_year_requirement <= prior_year_requirement:
+    # If 90% of current is the binding constraint, it applies regardless of
+    # which prior-year multiplier (1.0 or 1.1) would apply. So we can give
+    # a definitive answer even if prior-year AGI is missing.
+    if current_year_requirement <= prior_year_100_percent:
         required = current_year_requirement
         test_used = "90_percent_current"
-    else:
-        required = prior_year_requirement
-        test_used = (
-            "110_percent_prior" if high_income else "100_percent_prior"
+    elif prior_year_agi is None:
+        # Prior-year test would be binding, but we don't know which multiplier.
+        # Missing AGI means we cannot determine if 100% or 110% applies.
+        return SafeHarborResult(
+            status="unknown",
+            test_used="none",
+            required_payment=None,
+            projected_payment=_cents(projected_withholding),
+            shortfall=None,
+            per_period_to_close=None,
+            reason=(
+                "To finish this check we need last year's adjusted gross income. "
+                "The rule uses 110% of last year's tax when last year's AGI was over "
+                "$150,000, and 100% otherwise, so without it we can't tell which applies to you."
+            ),
         )
+    else:
+        # Both prior-year tax and AGI are present; apply the correct multiplier.
+        high_income = prior_year_agi > HIGH_INCOME_AGI_THRESHOLD
+        prior_fraction = (
+            PRIOR_YEAR_FRACTION_HIGH_INCOME if high_income else PRIOR_YEAR_FRACTION
+        )
+        prior_year_requirement = prior_year_total_tax * prior_fraction
+
+        # Determine which is the binding constraint
+        if current_year_requirement <= prior_year_requirement:
+            required = current_year_requirement
+            test_used = "90_percent_current"
+        else:
+            required = prior_year_requirement
+            test_used = (
+                "110_percent_prior" if high_income else "100_percent_prior"
+            )
 
     required = _cents(required)
     projected = _cents(projected_withholding)
