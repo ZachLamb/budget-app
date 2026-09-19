@@ -208,3 +208,99 @@ async def put_prior_year(
     await db.flush()
     await db.refresh(prior)
     return PriorYearReturnResponse.model_validate(prior)
+
+
+from datetime import date as _date
+from decimal import Decimal
+
+from fastapi import Query
+
+from app.schemas.tax import (
+    ImpactRequest, ImpactResponse, ProjectionEnvelope, TaxProjectionResponse,
+)
+from app.services.tax import (
+    ExtraBusinessExpense, ExtraItemizedDeduction, ExtraPretax401k,
+    ExtraPretaxHsa, ExtraWages, UnknownTaxYearError,
+    UnsupportedFilingStatusError, get_rates, impact_of, project,
+)
+from app.services.tax_assembly import build_tax_inputs
+
+_CHANGE_TYPES = {
+    "extra_wages": ExtraWages,
+    "extra_pretax_401k": ExtraPretax401k,
+    "extra_pretax_hsa": ExtraPretaxHsa,
+    "extra_business_expense": ExtraBusinessExpense,
+    "extra_itemized_deduction": ExtraItemizedDeduction,
+}
+
+
+def _rates_or_422(year: int):
+    try:
+        return get_rates(year)
+    except UnknownTaxYearError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/projection", response_model=ProjectionEnvelope)
+async def get_projection(
+    year: int = Query(default_factory=lambda: _date.today().year, ge=2000, le=2100),
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    rates = _rates_or_422(year)
+    assembled = await build_tax_inputs(db, household_id, year)
+    if assembled.inputs is None:
+        return ProjectionEnvelope(year=year, available=False, missing=assembled.missing)
+
+    try:
+        projection = project(assembled.inputs, rates, assembled.remaining_periods)
+    except UnsupportedFilingStatusError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return ProjectionEnvelope(
+        year=year,
+        available=True,
+        missing=assembled.missing,
+        remaining_pay_periods=assembled.remaining_periods,
+        projection=TaxProjectionResponse.model_validate(projection, from_attributes=True),
+    )
+
+
+@router.post("/impact", response_model=ImpactResponse)
+async def post_impact(
+    data: ImpactRequest,
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    rates = _rates_or_422(data.year)
+    assembled = await build_tax_inputs(db, household_id, data.year)
+    if assembled.inputs is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot compute impact yet. Still needed: {', '.join(assembled.missing)}",
+        )
+
+    change = _CHANGE_TYPES[data.kind](data.amount)
+    try:
+        dollars = impact_of(assembled.inputs, change, rates)
+    except UnsupportedFilingStatusError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    blended = (dollars / data.amount * Decimal("100")).quantize(Decimal("0.01"))
+    if dollars > 0:
+        note = f"Adds ${dollars} in tax across this ${data.amount}."
+    elif dollars < 0:
+        note = f"Saves ${-dollars} in tax across this ${data.amount}."
+    else:
+        note = (
+            f"Changes your tax by nothing. ${data.amount} here is worth "
+            "$0 to you this year."
+        )
+
+    return ImpactResponse(
+        kind=data.kind,
+        change_amount=data.amount,
+        amount_of_tax=dollars,
+        blended_rate_percent=blended,
+        note=note,
+    )

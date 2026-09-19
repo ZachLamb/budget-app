@@ -106,3 +106,79 @@ class PriorYearReturnResponse(PriorYearReturnUpdate):
     model_config = ConfigDict(from_attributes=True)
 
     year: int
+
+
+class ExplainStepResponse(BaseModel):
+    label: str
+    amount: Decimal
+    detail: str
+
+
+class SafeHarborResponse(BaseModel):
+    status: str
+    test_used: str
+    required_payment: Optional[Decimal] = None
+    projected_payment: Optional[Decimal] = None
+    shortfall: Optional[Decimal] = None
+    per_period_to_close: Optional[Decimal] = None
+    reason: str
+
+
+class TaxProjectionResponse(BaseModel):
+    agi: Decimal
+    magi_for_pal: Decimal
+    deduction_taken: Decimal
+    deduction_kind: str
+    standard_deduction: Decimal
+    itemized_total: Decimal
+    taxable_income: Decimal
+    federal_income_tax: Decimal
+    social_security_tax: Decimal
+    medicare_tax: Decimal
+    additional_medicare_tax: Decimal
+    state_tax: Decimal
+    total_liability: Decimal
+    total_withheld_projected: Decimal
+    refund_or_amount_due: Decimal
+    effective_rate: Decimal
+    schedule_e_allowed_loss: Decimal
+    schedule_e_suspended_loss: Decimal
+    safe_harbor: SafeHarborResponse
+    explain: list[ExplainStepResponse]
+
+
+class ProjectionEnvelope(BaseModel):
+    """Never returns a fabricated projection. When inputs are incomplete,
+    `available` is false and `missing` says what to enter."""
+    year: int
+    available: bool
+    missing: list[str] = []
+    remaining_pay_periods: int = 0
+    projection: Optional[TaxProjectionResponse] = None
+
+
+IMPACT_KINDS = {
+    "extra_wages", "extra_pretax_401k", "extra_pretax_hsa",
+    "extra_business_expense", "extra_itemized_deduction",
+}
+
+
+class ImpactRequest(BaseModel):
+    year: int = Field(ge=2000, le=2100)
+    kind: str
+    amount: Decimal = Field(gt=Decimal("0"), max_digits=14, decimal_places=2)
+
+    @field_validator("kind")
+    @classmethod
+    def _known_kind(cls, v: str) -> str:
+        if v not in IMPACT_KINDS:
+            raise ValueError(f"kind must be one of {sorted(IMPACT_KINDS)}")
+        return v
+
+
+class ImpactResponse(BaseModel):
+    kind: str
+    change_amount: Decimal
+    amount_of_tax: Decimal      # positive = more tax, negative = less
+    blended_rate_percent: Decimal
+    note: str
