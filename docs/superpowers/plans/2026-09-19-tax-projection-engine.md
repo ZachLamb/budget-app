@@ -5314,6 +5314,33 @@ no longer exist."
 - Consumes: `project()`, `TaxInputs` (Tasks 2, 3)
 - Produces: nothing importable; an acceptance gate
 
+**Plan defect found during implementation (corrected in the code).** The
+snippets below compare `projection.total_liability` against **Form 1040
+line 24**. That is wrong: `total_liability` is federal income tax + FICA +
+state tax, and line 24 is federal only — on a six-figure Colorado return
+the comparison is off by roughly $20k, which reads as an engine defect and
+would send the next reader hunting through `engine.py`. FICA never appears
+on line 24 at all, and line 24 also carries credits and additional taxes
+the engine does not model.
+
+The implemented back-test instead checks each expected figure against the
+one engine output that means the same thing:
+
+| Fixture field | Engine output | Source |
+|---|---|---|
+| `actual_taxable_income` | `taxable_income` | Form 1040 line 15 |
+| `actual_federal_income_tax` | `federal_income_tax` | Form 1040 line 16 |
+| `actual_state_tax` | `state_tax` | Colorado DR 0104 net tax |
+| `actual_ss_tax` | `social_security_tax` | W-2 box 4 |
+| `actual_medicare_tax` | `medicare_tax` + `additional_medicare_tax` | W-2 box 6 |
+
+A record supplying none of them fails rather than passing on nothing, and
+`tests/backtest/test_harness_selfcheck.py` proves the gate can fail —
+using figures hand-computed from the 2026 tables, so it runs in CI where
+`returns.local.json` never exists. The README's `wages` mapping is also
+corrected: the engine wants **gross** wages, so W-2 box 1 *plus* the
+deferrals, not Form 1040 line 1z.
+
 **The strongest validation available.** Unit tests prove the engine matches published examples. The back-test proves it reproduces *real filed returns* — the actual situation, including Schedule E and Colorado.
 
 **Privacy:** the input file is gitignored and never committed. The test **skips** when it is absent, so CI and other machines stay green.
@@ -5553,7 +5580,7 @@ cd backend && alembic upgrade head && alembic downgrade -1 && alembic upgrade he
 
 Phase 1 is done when:
 
-1. The engine reproduces the last two filed returns within tolerance (Task 16).
+1. The engine reproduces the last two filed returns within tolerance (Task 16) — run locally with a real `returns.local.json`; the committed gate only proves the harness works.
 2. `/taxes` shows a projection anchored on real paystub YTD figures.
 3. The deductions summary reports **$0** for personal deductions below the standard deduction, and the page explains why.
 4. Every figure on the Taxes page expands to the rule that produced it.

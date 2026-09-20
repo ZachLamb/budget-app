@@ -45,3 +45,6 @@ xcuserdata/
 # Personal local compose overrides (host port clashes, etc.)
 docker-compose.override.yml
 .vercel
+
+# Back-test inputs: real filed-return figures, never committed
+backend/tests/backtest/returns.local.json
