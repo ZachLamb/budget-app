@@ -50,8 +50,16 @@ export default function TaxesPage() {
 
   const available = projectionQuery.data?.available ?? false;
 
+  // `available` is folded into the query key (not just closed over) so
+  // the query's identity changes — and it refetches — the moment the
+  // projection flips from unavailable to available. Without that, the
+  // very first resolution (before projectionQuery.data exists) caches
+  // { wages: null, deferral: null } under a key that never changes
+  // again, and NextDollarCard renders nothing forever. `enabled` also
+  // stops a wasted null/null fetch from firing before the projection
+  // has resolved at all.
   const impactQuery = useQuery({
-    queryKey: ["tax-impact", year],
+    queryKey: ["tax-impact", year, available],
     queryFn: async () => {
       if (!available) return { wages: null, deferral: null };
       const [wages, deferral] = await Promise.all([
@@ -60,11 +68,17 @@ export default function TaxesPage() {
       ]);
       return { wages, deferral };
     },
+    enabled: projectionQuery.isSuccess,
     meta: inlineErrorQueryMeta,
   });
 
-  const invalidateProjection = () =>
+  // The impact figures derive from the same paystub/profile inputs as
+  // the projection, so anything that invalidates the projection must
+  // also invalidate the impact query, or the two go stale independently.
+  const invalidateProjection = () => {
     queryClient.invalidateQueries({ queryKey: ["tax-projection", year] });
+    queryClient.invalidateQueries({ queryKey: ["tax-impact", year] });
+  };
 
   const saveProfile = useMutation({
     mutationFn: (data: {
