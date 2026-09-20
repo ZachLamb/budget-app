@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { categoriesApi, type Category, type CategoryGroup, type CategoryUsage } from "@/lib/api/categories";
+import {
+  categoriesApi,
+  type Category,
+  type CategoryGroup,
+  type CategoryUsage,
+  type DeductionKind,
+} from "@/lib/api/categories";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +38,21 @@ import { cn } from "@/lib/utils";
 import { appToast } from "@/lib/app-toast";
 import { toastApiError } from "@/lib/toast-error";
 
+// The tax engine values these two very differently, so the user has to say
+// which one a deductible category is -- it cannot be inferred from the amount.
+const DEDUCTION_KINDS: { value: DeductionKind; label: string; help: string }[] = [
+  {
+    value: "business_expense",
+    label: "Business expense",
+    help: "Lowers your taxable income from the first dollar spent.",
+  },
+  {
+    value: "personal_itemized",
+    label: "Personal deduction",
+    help: "Only counts once your itemized deductions beat the standard deduction.",
+  },
+];
+
 export function CategoryItem({
   category,
   groups,
@@ -58,6 +79,7 @@ export function CategoryItem({
     deductible: category.deductible,
     deduction_pct: category.deduction_pct,
     tax_line: category.tax_line,
+    deduction_kind: category.deduction_kind,
   });
 
   useEffect(() => {
@@ -77,6 +99,7 @@ export function CategoryItem({
         deductible: boolean;
         deduction_pct: number;
         tax_line: string | null;
+        deduction_kind: DeductionKind;
       }>,
     ) => categoriesApi.update(category.id, data),
     onSuccess: () => {
@@ -93,6 +116,7 @@ export function CategoryItem({
       deductible: category.deductible,
       deduction_pct: category.deduction_pct,
       tax_line: category.tax_line,
+      deduction_kind: category.deduction_kind,
     });
     setEditing(true);
   };
@@ -103,6 +127,7 @@ export function CategoryItem({
       deductible: formState.deductible,
       deduction_pct: Math.min(100, Math.max(0, formState.deduction_pct)),
       tax_line: formState.tax_line,
+      deduction_kind: formState.deduction_kind,
     });
   };
 
@@ -212,6 +237,32 @@ export function CategoryItem({
                   placeholder="e.g. Schedule E — Cleaning"
                 />
               </div>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium">Deduction type</legend>
+                {DEDUCTION_KINDS.map(({ value, label, help }) => {
+                  const inputId = `deduction_kind-${value}-${category.id}`;
+                  return (
+                    <div key={value} className="flex items-start gap-2">
+                      <input
+                        type="radio"
+                        id={inputId}
+                        name={`deduction_kind-${category.id}`}
+                        className="mt-1"
+                        value={value}
+                        checked={formState.deduction_kind === value}
+                        aria-describedby={`${inputId}-help`}
+                        onChange={() => setFormState((s) => ({ ...s, deduction_kind: value }))}
+                      />
+                      <div>
+                        <Label htmlFor={inputId}>{label}</Label>
+                        <p id={`${inputId}-help`} className="text-xs text-muted-foreground">
+                          {help}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </fieldset>
             </>
           )}
           <DialogFooter>

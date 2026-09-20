@@ -28,6 +28,7 @@ function makeCategory(overrides: Partial<Category> = {}): Category {
     goal_type: "none", goal_amount: null, goal_target_date: null,
     created_at: "2026-01-01T00:00:00Z",
     deductible: false, deduction_pct: 100, tax_line: null,
+    deduction_kind: "personal_itemized",
     ...overrides,
   };
 }
@@ -120,6 +121,43 @@ describe("CategoryItem", () => {
 
     expect(utils.getByLabelText(/deduction %/i)).toBeInTheDocument();
     expect(utils.getByLabelText(/tax line/i)).toBeInTheDocument();
+  });
+
+  it("offers the deduction-kind choice only once deductible is on", async () => {
+    const cat = makeCategory({ deductible: false });
+    const { user, ...utils } = renderCategoryItem(cat);
+
+    await user.click(utils.getByRole("button", { name: /edit/i }));
+    expect(utils.queryByRole("radio", { name: /business expense/i })).not.toBeInTheDocument();
+
+    await user.click(utils.getByRole("switch", { name: /tax deductible/i }));
+    expect(utils.getByRole("radio", { name: /business expense/i })).toBeInTheDocument();
+    expect(utils.getByRole("radio", { name: /personal deduction/i })).toBeInTheDocument();
+  });
+
+  it("saves the chosen deduction kind", async () => {
+    const cat = makeCategory({ deductible: true, tax_line: "Schedule E — Cleaning" });
+    const { user, ...utils } = renderCategoryItem(cat);
+
+    await user.click(utils.getByRole("button", { name: /edit/i }));
+    await user.click(utils.getByRole("radio", { name: /business expense/i }));
+    await user.click(utils.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(categoriesApi.update).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({ deduction_kind: "business_expense" }),
+      ),
+    );
+  });
+
+  it("preselects the category's current deduction kind", async () => {
+    const cat = makeCategory({ deductible: true, deduction_kind: "business_expense" });
+    const { user, ...utils } = renderCategoryItem(cat);
+
+    await user.click(utils.getByRole("button", { name: /edit/i }));
+    expect(utils.getByRole("radio", { name: /business expense/i })).toBeChecked();
+    expect(utils.getByRole("radio", { name: /personal deduction/i })).not.toBeChecked();
   });
 
   it("shows a muted transaction-count hint", () => {

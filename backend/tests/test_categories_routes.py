@@ -432,3 +432,98 @@ async def test_category_deduction_fields_roundtrip(fixture):
         assert body["deductible"] is True
         assert float(body["deduction_pct"]) == 80.0
         assert body["tax_line"] == "Schedule E — Cleaning"
+
+
+@pytest.mark.asyncio
+async def test_category_deduction_kind_roundtrip(fixture):
+    """A category can be reclassified as a business expense through the API.
+
+    The column exists and the engine reads it, but until the CRUD schema
+    carries it every category stays personal_itemized and Schedule E
+    expenses are valued against the standard deduction instead of from
+    the first dollar.
+    """
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        grp = await client.post("/api/categories/groups", headers=headers, json={"name": "Rental"})
+        gid = grp.json()["id"]
+        create = await client.post(
+            "/api/categories",
+            headers=headers,
+            json={"group_id": gid, "name": "Cleaning"},
+        )
+        cid = create.json()["id"]
+        assert create.json()["deduction_kind"] == "personal_itemized"
+
+        update = await client.put(
+            f"/api/categories/{cid}",
+            headers=headers,
+            json={"deduction_kind": "business_expense"},
+        )
+        assert update.status_code == 200
+        assert update.json()["deduction_kind"] == "business_expense"
+
+        listed = await client.get("/api/categories/groups", headers=headers)
+        categories = [c for g in listed.json() for c in g["categories"]]
+        assert [c["deduction_kind"] for c in categories if c["id"] == cid] == ["business_expense"]
+
+
+@pytest.mark.asyncio
+async def test_category_create_accepts_a_business_expense_kind(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        grp = await client.post("/api/categories/groups", headers=headers, json={"name": "Rental"})
+        gid = grp.json()["id"]
+        create = await client.post(
+            "/api/categories",
+            headers=headers,
+            json={"group_id": gid, "name": "Repairs", "deduction_kind": "business_expense"},
+        )
+        assert create.status_code == 201
+        assert create.json()["deduction_kind"] == "business_expense"
+
+
+@pytest.mark.asyncio
+async def test_category_rejects_unknown_deduction_kind(fixture):
+    """The set is closed: the engine values exactly these two kinds."""
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        grp = await client.post("/api/categories/groups", headers=headers, json={"name": "Rental"})
+        gid = grp.json()["id"]
+        create = await client.post(
+            "/api/categories",
+            headers=headers,
+            json={"group_id": gid, "name": "Cleaning", "deduction_kind": "charitable"},
+        )
+        assert create.status_code == 422
+
+        ok = await client.post(
+            "/api/categories", headers=headers, json={"group_id": gid, "name": "Repairs"}
+        )
+        cid = ok.json()["id"]
+        update = await client.put(
+            f"/api/categories/{cid}", headers=headers, json={"deduction_kind": "charitable"}
+        )
+        assert update.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_category_update_rejects_null_deduction_kind(fixture):
+    """The column is NOT NULL; an explicit null must be a 422, not a 500."""
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        grp = await client.post("/api/categories/groups", headers=headers, json={"name": "Rental"})
+        gid = grp.json()["id"]
+        cid = (
+            await client.post(
+                "/api/categories", headers=headers, json={"group_id": gid, "name": "Cleaning"}
+            )
+        ).json()["id"]
+        update = await client.put(
+            f"/api/categories/{cid}", headers=headers, json={"deduction_kind": None}
+        )
+        assert update.status_code == 422
