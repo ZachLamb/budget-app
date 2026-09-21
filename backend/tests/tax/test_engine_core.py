@@ -146,3 +146,28 @@ def test_explain_trace_is_populated_and_ordered():
     assert "Adjusted gross income" in labels
     assert "Taxable income" in labels
     assert labels.index("Adjusted gross income") < labels.index("Taxable income")
+
+
+def _detail(projection, label: str) -> str:
+    return next(s.detail for s in projection.explain if s.label == label)
+
+
+def test_explain_details_format_money_like_the_rest_of_the_page():
+    """Raw Decimals leak into prose as "184500.00" next to formatted figures.
+
+    The frontend formats each step's amount but cannot touch the sentence,
+    so the engine has to hand over prose that already reads as money.
+    """
+    p = project(make_inputs(), RATES)
+
+    assert "$184,500.00" in _detail(p, "Social Security")
+    assert "184500.00" not in _detail(p, "Social Security")
+
+    assert "$200,000.00" in _detail(p, "Medicare")
+
+    assert "$0.00" in _detail(p, "Deduction")
+    assert "total 0.00" not in _detail(p, "Deduction")
+
+def test_state_rate_reads_as_a_percentage_not_a_decimal():
+    p = project(make_inputs(), RATES)
+    assert "4.4% flat" in _detail(p, "CO income tax")

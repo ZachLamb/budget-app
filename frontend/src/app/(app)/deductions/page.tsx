@@ -22,8 +22,9 @@ export default function DeductionsPage() {
         title="Deductions"
         description={
           <>
-            Track tax-deductible spending and estimate your savings. Set up
-            your rates and paystub on the{" "}
+            Track tax-deductible spending and see what it is actually worth.
+            Savings are worked out from published tax rates and the paystub
+            you enter on the{" "}
             <Link href="/taxes" className="underline">
               Taxes
             </Link>{" "}

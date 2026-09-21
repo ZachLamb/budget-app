@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal
 
+from app.services.tax.money import money
 from app.services.tax.inputs import SafeHarborResult
 
 CENTS = Decimal("0.01")
@@ -104,14 +105,14 @@ def evaluate_safe_harbor(
     elif remaining_periods > 0:
         per_period = _cents(shortfall / Decimal(remaining_periods))
         reason = (
-            f"You are ${shortfall} short of the safe harbor. Withholding "
-            f"about ${per_period} more per paycheck for the rest of the "
+            f"You are {money(shortfall)} short of the safe harbor. Withholding "
+            f"about {money(per_period)} more per paycheck for the rest of the "
             "year would close the gap."
         )
     else:
         per_period = None
         reason = (
-            f"You are ${shortfall} short of the safe harbor and there are "
+            f"You are {money(shortfall)} short of the safe harbor and there are "
             "no pay periods left this year to close it through withholding."
         )
 

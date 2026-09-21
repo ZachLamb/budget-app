@@ -17,6 +17,7 @@ from app.services.tax.inputs import (
     TaxProjection,
 )
 from app.services.tax.limitations import allowed_rental_loss
+from app.services.tax.money import money, percent
 from app.services.tax.rates.registry import (
     FilingStatus,
     RateSet,
@@ -89,8 +90,8 @@ def project(inputs: TaxInputs, rates: RateSet, remaining_periods: int = 0) -> Ta
             schedule_e_contribution = -allowance.allowed
             explain.append(ExplainStep(
                 "Rental loss allowed this year", _cents(allowed_loss),
-                f"Of {_cents(-inputs.schedule_e.net)} in rental loss, "
-                f"{_cents(suspended_loss)} is suspended and carries forward "
+                f"Of {money(-inputs.schedule_e.net)} in rental loss, "
+                f"{money(suspended_loss)} is suspended and carries forward "
                 "because your income is above the passive-loss threshold."
                 if suspended_loss > ZERO else
                 "Your full rental loss is usable this year.",
@@ -120,7 +121,7 @@ def project(inputs: TaxInputs, rates: RateSet, remaining_periods: int = 0) -> Ta
         deduction_taken, deduction_kind = standard, "standard"
         detail = (
             f"Standard deduction applies. Itemized deductions total "
-            f"{_cents(itemized)}, which is below it, so they reduce your "
+            f"{money(itemized)}, which is below it, so they reduce your "
             f"tax by nothing this year."
         )
     explain.append(ExplainStep("Deduction", _cents(deduction_taken), detail))
@@ -150,20 +151,20 @@ def project(inputs: TaxInputs, rates: RateSet, remaining_periods: int = 0) -> Ta
     )
     explain.append(ExplainStep(
         "Social Security", social_security_tax,
-        f"6.2% on wages up to {_cents(fed.social_security_wage_base)}. "
+        f"6.2% on wages up to {money(fed.social_security_wage_base)}. "
         "Pre-tax 401(k) does not reduce this.",
     ))
     explain.append(ExplainStep(
         "Medicare", medicare_tax + additional_medicare_tax,
         "1.45% on all wages, plus 0.9% above "
-        f"{_cents(fed.additional_medicare_threshold)}.",
+        f"{money(fed.additional_medicare_threshold)}.",
     ))
 
     # --- State -----------------------------------------------------------
     state_tax = _cents(taxable_income * rates.state.flat_rate)
     explain.append(ExplainStep(
         f"{rates.state.code} income tax", state_tax,
-        f"{rates.state.flat_rate * 100}% flat on federal taxable income.",
+        f"{percent(rates.state.flat_rate)} flat on federal taxable income.",
     ))
 
     total_liability = _cents(
