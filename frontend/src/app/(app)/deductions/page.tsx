@@ -1,18 +1,21 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { PageHeader, QueryState, inlineErrorQueryMeta } from "@/components/page";
 import { SkeletonCard } from "@/components/skeleton-table";
 import { deductionsApi } from "@/lib/api/deductions";
-import { taxSettingsApi, type TaxSettingsUpdate } from "@/lib/api/tax-settings";
+import { Label } from "@/components/ui/label";
 import { DeductionsSummaryTable } from "./deductions-summary-table";
-import { TaxSettingsCard } from "./tax-settings-card";
-import { toastApiError } from "@/lib/toast-error";
-import { appToast } from "@/lib/app-toast";
 
 export default function DeductionsPage() {
-  const year = new Date().getFullYear();
-  const queryClient = useQueryClient();
+  // On 1 January this page used to jump to the new year and take last
+  // year's tracked spending with it -- exactly when you need it, because
+  // that is the return you are about to file.
+  const thisYear = new Date().getFullYear();
+  const [year, setYear] = useState(thisYear);
+  const years = [thisYear, thisYear - 1, thisYear - 2];
 
   const summaryQuery = useQuery({
     queryKey: ["deductions-summary", year],
@@ -20,48 +23,51 @@ export default function DeductionsPage() {
     meta: inlineErrorQueryMeta,
   });
 
-  const settingsQuery = useQuery({
-    queryKey: ["tax-settings"],
-    queryFn: () => taxSettingsApi.get(),
-    meta: inlineErrorQueryMeta,
-  });
-
-  const saveSettings = useMutation({
-    mutationFn: (data: TaxSettingsUpdate) => taxSettingsApi.update(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tax-settings"] });
-      queryClient.invalidateQueries({ queryKey: ["deductions-summary", year] });
-      appToast.success("Tax settings saved");
-    },
-    onError: (e) => toastApiError("Failed to save tax settings", e),
-  });
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="Deductions"
-        description="Track tax-deductible spending and estimate your savings."
+        description={
+          <>
+            Track tax-deductible spending and see what it is actually worth.
+            Savings are worked out from published tax rates and the paystub
+            you enter on the{" "}
+            <Link href="/taxes" className="underline">
+              Taxes
+            </Link>{" "}
+            page.
+          </>
+        }
       />
 
+      <div className="flex items-center gap-2">
+        <Label htmlFor="deduction-year" className="text-sm">
+          Tax year
+        </Label>
+        <select
+          id="deduction-year"
+          className="h-9 rounded-md border bg-background px-2 text-sm"
+          value={year}
+          onChange={(e) => setYear(Number(e.target.value))}
+        >
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <QueryState
-        isLoading={summaryQuery.isLoading || settingsQuery.isLoading}
-        isError={summaryQuery.isError || settingsQuery.isError}
-        error={summaryQuery.error ?? settingsQuery.error}
-        onRetry={() => {
-          summaryQuery.refetch();
-          settingsQuery.refetch();
-        }}
+        isLoading={summaryQuery.isLoading}
+        isError={summaryQuery.isError}
+        error={summaryQuery.error}
+        onRetry={() => summaryQuery.refetch()}
         loadingFallback={<SkeletonCard />}
       >
-        {summaryQuery.data && settingsQuery.data ? (
+        {summaryQuery.data ? (
           <div className="space-y-6">
             <DeductionsSummaryTable summary={summaryQuery.data} />
-            <TaxSettingsCard
-              settings={settingsQuery.data}
-              onSave={async (data) => {
-                await saveSettings.mutateAsync(data);
-              }}
-            />
           </div>
         ) : null}
       </QueryState>

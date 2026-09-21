@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rulesApi, type Rule, type RuleCreate, type RuleSuggestion } from "@/lib/api/rules";
+import { invalidateTransactionDerived } from "@/lib/query-invalidation";
 import { reportsApi, type LlmSuggestion } from "@/lib/api/reports";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
 import { useMerchantNameRefine } from "@/hooks/use-merchant-name-refine";
@@ -136,7 +137,9 @@ function RulesContent() {
   const applyRulesMutation = useMutation({
     mutationFn: reportsApi.applyRules,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      // Running rules recategorizes transactions in bulk, which moves budget
+      // activity and spending-by-category — not just the transaction list.
+      invalidateTransactionDerived(queryClient);
       appToast.success("Rules applied to uncategorized transactions");
     },
     onError: (e) => toastApiError("Failed to apply rules", e),
@@ -159,7 +162,9 @@ function RulesContent() {
   const applySuggestionsMutation = useMutation({
     mutationFn: reportsApi.applySuggestions,
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      // Running rules recategorizes transactions in bulk, which moves budget
+      // activity and spending-by-category — not just the transaction list.
+      invalidateTransactionDerived(queryClient);
       appToast.success(`Applied ${data.applied} suggestions`);
       setSuggestOpen(false);
     },

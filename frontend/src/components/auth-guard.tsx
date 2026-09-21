@@ -63,7 +63,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
             <DemoBanner />
             <MobileHeader />
             <MobileSyncBanner />
-            <div className="mx-auto max-w-6xl p-4 md:p-6">
+            {/* pb clears the floating AI advisor button, which is fixed at
+                bottom-right and otherwise sits on top of the last row of a
+                page -- covering a money figure on the Taxes table. */}
+            <div className="mx-auto max-w-6xl p-4 pb-24 md:p-6 md:pb-28">
               <ErrorBoundary>{children}</ErrorBoundary>
             </div>
           </main>

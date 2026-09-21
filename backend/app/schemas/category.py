@@ -32,6 +32,18 @@ def clean_tax_line(value: Optional[str]) -> Optional[str]:
     return value or None
 
 
+DEDUCTION_KINDS = {"business_expense", "personal_itemized"}
+
+
+def clean_deduction_kind(value: Optional[str]) -> Optional[str]:
+    """Reject deduction kinds outside the closed set the tax engine understands."""
+    if value is None:
+        return value
+    if value not in DEDUCTION_KINDS:
+        raise ValueError(f"deduction_kind must be one of {sorted(DEDUCTION_KINDS)}")
+    return value
+
+
 class CategoryGroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     sort_order: Optional[int] = None
@@ -64,6 +76,7 @@ class CategoryCreate(BaseModel):
     deductible: bool = False
     deduction_pct: Decimal = Decimal("100.00")
     tax_line: Optional[str] = Field(default=None, max_length=255)
+    deduction_kind: str = "personal_itemized"
 
     @field_validator("name")
     @classmethod
@@ -80,6 +93,11 @@ class CategoryCreate(BaseModel):
     def _validate_tax_line(cls, v: Optional[str]) -> Optional[str]:
         return clean_tax_line(v)
 
+    @field_validator("deduction_kind")
+    @classmethod
+    def _validate_deduction_kind(cls, v: str) -> str:
+        return clean_deduction_kind(v)
+
 
 class CategoryUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
@@ -91,6 +109,7 @@ class CategoryUpdate(BaseModel):
     deductible: Optional[bool] = None
     deduction_pct: Optional[Decimal] = None
     tax_line: Optional[str] = Field(default=None, max_length=255)
+    deduction_kind: Optional[str] = None
 
     @field_validator("name")
     @classmethod
@@ -107,6 +126,15 @@ class CategoryUpdate(BaseModel):
     def _validate_tax_line(cls, v: Optional[str]) -> Optional[str]:
         return clean_tax_line(v)
 
+    @field_validator("deduction_kind")
+    @classmethod
+    def _validate_deduction_kind(cls, v: Optional[str]) -> str:
+        # The column is NOT NULL. Leave the field unset to keep the current
+        # kind; an explicit null would otherwise blow up at write time.
+        if v is None:
+            raise ValueError(f"deduction_kind must be one of {sorted(DEDUCTION_KINDS)}")
+        return clean_deduction_kind(v)
+
 
 class CategoryResponse(BaseModel):
     id: str
@@ -119,6 +147,7 @@ class CategoryResponse(BaseModel):
     deductible: bool
     deduction_pct: Decimal
     tax_line: Optional[str]
+    deduction_kind: str
     created_at: datetime
 
     model_config = {"from_attributes": True}

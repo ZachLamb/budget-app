@@ -1,4 +1,8 @@
-"""Model-level tests for the tax deductions columns and TaxSettings table."""
+"""Model-level tests for the tax deductions columns on Category/Transaction.
+
+The TaxSettings round-trip test that used to live here is gone -- that
+model was removed by the tax-projection-engine migration; TaxProfile's
+round-trip is covered by tests/test_tax_models.py instead."""
 from __future__ import annotations
 
 import uuid
@@ -12,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy import select
 
 from app.database import Base
-from app.models import Category, CategoryGroup, Household, TaxSettings, Transaction, Account, User
+from app.models import Category, CategoryGroup, Household, Transaction, Account, User
 
 
 @pytest_asyncio.fixture()
@@ -67,20 +71,3 @@ async def test_transaction_deduction_override_nullable(db_session):
     result = await db_session.execute(select(Transaction).where(Transaction.id == txn.id))
     saved = result.scalar_one()
     assert saved.deduction_pct_override is None
-
-
-@pytest.mark.asyncio
-async def test_tax_settings_one_row_per_household(db_session):
-    household = Household(id=str(uuid.uuid4()), name="H")
-    db_session.add(household)
-    await db_session.flush()
-    settings = TaxSettings(id=str(uuid.uuid4()), household_id=household.id)
-    db_session.add(settings)
-    await db_session.commit()
-
-    result = await db_session.execute(select(TaxSettings).where(TaxSettings.household_id == household.id))
-    saved = result.scalar_one()
-    assert saved.marginal_federal_rate is None
-    assert saved.marginal_state_rate is None
-    assert saved.current_federal_withholding_per_period is None
-    assert saved.remaining_pay_periods_this_year is None

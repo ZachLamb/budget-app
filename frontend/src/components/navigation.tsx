@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { invalidateTransactionDerived } from "@/lib/query-invalidation";
 import { useAuth, useTheme } from "@/lib/providers";
 import {
   LayoutDashboard,
@@ -116,13 +117,10 @@ function SidebarFooter() {
 
   useEffect(() => {
     if (prevSyncing.current === true && syncStatus?.syncing === false) {
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["debtAccounts"] });
-      queryClient.invalidateQueries({ queryKey: ["budget"] });
-      queryClient.invalidateQueries({ queryKey: ["goals"] });
-      queryClient.invalidateQueries({ queryKey: ["payees"] });
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
+      // A finished sync can import transactions, so everything derived from
+      // them goes stale — including the Dashboard's spending charts, which are
+      // NOT under the ["reports"] prefix this used to rely on.
+      invalidateTransactionDerived(queryClient);
       queryClient.invalidateQueries({ queryKey: ["syncHistory"] });
       queryClient.invalidateQueries({ queryKey: ["syncStatus"] });
     }

@@ -39,6 +39,14 @@ class Category(Base):
     deductible: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     deduction_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("100.00"), server_default="100.00")
     tax_line: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default=None)
+    # Business expenses (Schedule E) reduce income from the first dollar;
+    # personal itemized deductions only matter above the standard
+    # deduction. They are worth very different amounts and must not be
+    # summed together. Existing rows default to personal_itemized, which
+    # preserves their current meaning.
+    deduction_kind: Mapped[str] = mapped_column(
+        String(30), default="personal_itemized", server_default="personal_itemized"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     group: Mapped["CategoryGroup"] = relationship(back_populates="categories")

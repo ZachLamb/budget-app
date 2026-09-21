@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 
 from tests.test_categories_routes import fixture, _seed_household, _client
-from app.models import Account, Category, CategoryGroup, TaxSettings, Transaction
+from app.models import Account, Category, CategoryGroup, Household, Paystub, TaxProfile, Transaction
 from app.services.deductions import compute_deductions_summary
 
 
@@ -38,6 +38,19 @@ async def _seed_txn(session, hid: str, category_id: str, amount: Decimal, txn_da
     return txn
 
 
+async def _seed_tax_ready(session, hid: str, *, gross_ytd="179000.00"):
+    """A household the engine can actually project: filing status plus a
+    December paystub, so YTD is the whole year and no projection is needed."""
+    household = await session.get(Household, hid)
+    household.pay_frequency = "monthly"
+    session.add(TaxProfile(id=str(uuid.uuid4()), household_id=hid, filing_status="single"))
+    session.add(Paystub(
+        id=str(uuid.uuid4()), household_id=hid, pay_date=_date(2026, 12, 31),
+        gross=Decimal("0.00"), gross_ytd=Decimal(gross_ytd),
+    ))
+    await session.flush()
+
+
 @pytest.mark.asyncio
 async def test_summary_groups_by_tax_line_and_applies_pct(fixture):
     session, _ = fixture
@@ -48,7 +61,9 @@ async def test_summary_groups_by_tax_line_and_applies_pct(fixture):
 
     summary = await compute_deductions_summary(session, hid, 2026)
     assert summary.total == Decimal("50.00")
-    assert [line.model_dump() for line in summary.lines] == [{"tax_line": "Schedule E — Cleaning", "amount": Decimal("50.00")}]
+    assert [line.model_dump() for line in summary.lines] == [
+        {"tax_line": "Schedule E — Cleaning", "amount": Decimal("50.00"), "deduction_kind": "personal_itemized"}
+    ]
     assert summary.estimated_tax_savings is None
     assert summary.suggested_withholding_reduction_per_period is None
 
@@ -74,7 +89,9 @@ async def test_summary_falls_back_to_category_name_when_tax_line_unset(fixture):
     await session.commit()
 
     summary = await compute_deductions_summary(session, hid, 2026)
-    assert [line.model_dump() for line in summary.lines] == [{"tax_line": "Medical", "amount": Decimal("10.00")}]
+    assert [line.model_dump() for line in summary.lines] == [
+        {"tax_line": "Medical", "amount": Decimal("10.00"), "deduction_kind": "personal_itemized"}
+    ]
 
 
 @pytest.mark.asyncio
@@ -91,55 +108,99 @@ async def test_summary_excludes_other_years(fixture):
 
 
 @pytest.mark.asyncio
-async def test_savings_present_only_when_both_rates_set(fixture):
+async def test_savings_is_none_without_a_projection(fixture):
+    """No profile or paystub -> genuinely unknown, not a fabricated zero."""
     session, _ = fixture
     hid, _ = await _seed_household(session)
-    cat = await _seed_deductible_category(session, hid, name="Cleaning", tax_line="Schedule E")
-    await _seed_txn(session, hid, cat.id, Decimal("-1000.00"), "2026-03-01")
-    session.add(TaxSettings(id=str(uuid.uuid4()), household_id=hid, marginal_federal_rate=Decimal("22.00")))
-    await session.commit()
+    cat = await _seed_deductible_category(
+        session, hid, name="Cleaning", tax_line="Schedule E - Cleaning"
+    )
+    await _seed_txn(session, hid, cat.id, Decimal("-500.00"), "2026-03-01")
 
-    # Only federal rate set — state rate missing — savings still omitted.
     summary = await compute_deductions_summary(session, hid, 2026)
+    assert summary.total == Decimal("500.00")
     assert summary.estimated_tax_savings is None
-
-
-@pytest.mark.asyncio
-async def test_savings_and_nudge_present_when_fully_configured(fixture):
-    session, _ = fixture
-    hid, _ = await _seed_household(session)
-    cat = await _seed_deductible_category(session, hid, name="Cleaning", tax_line="Schedule E")
-    await _seed_txn(session, hid, cat.id, Decimal("-1000.00"), "2026-03-01")
-    session.add(TaxSettings(
-        id=str(uuid.uuid4()), household_id=hid,
-        marginal_federal_rate=Decimal("22.00"), marginal_state_rate=Decimal("4.40"),
-        current_federal_withholding_per_period=Decimal("1191.80"),
-        remaining_pay_periods_this_year=8,
-    ))
-    await session.commit()
-
-    summary = await compute_deductions_summary(session, hid, 2026)
-    assert summary.estimated_tax_savings == Decimal("264.00")  # 1000 * 26.4%
-    assert summary.suggested_withholding_reduction_per_period == Decimal("33.00")  # 264 / 8
-
-
-@pytest.mark.asyncio
-async def test_nudge_omitted_when_zero_remaining_periods(fixture):
-    session, _ = fixture
-    hid, _ = await _seed_household(session)
-    cat = await _seed_deductible_category(session, hid, name="Cleaning", tax_line="Schedule E")
-    await _seed_txn(session, hid, cat.id, Decimal("-1000.00"), "2026-03-01")
-    session.add(TaxSettings(
-        id=str(uuid.uuid4()), household_id=hid,
-        marginal_federal_rate=Decimal("22.00"), marginal_state_rate=Decimal("4.40"),
-        current_federal_withholding_per_period=Decimal("1191.80"),
-        remaining_pay_periods_this_year=0,
-    ))
-    await session.commit()
-
-    summary = await compute_deductions_summary(session, hid, 2026)
-    assert summary.estimated_tax_savings == Decimal("264.00")
     assert summary.suggested_withholding_reduction_per_period is None
+
+
+@pytest.mark.asyncio
+async def test_personal_itemized_below_standard_deduction_is_worth_zero(fixture):
+    """THE correctness fix. The old flat-rate code reported ~$1,320 here."""
+    session, _ = fixture
+    hid, _ = await _seed_household(session)
+    await _seed_tax_ready(session, hid)
+    cat = await _seed_deductible_category(
+        session, hid, name="Medical", tax_line="Schedule A - Medical"
+    )
+    cat.deduction_kind = "personal_itemized"
+    await _seed_txn(session, hid, cat.id, Decimal("-5000.00"), "2026-03-01")
+    await session.flush()
+
+    summary = await compute_deductions_summary(session, hid, 2026)
+    assert summary.personal_itemized_total == Decimal("5000.00")
+    assert summary.personal_itemized_value == Decimal("0.00")
+    assert summary.estimated_tax_savings == Decimal("0.00")
+    assert summary.standard_deduction == Decimal("16100.00")
+
+
+@pytest.mark.asyncio
+async def test_business_expense_is_worth_money_from_the_first_dollar(fixture):
+    """Same dollars as the test above, valued through Schedule E.
+
+    Income here is deliberately kept under the $100,000 passive-loss
+    phase-out (IRS Pub 925): ExtraBusinessExpense models this as a rental
+    loss with no offsetting rental income, and at the $179,000 wage level
+    used by _seed_tax_ready's default (well past the $150,000 phase-out
+    end), the correct answer is that the entire loss is SUSPENDED and
+    this year's benefit is genuinely $0 -- a case the engine gets right
+    and this test must not contradict."""
+    session, _ = fixture
+    hid, _ = await _seed_household(session)
+    await _seed_tax_ready(session, hid, gross_ytd="80000.00")
+    cat = await _seed_deductible_category(
+        session, hid, name="Cleaning", tax_line="Schedule E - Cleaning"
+    )
+    cat.deduction_kind = "business_expense"
+    await _seed_txn(session, hid, cat.id, Decimal("-5000.00"), "2026-03-01")
+    await session.flush()
+
+    summary = await compute_deductions_summary(session, hid, 2026)
+    assert summary.business_total == Decimal("5000.00")
+    assert summary.estimated_tax_savings > Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_the_two_kinds_are_reported_separately(fixture):
+    session, _ = fixture
+    hid, _ = await _seed_household(session)
+    await _seed_tax_ready(session, hid)
+    business = await _seed_deductible_category(
+        session, hid, name="Cleaning", tax_line="Schedule E - Cleaning"
+    )
+    business.deduction_kind = "business_expense"
+    personal = await _seed_deductible_category(
+        session, hid, name="Medical", tax_line="Schedule A - Medical"
+    )
+    personal.deduction_kind = "personal_itemized"
+    await _seed_txn(session, hid, business.id, Decimal("-3000.00"), "2026-03-01")
+    await _seed_txn(session, hid, personal.id, Decimal("-2000.00"), "2026-04-01")
+    await session.flush()
+
+    summary = await compute_deductions_summary(session, hid, 2026)
+    assert summary.business_total == Decimal("3000.00")
+    assert summary.personal_itemized_total == Decimal("2000.00")
+    assert summary.total == Decimal("5000.00")
+
+
+@pytest.mark.asyncio
+async def test_response_keeps_its_existing_shape(fixture):
+    """The current page reads these fields; they must not disappear."""
+    session, _ = fixture
+    hid, _ = await _seed_household(session)
+    summary = await compute_deductions_summary(session, hid, 2026)
+    for field in ("year", "lines", "total", "estimated_tax_savings",
+                  "suggested_withholding_reduction_per_period"):
+        assert hasattr(summary, field)
 
 
 @pytest.mark.asyncio

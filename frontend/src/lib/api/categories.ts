@@ -1,5 +1,7 @@
 import api from "./client";
 
+export type DeductionKind = "business_expense" | "personal_itemized";
+
 export interface Category {
   id: string;
   group_id: string;
@@ -12,6 +14,10 @@ export interface Category {
   deductible: boolean;
   deduction_pct: number;
   tax_line: string | null;
+  // Business expenses reduce taxable income from the first dollar; personal
+  // itemized deductions only count above the standard deduction. The tax
+  // engine values them differently, so the two must not be summed.
+  deduction_kind: DeductionKind;
 }
 
 export interface CategoryGroup {
@@ -52,9 +58,19 @@ export const categoriesApi = {
   updateGroup: (id: string, data: Partial<{ name: string; sort_order: number; is_income: boolean }>) =>
     api.put<CategoryGroup>(`/categories/groups/${id}`, data).then((r) => coerceCategoryGroup(r.data)),
   deleteGroup: (id: string) => api.delete(`/categories/groups/${id}`),
-  create: (data: { group_id: string; name: string; sort_order?: number }) =>
+  create: (data: { group_id: string; name: string; sort_order?: number; deduction_kind?: DeductionKind }) =>
     api.post<Category>("/categories", data).then((r) => coerceCategory(r.data)),
-  update: (id: string, data: Partial<{ name: string; group_id: string; deductible: boolean; deduction_pct: number; tax_line: string | null }>) =>
+  update: (
+    id: string,
+    data: Partial<{
+      name: string;
+      group_id: string;
+      deductible: boolean;
+      deduction_pct: number;
+      tax_line: string | null;
+      deduction_kind: DeductionKind;
+    }>,
+  ) =>
     api.put<Category>(`/categories/${id}`, data).then((r) => coerceCategory(r.data)),
   delete: (id: string) => api.delete(`/categories/${id}`),
   usage: () => api.get<CategoryUsageMap>("/categories/usage").then((r) => r.data),

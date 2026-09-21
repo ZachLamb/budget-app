@@ -2,7 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { categoriesApi, type Category, type CategoryGroup, type CategoryUsage } from "@/lib/api/categories";
+import {
+  categoriesApi,
+  type Category,
+  type CategoryGroup,
+  type CategoryUsage,
+  type DeductionKind,
+} from "@/lib/api/categories";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +39,41 @@ import { cn } from "@/lib/utils";
 import { appToast } from "@/lib/app-toast";
 import { toastApiError } from "@/lib/toast-error";
 
+// The tax engine values these two very differently, so the user has to say
+// which one a deductible category is -- it cannot be inferred from the amount.
+const KIND_BADGES: Record<DeductionKind, string> = {
+  business_expense: "Business",
+  personal_itemized: "Personal",
+};
+
+// A tax line names the form a deduction is filed on, and the two forms map
+// straight onto the two kinds. Disagreement is almost always a mistake, and
+// a silent one: it changes what the deduction is worth without changing
+// anything visible.
+const LINE_IMPLIES: { pattern: RegExp; kind: DeductionKind; form: string }[] = [
+  { pattern: /schedule\s*e\b/i, kind: "business_expense", form: "Schedule E" },
+  { pattern: /schedule\s*a\b/i, kind: "personal_itemized", form: "Schedule A" },
+];
+
+function mismatch(taxLine: string | null, kind: DeductionKind) {
+  if (!taxLine) return null;
+  const hit = LINE_IMPLIES.find((l) => l.pattern.test(taxLine));
+  return hit && hit.kind !== kind ? hit : null;
+}
+
+const DEDUCTION_KINDS: { value: DeductionKind; label: string; help: string }[] = [
+  {
+    value: "business_expense",
+    label: "Business expense",
+    help: "Lowers your taxable income from the first dollar spent.",
+  },
+  {
+    value: "personal_itemized",
+    label: "Personal deduction",
+    help: "Only counts once your itemized deductions beat the standard deduction.",
+  },
+];
+
 export function CategoryItem({
   category,
   groups,
@@ -58,6 +100,7 @@ export function CategoryItem({
     deductible: category.deductible,
     deduction_pct: category.deduction_pct,
     tax_line: category.tax_line,
+    deduction_kind: category.deduction_kind,
   });
 
   useEffect(() => {
@@ -77,6 +120,7 @@ export function CategoryItem({
         deductible: boolean;
         deduction_pct: number;
         tax_line: string | null;
+        deduction_kind: DeductionKind;
       }>,
     ) => categoriesApi.update(category.id, data),
     onSuccess: () => {
@@ -93,6 +137,7 @@ export function CategoryItem({
       deductible: category.deductible,
       deduction_pct: category.deduction_pct,
       tax_line: category.tax_line,
+      deduction_kind: category.deduction_kind,
     });
     setEditing(true);
   };
@@ -103,6 +148,7 @@ export function CategoryItem({
       deductible: formState.deductible,
       deduction_pct: Math.min(100, Math.max(0, formState.deduction_pct)),
       tax_line: formState.tax_line,
+      deduction_kind: formState.deduction_kind,
     });
   };
 
@@ -136,7 +182,7 @@ export function CategoryItem({
       {renaming ? (
         <Input
           ref={inputRef}
-          className="h-7 text-sm"
+          className="h-7 min-w-0 flex-1 text-sm"
           value={draft}
           aria-label={`Rename category ${category.name}`}
           onChange={(e) => setDraft(e.target.value)}
@@ -150,8 +196,17 @@ export function CategoryItem({
           }}
         />
       ) : (
-        <span className="flex items-baseline gap-2 text-sm">
-          {category.name}
+        <span className="flex min-w-0 flex-1 items-baseline gap-2 text-sm">
+          <span className="truncate">{category.name}</span>
+          {category.deductible && (
+            <Badge
+              variant="outline"
+              className="text-[10px]"
+              title={`Tax deductible — ${KIND_BADGES[category.deduction_kind].toLowerCase()}`}
+            >
+              {KIND_BADGES[category.deduction_kind]}
+            </Badge>
+          )}
           {usage && usage.transactions > 0 && (
             <span className="text-xs text-muted-foreground">
               {usage.transactions} txn{usage.transactions === 1 ? "" : "s"}
@@ -187,6 +242,63 @@ export function CategoryItem({
           </div>
           {formState.deductible && (
             <>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium">
+                  How does this deduction work?
+                </legend>
+                {DEDUCTION_KINDS.map(({ value, label, help }) => {
+                  const inputId = `deduction_kind-${value}-${category.id}`;
+                  return (
+                    <div key={value} className="flex items-start gap-2">
+                      <input
+                        type="radio"
+                        id={inputId}
+                        name={`deduction_kind-${category.id}`}
+                        className="mt-1"
+                        value={value}
+                        checked={formState.deduction_kind === value}
+                        aria-describedby={`${inputId}-help`}
+                        onChange={() => setFormState((s) => ({ ...s, deduction_kind: value }))}
+                      />
+                      <div>
+                        <Label htmlFor={inputId}>{label}</Label>
+                        <p id={`${inputId}-help`} className="text-xs text-muted-foreground">
+                          {help}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+                {(() => {
+                  const wrong = mismatch(formState.tax_line, formState.deduction_kind);
+                  if (!wrong) return null;
+                  return (
+                    <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+                      The tax line says {wrong.form}, and {wrong.form} is a{" "}
+                      {wrong.kind === "business_expense"
+                        ? "business expense"
+                        : "personal deduction"}
+                      , but this is marked as the other one. That changes what
+                      it is worth — check which is right.
+                    </p>
+                  );
+                })()}
+              </fieldset>
+
+              <div>
+                <Label htmlFor="tax_line">Tax line</Label>
+                <Input
+                  id="tax_line"
+                  value={formState.tax_line ?? ""}
+                  onChange={(e) => setFormState((s) => ({ ...s, tax_line: e.target.value || null }))}
+                  placeholder="e.g. Schedule E — Cleaning"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Where this lands on your return. Categories sharing a line
+                  are totalled together on the Deductions page.
+                </p>
+              </div>
+
               <div>
                 <Label htmlFor="deduction_pct">Deduction %</Label>
                 <Input
@@ -202,18 +314,15 @@ export function CategoryItem({
                     }))
                   }
                 />
-              </div>
-              <div>
-                <Label htmlFor="tax_line">Tax line</Label>
-                <Input
-                  id="tax_line"
-                  value={formState.tax_line ?? ""}
-                  onChange={(e) => setFormState((s) => ({ ...s, tax_line: e.target.value || null }))}
-                  placeholder="e.g. Schedule E — Cleaning"
-                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Leave at 100 unless only part of this spending is
+                  deductible — a phone line used half for the rental would be
+                  50.
+                </p>
               </div>
             </>
           )}
+
           <DialogFooter>
             <Button onClick={submitEdit} disabled={updateMutation.isPending}>
               Save
