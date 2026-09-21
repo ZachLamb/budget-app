@@ -58,6 +58,44 @@ GitHub Actions runs the backend and frontend jobs on every PR (see `.github/work
 ./scripts/vercel-build-check.sh
 ```
 
+## Local test users
+
+Driving the real UI needs a real account with real rows behind it.
+`scripts/dev-test-user.py` creates and destroys throwaway ones. It needs the
+backend running (`:8001` here, not the canonical `:8000` — see
+`frontend/.env.local`) and the backend virtualenv, which supplies SQLAlchemy.
+
+```bash
+cd backend && source .venv/bin/activate && cd ..
+
+python scripts/dev-test-user.py create                    # uitest@local.test, fully set up
+python scripts/dev-test-user.py create \
+    --email newbie@local.test --profile empty             # nothing set up: first-run UX
+python scripts/dev-test-user.py list
+python scripts/dev-test-user.py destroy --email uitest@local.test
+python scripts/dev-test-user.py destroy --all
+```
+
+Password for every test account is `LocalUiTest!2026` (override with
+`DEV_TEST_USER_PASSWORD`). Sign in at `http://localhost:3000/login` — use
+"More sign-in options" for the email/password form.
+
+`--profile full` seeds an account, two deductible Schedule E categories and
+one Schedule A category, four transactions, a single filing status, a
+September paystub with year-to-date figures, last year's return, and a
+biweekly pay schedule — enough for `/taxes` and `/deductions` to show a
+complete picture. `--profile empty` gives a household with nothing in it,
+which is what you want for testing the setup checklist and empty states.
+
+**Two guards, because `destroy` deletes households:** every address it
+touches must end in `@local.test`, so a real account cannot be named; and
+the database must be on localhost, so pointing it at Neon refuses. Both are
+worth keeping if you extend the script.
+
+Registration answers `403 "awaiting approval"` on success — the admin gate.
+The script writes the approval directly, which is also why it needs the
+database and not just the API.
+
 ## Database migrations
 
 Schema is managed by **Alembic** (`backend/alembic/`). The container
