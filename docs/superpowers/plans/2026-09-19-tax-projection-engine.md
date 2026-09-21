@@ -2,6 +2,35 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Status — 2026-09-20
+
+**Tasks 1–16 are implemented and merged to `main`** (branch `feat/tax-projection-engine`,
+merge commit "Tax projection engine: real brackets, a guided setup, and honest gaps"). The
+step checkboxes below were never ticked during execution; the commit log is the record —
+one `feat(tax)`/`test(tax)` commit per task.
+
+**Acceptance item 1 is the only thing still open, and it needs data, not code.** The engine
+must reproduce the last two *real* filed returns. `backend/tests/backtest/` is built and
+skips without `backend/tests/backtest/returns.local.json`, which is gitignored by design
+(it describes a real person's finances — never commit it). Its README maps every figure to
+its box on the form. Build that file locally and run
+`cd backend && pytest tests/backtest/ -v` to close Phase 1.
+
+**Two corrections to this plan, made while implementing and already applied in code:**
+- Task 16's comparison was wrong — see the note in that task. `total_liability` is federal
+  + FICA + state and matches no single line on any filed form.
+- Acceptance item 5 ("an unsupported year or filing status raises rather than
+  approximating") holds for the engine, but the *route* must not. Raising a 422 from
+  `/tax/projection` replaced the whole Taxes page with the engine's message and a dead
+  Retry button; it now returns `available: false` with `unsupported_filing_status`.
+
+**Found by driving the app after the plan was complete** (all fixed, all with tests): a
+missing pay frequency and blank withholding boxes were each read as a silent zero and
+presented as confident numbers; the Taxes page has since been rebuilt around a first-time
+user (setup checklist, progressive disclosure in the paystub form, correctable paystubs).
+The lesson worth carrying: the plan's own "never fabricate a zero" rule was honoured inside
+the engine and broken twice at the seams around it.
+
 **Goal:** Replace the hand-entered marginal rate behind the deductions feature with a real tax projection engine that answers "what will I owe this year, and is my withholding on track?"
 
 **Architecture:** A pure-function engine (`backend/app/services/tax/`) over versioned per-year rate tables. Dataclass in, dataclass out — no DB session, no I/O, no clock. Marginal impact is computed by re-running the engine with the actual amount under consideration, never by looking up a bracket. Database models feed the engine through an assembly service; routes contain no tax math.
