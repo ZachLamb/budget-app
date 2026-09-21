@@ -30,6 +30,30 @@ describe("WithholdingCard", () => {
     expect(screen.getByText("$766.53")).toBeInTheDocument();
   });
 
+  it("qualifies the verdict when the rest of the year is unprojected", () => {
+    render(
+      <WithholdingCard
+        safeHarbor={{ ...base, status: "met", reason: "" }}
+        remainingPeriods={0}
+        partialYear
+      />
+    );
+    expect(screen.getByText(/pay so far/i)).toBeInTheDocument();
+  });
+
+  it("names what the remaining periods are", () => {
+    render(
+      <WithholdingCard
+        safeHarbor={{
+          ...base, status: "not_met", shortfall: 900, per_period_to_close: 300,
+          reason: "",
+        }}
+        remainingPeriods={3}
+      />
+    );
+    expect(screen.getByText(/remaining 3 paychecks/i)).toBeInTheDocument();
+  });
+
   it("confirms when the safe harbor is met", () => {
     render(
       <WithholdingCard

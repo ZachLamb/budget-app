@@ -5,8 +5,8 @@ import type { SafeHarbor } from "@/lib/api/tax";
 import { formatCurrency } from "@/lib/format";
 
 export function WithholdingCard({
-  safeHarbor, remainingPeriods,
-}: { safeHarbor: SafeHarbor; remainingPeriods: number }) {
+  safeHarbor, remainingPeriods, partialYear = false,
+}: { safeHarbor: SafeHarbor; remainingPeriods: number; partialYear?: boolean }) {
   return (
     <Card>
       <CardHeader>
@@ -21,6 +21,13 @@ export function WithholdingCard({
           <p>You&apos;re on track. No underpayment penalty is expected.</p>
         )}
 
+        {partialYear && safeHarbor.status !== "unknown" && (
+          <p className="text-xs text-muted-foreground">
+            Worked out from your pay so far. Add your pay schedule in Settings to
+            check the whole year.
+          </p>
+        )}
+
         {safeHarbor.status === "not_met" && (
           <>
             <p>
@@ -31,7 +38,8 @@ export function WithholdingCard({
               <p>
                 Holding back{" "}
                 <strong>{formatCurrency(safeHarbor.per_period_to_close)}</strong>{" "}
-                more per paycheck for the remaining {remainingPeriods} would close it.
+                more per paycheck for the remaining {remainingPeriods}{" "}
+                paycheck{remainingPeriods === 1 ? "" : "s"} would close it.
               </p>
             ) : (
               <p>There are no pay periods left this year to close the gap.</p>

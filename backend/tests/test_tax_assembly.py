@@ -132,3 +132,73 @@ async def test_prior_year_absence_is_reported_but_not_blocking(fixture):
     assert result.inputs is not None, "projection still works without prior year"
     assert "prior_year_return" in result.missing
     assert result.inputs.prior_year_total_tax is None
+
+
+@pytest.mark.asyncio
+async def test_unset_pay_frequency_is_reported_not_silently_zero(fixture):
+    """A household with no pay schedule must not get a confident full-year number.
+
+    Without a frequency the remainder of the year projects to zero wages,
+    which understates the tax bill by the whole rest of the year -- $15k on
+    a September paystub. The projection is still worth showing, so this is
+    reported rather than blocking, but it must be reported.
+    """
+    session, _ = fixture
+    hid, _ = await _seed_household(session)
+    household = await session.get(Household, hid)
+    household.pay_frequency = None
+    await _seed_profile(session, hid)
+    await _seed_stub(session, hid, date(2026, 9, 1))
+    await session.flush()
+
+    result = await build_tax_inputs(session, hid, 2026)
+    assert result.inputs is not None, "a partial projection is still useful"
+    assert result.remaining_periods == 0
+    assert "pay_frequency" in result.missing
+    assert result.inputs.projected_remaining_wages == Decimal("0.00")
+
+
+@pytest.mark.asyncio
+async def test_irregular_pay_frequency_is_reported_too(fixture):
+    """`irregular` is a valid setting the projection cannot use."""
+    session, _ = fixture
+    hid, _ = await _seed_household(session)
+    household = await session.get(Household, hid)
+    household.pay_frequency = "irregular"
+    await _seed_profile(session, hid)
+    await _seed_stub(session, hid, date(2026, 9, 1))
+    await session.flush()
+
+    result = await build_tax_inputs(session, hid, 2026)
+    assert "pay_frequency" in result.missing
+
+
+@pytest.mark.asyncio
+async def test_a_finished_year_does_not_report_pay_frequency(fixture):
+    """December's stub leaves no year to project, so zero periods is correct."""
+    session, _ = fixture
+    hid, _ = await _seed_household(session)
+    household = await session.get(Household, hid)
+    household.pay_frequency = "biweekly"
+    await _seed_profile(session, hid)
+    await _seed_stub(session, hid, date(2026, 12, 31))
+    await session.flush()
+
+    result = await build_tax_inputs(session, hid, 2026)
+    assert result.remaining_periods == 0
+    assert "pay_frequency" not in result.missing
+
+
+@pytest.mark.asyncio
+async def test_a_known_frequency_is_never_reported_missing(fixture):
+    session, _ = fixture
+    hid, _ = await _seed_household(session)
+    household = await session.get(Household, hid)
+    household.pay_frequency = "biweekly"
+    await _seed_profile(session, hid)
+    await _seed_stub(session, hid, date(2026, 9, 1))
+    await session.flush()
+
+    result = await build_tax_inputs(session, hid, 2026)
+    assert result.remaining_periods > 0
+    assert "pay_frequency" not in result.missing

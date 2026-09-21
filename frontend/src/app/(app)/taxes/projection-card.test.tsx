@@ -40,6 +40,46 @@ describe("ProjectionCard", () => {
     expect(screen.queryByText(/\$0\.00/)).not.toBeInTheDocument();
   });
 
+  it("counts the things it is waiting for instead of always saying two", () => {
+    render(
+      <ProjectionCard
+        envelope={{ year: 2026, available: false, missing: ["paystub"], remaining_pay_periods: 0, projection: null }}
+      />
+    );
+    expect(screen.getByText(/one thing is needed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/two things are needed/i)).not.toBeInTheDocument();
+  });
+
+  it("warns that the rest of the year is unprojected when pay frequency is unusable", () => {
+    render(
+      <ProjectionCard
+        envelope={{ ...available, missing: ["pay_frequency"], remaining_pay_periods: 0 }}
+      />
+    );
+    expect(screen.getByText(/rest of the year/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /pay schedule/i })).toHaveAttribute("href", "/settings");
+  });
+
+  it("does not call a partial-year balance a refund", () => {
+    render(
+      <ProjectionCard
+        envelope={{
+          ...available,
+          missing: ["pay_frequency"],
+          remaining_pay_periods: 0,
+          projection: { ...projection, refund_or_amount_due: 6031.25 },
+        }}
+      />
+    );
+    expect(screen.getByText(/so far this year/i)).toBeInTheDocument();
+    expect(screen.queryByText(/on track to get/i)).not.toBeInTheDocument();
+  });
+
+  it("says nothing about pay frequency when the year is fully projected", () => {
+    render(<ProjectionCard envelope={available} />);
+    expect(screen.queryByText(/rest of the year/i)).not.toBeInTheDocument();
+  });
+
   it("shows an amount owed as owed, not as a negative refund", () => {
     render(<ProjectionCard envelope={available} />);
     expect(screen.getByText(/you're on track to owe/i)).toBeInTheDocument();

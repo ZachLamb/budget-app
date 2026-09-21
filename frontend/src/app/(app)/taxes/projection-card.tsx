@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,27 +11,32 @@ const MISSING_LABELS: Record<string, string> = {
   filing_status: "How you file — answer the questions below.",
   paystub: "A recent paystub, including its year-to-date columns.",
   prior_year_return: "Last year's return (only needed for the withholding check).",
+  pay_frequency: "How often you are paid — set it in Settings.",
 };
+
+const COUNT_WORDS = ["No", "One", "Two", "Three", "Four"];
+
+function needed(count: number): string {
+  const word = COUNT_WORDS[count] ?? String(count);
+  return `${word} thing${count === 1 ? " is" : "s are"} needed before this can be worked out:`;
+}
 
 export function ProjectionCard({ envelope }: { envelope: ProjectionEnvelope }) {
   const [showWork, setShowWork] = useState(false);
 
   if (!envelope.available || !envelope.projection) {
+    const blocking = envelope.missing.filter((m) => m !== "prior_year_return");
     return (
       <Card>
         <CardHeader>
           <CardTitle>Your {envelope.year} taxes</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          <p className="text-muted-foreground">
-            Two things are needed before this can be worked out:
-          </p>
+          <p className="text-muted-foreground">{needed(blocking.length)}</p>
           <ul className="list-disc pl-5">
-            {envelope.missing
-              .filter((m) => m !== "prior_year_return")
-              .map((m) => (
-                <li key={m}>{MISSING_LABELS[m] ?? m}</li>
-              ))}
+            {blocking.map((m) => (
+              <li key={m}>{MISSING_LABELS[m] ?? m}</li>
+            ))}
           </ul>
         </CardContent>
       </Card>
@@ -39,6 +45,11 @@ export function ProjectionCard({ envelope }: { envelope: ProjectionEnvelope }) {
 
   const p = envelope.projection;
   const owed = p.refund_or_amount_due < 0;
+  // No usable pay frequency means the remainder of the year was projected as
+  // no pay at all. The figures below are still real -- they are just a
+  // year-to-date picture -- so show them, and say so rather than letting a
+  // September paystub read as a full year.
+  const unprojectedRemainder = envelope.missing.includes("pay_frequency");
 
   return (
     <Card>
@@ -46,11 +57,40 @@ export function ProjectionCard({ envelope }: { envelope: ProjectionEnvelope }) {
         <CardTitle>Your {envelope.year} taxes</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
-        <p className="text-lg">
-          {owed ? "You're on track to owe " : "You're on track to get "}
-          <strong>{formatCurrency(Math.abs(p.refund_or_amount_due))}</strong>
-          {owed ? " when you file." : " back as a refund."}
-        </p>
+        {unprojectedRemainder ? (
+          <>
+            <p className="text-lg">
+              So far this year,{" "}
+              {owed ? (
+                <>
+                  you owe{" "}
+                  <strong>{formatCurrency(Math.abs(p.refund_or_amount_due))}</strong>{" "}
+                  more than has been held back.
+                </>
+              ) : (
+                <>
+                  <strong>{formatCurrency(p.refund_or_amount_due)}</strong> more has
+                  been held back than you owe.
+                </>
+              )}
+            </p>
+            <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+              That covers your pay so far, not the rest of the year — we don&apos;t
+              know how often you&apos;re paid, so nothing has been added for the
+              paychecks still to come. Set your{" "}
+              <Link href="/settings" className="underline">
+                pay schedule
+              </Link>{" "}
+              for a full-year estimate.
+            </p>
+          </>
+        ) : (
+          <p className="text-lg">
+            {owed ? "You're on track to owe " : "You're on track to get "}
+            <strong>{formatCurrency(Math.abs(p.refund_or_amount_due))}</strong>
+            {owed ? " when you file." : " back as a refund."}
+          </p>
+        )}
 
         <table className="w-full">
           <tbody>
@@ -85,7 +125,9 @@ export function ProjectionCard({ envelope }: { envelope: ProjectionEnvelope }) {
               <td className="py-1 text-right">{formatCurrency(p.state_tax)}</td>
             </tr>
             <tr className="font-semibold">
-              <td className="py-1">Total tax for the year</td>
+              <td className="py-1">
+                {unprojectedRemainder ? "Total tax so far" : "Total tax for the year"}
+              </td>
               <td className="py-1 text-right">{formatCurrency(p.total_liability)}</td>
             </tr>
             <tr>

@@ -164,6 +164,7 @@ export default function TaxesPage() {
               <WithholdingCard
                 safeHarbor={projectionQuery.data.projection.safe_harbor}
                 remainingPeriods={projectionQuery.data.remaining_pay_periods}
+                partialYear={projectionQuery.data.missing.includes("pay_frequency")}
               />
             )}
 

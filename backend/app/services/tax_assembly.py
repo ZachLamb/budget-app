@@ -109,6 +109,13 @@ async def build_tax_inputs(
         latest_stub.pay_date,
         year,
     )
+    # Zero periods with the year still running means the remainder of the
+    # year is being projected as no pay at all -- on a September paystub
+    # that understates the tax bill by roughly a third. It is still a
+    # useful partial view, so report it rather than blocking, but never
+    # let it reach the page as a confident full-year number.
+    if periods == 0 and latest_stub.pay_date < date(year, 12, 31):
+        missing.append("pay_frequency")
     n = Decimal(periods)
 
     inputs = TaxInputs(
