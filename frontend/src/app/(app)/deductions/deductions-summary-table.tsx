@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DeductionsSummary } from "@/lib/api/deductions";
 import { formatCurrency } from "@/lib/format";
@@ -9,7 +10,11 @@ export function DeductionsSummaryTable({ summary }: { summary: DeductionsSummary
     return (
       <Card>
         <CardContent className="py-8 text-center text-muted-foreground">
-          No deductible categories yet. Mark a category as tax deductible from the Categories page to see it here.
+          No deductible categories yet. Mark one as tax deductible on the{" "}
+          <Link href="/categories" className="underline">
+            Categories
+          </Link>{" "}
+          page and it shows up here.
         </CardContent>
       </Card>
     );
@@ -42,6 +47,23 @@ export function DeductionsSummaryTable({ summary }: { summary: DeductionsSummary
                       <td className="py-2 text-right">{formatCurrency(line.amount)}</td>
                     </tr>
                   ))}
+                  {/* The explanation below quotes these subtotals, so they
+                      have to be on screen to be checkable -- but a single
+                      line is already its own total, so don't repeat it. */}
+                  {lines.length > 1 && (
+                  <tr className="border-b">
+                    <td className="py-2 text-muted-foreground">
+                      {kind === "business_expense" ? "Business total" : "Personal total"}
+                    </td>
+                    <td className="py-2 text-right text-muted-foreground">
+                      {formatCurrency(
+                        kind === "business_expense"
+                          ? summary.business_total
+                          : summary.personal_itemized_total
+                      )}
+                    </td>
+                  </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -105,7 +127,12 @@ export function DeductionsSummaryTable({ summary }: { summary: DeductionsSummary
 
             <p className="text-xs text-muted-foreground">
               An estimate from published rates and the figures you entered, not
-              tax advice.
+              tax advice. Which spending counts, and whether it is a business
+              or personal deduction, is set per category on the{" "}
+              <Link href="/categories" className="underline">
+                Categories
+              </Link>{" "}
+              page.
             </p>
           </div>
         )}

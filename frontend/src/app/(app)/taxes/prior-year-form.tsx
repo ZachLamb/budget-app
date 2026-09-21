@@ -147,8 +147,10 @@ export function PriorYearForm({
               <Label htmlFor={key}>{label}</Label>
               <Input
                 id={key}
+                className="max-w-xs"
                 type="number"
                 step="0.01"
+                inputMode="decimal"
                 min={allowNegative ? undefined : "0"}
                 value={form[key]}
                 onChange={set(key)}
@@ -174,8 +176,10 @@ export function PriorYearForm({
                     <Label htmlFor={key}>{label}</Label>
                     <Input
                       id={key}
+                      className="max-w-xs"
                       type="number"
                       step="0.01"
+                      inputMode="decimal"
                       min={allowNegative ? undefined : "0"}
                       value={form[key]}
                       onChange={set(key)}

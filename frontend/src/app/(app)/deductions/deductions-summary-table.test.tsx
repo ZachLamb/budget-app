@@ -87,4 +87,48 @@ describe("DeductionsSummaryTable", () => {
     expect(screen.getByText(/carried forward/i)).toBeInTheDocument();
     expect(screen.queryByText(/worth nothing/i)).not.toBeInTheDocument();
   });
+  it("subtotals each group, since the explanation quotes those figures", () => {
+    render(
+      <DeductionsSummaryTable
+        summary={{
+          ...base,
+          lines: [
+            { tax_line: "Schedule E — Cleaning", amount: 1240, deduction_kind: "business_expense" },
+            { tax_line: "Schedule E — Repairs", amount: 860.5, deduction_kind: "business_expense" },
+            { tax_line: "Schedule A — Medical", amount: 2000, deduction_kind: "personal_itemized" },
+            { tax_line: "Schedule A — Dental", amount: 1200, deduction_kind: "personal_itemized" },
+          ],
+          total: 5300.5,
+          business_total: 2100.5,
+          personal_itemized_total: 3200,
+        }}
+      />
+    );
+    expect(screen.getByText("Business total")).toBeInTheDocument();
+    expect(screen.getByText("$2,100.50")).toBeInTheDocument();
+    expect(screen.getByText("Personal total")).toBeInTheDocument();
+    expect(screen.getByText("$3,200.00")).toBeInTheDocument();
+  });
+
+  it("does not repeat a single line as its own subtotal", () => {
+    render(
+      <DeductionsSummaryTable
+        summary={{
+          ...base,
+          lines: [{ tax_line: "Schedule A — Medical", amount: 3200, deduction_kind: "personal_itemized" }],
+          total: 3200,
+          personal_itemized_total: 3200,
+        }}
+      />
+    );
+    expect(screen.queryByText("Personal total")).not.toBeInTheDocument();
+  });
+
+  it("points at where deductible categories are actually set", () => {
+    render(<DeductionsSummaryTable summary={base} />);
+    expect(screen.getByRole("link", { name: /categories/i })).toHaveAttribute(
+      "href",
+      "/categories"
+    );
+  });
 });

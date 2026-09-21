@@ -182,7 +182,7 @@ export function CategoryItem({
       {renaming ? (
         <Input
           ref={inputRef}
-          className="h-7 text-sm"
+          className="h-7 min-w-0 flex-1 text-sm"
           value={draft}
           aria-label={`Rename category ${category.name}`}
           onChange={(e) => setDraft(e.target.value)}
@@ -196,8 +196,8 @@ export function CategoryItem({
           }}
         />
       ) : (
-        <span className="flex items-baseline gap-2 text-sm">
-          {category.name}
+        <span className="flex min-w-0 flex-1 items-baseline gap-2 text-sm">
+          <span className="truncate">{category.name}</span>
           {category.deductible && (
             <Badge
               variant="outline"
