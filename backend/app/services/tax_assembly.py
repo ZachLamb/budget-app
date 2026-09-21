@@ -87,8 +87,18 @@ async def build_tax_inputs(
     if latest_stub is None:
         missing.append("paystub")
 
+    # Pay frequency is knowable with or without the rest, and without it
+    # the remainder of the year cannot be projected either way -- so the
+    # setup checklist must hear about it even while other things are also
+    # missing, or it reports the step as done.
+    household = await db.get(Household, household_id)
+    frequency = household.pay_frequency if household else None
+    projectable_frequency = bool(PERIODS_PER_YEAR.get(frequency or ""))
+
     # Only check for prior_year_return if we have the critical blocking items.
     if profile is None or not profile.filing_status or latest_stub is None:
+        if not projectable_frequency:
+            missing.append("pay_frequency")
         return AssemblyResult(inputs=None, remaining_periods=0, missing=missing)
 
     prior = (
@@ -103,12 +113,7 @@ async def build_tax_inputs(
     if prior is None or prior.total_tax is None:
         missing.append("prior_year_return")
 
-    household = await db.get(Household, household_id)
-    periods = remaining_pay_periods(
-        household.pay_frequency if household else None,
-        latest_stub.pay_date,
-        year,
-    )
+    periods = remaining_pay_periods(frequency, latest_stub.pay_date, year)
     # Zero periods with the year still running means the remainder of the
     # year is being projected as no pay at all -- on a September paystub
     # that understates the tax bill by roughly a third. It is still a
@@ -116,6 +121,21 @@ async def build_tax_inputs(
     # let it reach the page as a confident full-year number.
     if periods == 0 and latest_stub.pay_date < date(year, 12, 31):
         missing.append("pay_frequency")
+
+    # Blank withholding boxes are not a statement that nothing was
+    # withheld. Read as zero they turn an ordinary salary into "you owe
+    # $32,727" and send the safe-harbor check into a false alarm, off an
+    # assumption the user never made. The tax figures stay sound either
+    # way -- it is the refund-or-owed comparison that needs saying.
+    withheld_ytd = (
+        latest_stub.federal_withheld_ytd
+        + latest_stub.state_withheld_ytd
+        + latest_stub.ss_withheld_ytd
+        + latest_stub.medicare_withheld_ytd
+    )
+    if withheld_ytd == ZERO and latest_stub.gross_ytd > ZERO:
+        missing.append("withholding")
+
     n = Decimal(periods)
 
     inputs = TaxInputs(

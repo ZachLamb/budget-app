@@ -5,12 +5,16 @@ import { PageHeader, QueryState, inlineErrorQueryMeta } from "@/components/page"
 import { SkeletonCard } from "@/components/skeleton-table";
 import {
   taxApi,
+  type Paystub,
   type PaystubInput,
   type PriorYearReturn,
   type TaxProfile,
   type FilingStatus,
 } from "@/lib/api/tax";
+import Link from "next/link";
+import { useState } from "react";
 import { ProjectionCard } from "./projection-card";
+import { SetupChecklist, buildSteps } from "./setup-checklist";
 import { WithholdingCard } from "./withholding-card";
 import { NextDollarCard } from "./next-dollar-card";
 import { FilingStatusWalkthrough } from "./filing-status-walkthrough";
@@ -23,6 +27,7 @@ import { appToast } from "@/lib/app-toast";
 export default function TaxesPage() {
   const year = new Date().getFullYear();
   const queryClient = useQueryClient();
+  const [correcting, setCorrecting] = useState<Paystub | null>(null);
 
   const projectionQuery = useQuery({
     queryKey: ["tax-projection", year],
@@ -103,11 +108,24 @@ export default function TaxesPage() {
     onError: (e) => toastApiError("Failed to add paystub", e),
   });
 
+  const updatePaystub = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: PaystubInput }) =>
+      taxApi.updatePaystub(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tax-paystubs"] });
+      invalidateProjection();
+      setCorrecting(null);
+      appToast.success("Paystub updated");
+    },
+    onError: (e) => toastApiError("Failed to update paystub", e),
+  });
+
   const deletePaystub = useMutation({
     mutationFn: (id: string) => taxApi.deletePaystub(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tax-paystubs"] });
       invalidateProjection();
+      setCorrecting(null);
       appToast.success("Paystub deleted");
     },
     onError: (e) => toastApiError("Failed to delete paystub", e),
@@ -158,12 +176,29 @@ export default function TaxesPage() {
       >
         {projectionQuery.data && profileQuery.data && paystubsQuery.data ? (
           <div className="space-y-6">
-            <ProjectionCard
-              envelope={projectionQuery.data}
-              filingStatus={profileQuery.data.filing_status}
-            />
+            {/* An unsupported filing status is not a setup step -- it is a
+                finished answer the engine cannot compute -- so it keeps the
+                card rather than becoming a checklist item. */}
+            {projectionQuery.data.missing.includes("unsupported_filing_status") ||
+            projectionQuery.data.available ? (
+              <ProjectionCard
+                envelope={projectionQuery.data}
+                filingStatus={profileQuery.data.filing_status}
+              />
+            ) : (
+              <SetupChecklist
+                year={year}
+                steps={buildSteps({
+                  missing: projectionQuery.data.missing,
+                  hasPaystub: paystubsQuery.data.length > 0,
+                  hasPriorYear: priorYearQuery.data !== null,
+                })}
+              />
+            )}
 
-            {projectionQuery.data.available && projectionQuery.data.projection && (
+            {projectionQuery.data.available &&
+              projectionQuery.data.projection &&
+              !projectionQuery.data.missing.includes("withholding") && (
               <WithholdingCard
                 safeHarbor={projectionQuery.data.projection.safe_harbor}
                 remainingPeriods={projectionQuery.data.remaining_pay_periods}
@@ -185,13 +220,34 @@ export default function TaxesPage() {
             <PaystubList
               paystubs={paystubsQuery.data}
               onDelete={(id) => deletePaystub.mutate(id)}
+              onEdit={(stub) => setCorrecting(stub)}
             />
-            <PaystubForm onAdd={async (data) => { await addPaystub.mutateAsync(data); }} />
+            <PaystubForm
+              key={correcting?.id ?? "new-paystub"}
+              editing={correcting}
+              onCancelEdit={() => setCorrecting(null)}
+              onAdd={async (data) => {
+                if (correcting) {
+                  await updatePaystub.mutateAsync({ id: correcting.id, data });
+                } else {
+                  await addPaystub.mutateAsync(data);
+                }
+              }}
+            />
 
             <PriorYearForm
               prior={priorYearQuery.data ?? null}
               onSave={async (data) => { await savePriorYear.mutateAsync(data); }}
             />
+
+            <p className="text-sm text-muted-foreground">
+              Spending you have marked tax deductible is valued against this
+              estimate on the{" "}
+              <Link href="/deductions" className="underline">
+                Deductions
+              </Link>{" "}
+              page.
+            </p>
           </div>
         ) : null}
       </QueryState>

@@ -30,25 +30,14 @@ const available: ProjectionEnvelope = {
 };
 
 describe("ProjectionCard", () => {
-  it("says what is missing instead of showing a number it cannot stand behind", () => {
+  it("shows no number it cannot stand behind, and points at the steps", () => {
     render(
       <ProjectionCard
         envelope={{ year: 2026, available: false, missing: ["filing_status", "paystub"], remaining_pay_periods: 0, projection: null, supported_filing_statuses: ["single"] }}
       />
     );
-    expect(screen.getByText(/how you file/i)).toBeInTheDocument();
-    expect(screen.getByText(/a recent paystub/i)).toBeInTheDocument();
+    expect(screen.getByText(/finish the steps below/i)).toBeInTheDocument();
     expect(screen.queryByText(/\$0\.00/)).not.toBeInTheDocument();
-  });
-
-  it("counts the things it is waiting for instead of always saying two", () => {
-    render(
-      <ProjectionCard
-        envelope={{ year: 2026, available: false, missing: ["paystub"], remaining_pay_periods: 0, projection: null, supported_filing_statuses: ["single"] }}
-      />
-    );
-    expect(screen.getByText(/one thing is needed/i)).toBeInTheDocument();
-    expect(screen.queryByText(/two things are needed/i)).not.toBeInTheDocument();
   });
 
   it("warns that the rest of the year is unprojected when pay frequency is unusable", () => {
@@ -99,10 +88,45 @@ describe("ProjectionCard", () => {
     expect(screen.queryByText(/things are needed/i)).not.toBeInTheDocument();
   });
 
+  it("does not call adjusted gross income 'what you earn'", () => {
+    render(<ProjectionCard envelope={available} />);
+    expect(screen.queryByText(/what you earn/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/income counted for tax/i)).toBeInTheDocument();
+  });
+
+  it("says what the total tax is made of, since no single form line means it", () => {
+    render(<ProjectionCard envelope={available} />);
+    expect(
+      screen.getByText(/federal, Social Security and Medicare, and Colorado/i)
+    ).toBeInTheDocument();
+  });
+
+  it("closes the table with the figure the headline quotes", () => {
+    render(<ProjectionCard envelope={available} />);
+    // -2555.10 on the shared fixture: owed, not refunded.
+    expect(screen.getByText(/still to pay when you file/i)).toBeInTheDocument();
+    expect(screen.getAllByText("$2,555.10").length).toBeGreaterThan(1);
+  });
+
+  it("will not quote a refund or a bill when no withholding was entered", () => {
+    render(
+      <ProjectionCard
+        envelope={{ ...available, missing: ["withholding"] }}
+      />
+    );
+    expect(screen.getByText(/no tax withheld/i)).toBeInTheDocument();
+    expect(screen.queryByText(/you're on track to owe/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/still to pay when you file/i)).not.toBeInTheDocument();
+    // The tax worked out from the pay figures is still sound, so it stays.
+    expect(screen.getByText("$52,555.10")).toBeInTheDocument();
+  });
+
   it("shows an amount owed as owed, not as a negative refund", () => {
     render(<ProjectionCard envelope={available} />);
     expect(screen.getByText(/you're on track to owe/i)).toBeInTheDocument();
-    expect(screen.getByText("$2,555.10")).toBeInTheDocument();
+    // Headline and the table's closing line, never a negative number.
+    expect(screen.getAllByText("$2,555.10")).toHaveLength(2);
+    expect(screen.queryByText(/-\$2,555\.10/)).not.toBeInTheDocument();
   });
 
   it("shows a refund when withholding exceeds the bill", () => {

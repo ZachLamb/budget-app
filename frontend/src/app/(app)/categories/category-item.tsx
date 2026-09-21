@@ -242,33 +242,10 @@ export function CategoryItem({
           </div>
           {formState.deductible && (
             <>
-              <div>
-                <Label htmlFor="deduction_pct">Deduction %</Label>
-                <Input
-                  id="deduction_pct"
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={formState.deduction_pct}
-                  onChange={(e) =>
-                    setFormState((s) => ({
-                      ...s,
-                      deduction_pct: Math.min(100, Math.max(0, Number(e.target.value))),
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <Label htmlFor="tax_line">Tax line</Label>
-                <Input
-                  id="tax_line"
-                  value={formState.tax_line ?? ""}
-                  onChange={(e) => setFormState((s) => ({ ...s, tax_line: e.target.value || null }))}
-                  placeholder="e.g. Schedule E — Cleaning"
-                />
-              </div>
               <fieldset className="space-y-2">
-                <legend className="text-sm font-medium">Deduction type</legend>
+                <legend className="text-sm font-medium">
+                  How does this deduction work?
+                </legend>
                 {DEDUCTION_KINDS.map(({ value, label, help }) => {
                   const inputId = `deduction_kind-${value}-${category.id}`;
                   return (
@@ -307,8 +284,45 @@ export function CategoryItem({
                   );
                 })()}
               </fieldset>
+
+              <div>
+                <Label htmlFor="tax_line">Tax line</Label>
+                <Input
+                  id="tax_line"
+                  value={formState.tax_line ?? ""}
+                  onChange={(e) => setFormState((s) => ({ ...s, tax_line: e.target.value || null }))}
+                  placeholder="e.g. Schedule E — Cleaning"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Where this lands on your return. Categories sharing a line
+                  are totalled together on the Deductions page.
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="deduction_pct">Deduction %</Label>
+                <Input
+                  id="deduction_pct"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={formState.deduction_pct}
+                  onChange={(e) =>
+                    setFormState((s) => ({
+                      ...s,
+                      deduction_pct: Math.min(100, Math.max(0, Number(e.target.value))),
+                    }))
+                  }
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Leave at 100 unless only part of this spending is
+                  deductible — a phone line used half for the rental would be
+                  50.
+                </p>
+              </div>
             </>
           )}
+
           <DialogFooter>
             <Button onClick={submitEdit} disabled={updateMutation.isPending}>
               Save

@@ -9,9 +9,11 @@ import { formatCurrency, formatDate } from "@/lib/format";
 export function PaystubList({
   paystubs,
   onDelete,
+  onEdit,
 }: {
   paystubs: Paystub[];
   onDelete: (id: string) => void;
+  onEdit?: (stub: Paystub) => void;
 }) {
   if (paystubs.length === 0) {
     return (
@@ -21,7 +23,8 @@ export function PaystubList({
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            No paystubs added yet. Add your most recent one below.
+            No paystubs yet. Add your most recent one below — the starred
+            figures are enough to start.
           </p>
         </CardContent>
       </Card>
@@ -40,7 +43,7 @@ export function PaystubList({
               <TableHead>Pay date</TableHead>
               <TableHead className="text-right">Gross</TableHead>
               <TableHead className="text-right">Gross YTD</TableHead>
-              <TableHead className="sr-only">Delete</TableHead>
+              <TableHead className="sr-only">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -49,7 +52,17 @@ export function PaystubList({
                 <TableCell>{formatDate(stub.pay_date)}</TableCell>
                 <TableCell className="text-right">{formatCurrency(stub.gross)}</TableCell>
                 <TableCell className="text-right">{formatCurrency(stub.gross_ytd)}</TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right whitespace-nowrap">
+                  {onEdit && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Correct paystub from ${formatDate(stub.pay_date)}`}
+                      onClick={() => onEdit(stub)}
+                    >
+                      Correct
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"

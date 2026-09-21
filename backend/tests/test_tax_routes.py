@@ -244,3 +244,93 @@ async def test_negative_schedule_e_net_is_accepted_and_round_trips(fixture):
     stored = result.scalar_one()
     assert stored.schedule_e_net == Decimal("-8200.00")
     assert stored.schedule_e_net < 0
+
+
+@pytest.mark.asyncio
+async def test_a_paystub_can_be_corrected_without_retyping_it(fixture):
+    """A typo in one of sixteen figures should not cost the other fifteen.
+
+    Deleting and re-entering was the only way to fix a mistyped YTD figure,
+    and re-entering is where the next typo comes from.
+    """
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        created = await client.post("/api/tax/paystubs", headers=headers, json=_stub_payload())
+        stub_id = created.json()["id"]
+
+        response = await client.put(
+            f"/api/tax/paystubs/{stub_id}",
+            headers=headers,
+            json=_stub_payload(gross_ytd="125000.00"),
+        )
+        assert response.status_code == 200
+        assert response.json()["gross_ytd"] == "125000.00"
+        assert response.json()["id"] == stub_id
+
+        listed = await client.get("/api/tax/paystubs", headers=headers)
+    assert len(listed.json()) == 1, "editing must not leave a second copy"
+
+
+@pytest.mark.asyncio
+async def test_editing_applies_the_same_sanity_checks_as_creating(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        created = await client.post("/api/tax/paystubs", headers=headers, json=_stub_payload())
+        stub_id = created.json()["id"]
+        response = await client.put(
+            f"/api/tax/paystubs/{stub_id}",
+            headers=headers,
+            json=_stub_payload(gross="9000.00", gross_ytd="100.00"),
+        )
+    assert response.status_code == 422
+    assert "year-to-date" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_editing_does_not_collide_with_its_own_pay_date(fixture):
+    """The duplicate-date check must ignore the row being edited."""
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        created = await client.post("/api/tax/paystubs", headers=headers, json=_stub_payload())
+        stub_id = created.json()["id"]
+        response = await client.put(
+            f"/api/tax/paystubs/{stub_id}",
+            headers=headers,
+            json=_stub_payload(federal_withheld="1300.00"),
+        )
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_editing_still_rejects_a_date_another_paystub_owns(fixture):
+    session, _ = fixture
+    _, headers = await _seed_household(session)
+    async with _client() as client:
+        await client.post("/api/tax/paystubs", headers=headers, json=_stub_payload())
+        second = await client.post("/api/tax/paystubs", headers=headers, json=_stub_payload(
+            pay_date="2026-09-30", gross_ytd="130884.62"
+        ))
+        response = await client.put(
+            f"/api/tax/paystubs/{second.json()['id']}",
+            headers=headers,
+            json=_stub_payload(pay_date="2026-09-15", gross_ytd="130884.62"),
+        )
+    assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_cannot_edit_another_households_paystub(fixture):
+    session, _ = fixture
+    _, headers_a = await _seed_household(session)
+    _, headers_b = await _seed_household(session)
+    async with _client() as client:
+        created = await client.post("/api/tax/paystubs", headers=headers_a, json=_stub_payload())
+        response = await client.put(
+            f"/api/tax/paystubs/{created.json()['id']}",
+            headers=headers_b,
+            json=_stub_payload(gross_ytd="125000.00"),
+        )
+    assert response.status_code == 404

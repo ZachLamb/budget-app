@@ -74,7 +74,10 @@ async def test_missing_paystub_alone_still_blocks_projection(fixture):
     await _seed_profile(session, hid)
     result = await build_tax_inputs(session, hid, 2026)
     assert result.inputs is None
-    assert result.missing == ["paystub"]
+    assert "paystub" in result.missing
+    # Reported alongside, so the setup checklist does not show the pay
+    # schedule as done just because nothing else got far enough to check.
+    assert "pay_frequency" in result.missing
 
 
 @pytest.mark.asyncio
@@ -202,3 +205,42 @@ async def test_a_known_frequency_is_never_reported_missing(fixture):
     result = await build_tax_inputs(session, hid, 2026)
     assert result.remaining_periods > 0
     assert "pay_frequency" not in result.missing
+
+
+@pytest.mark.asyncio
+async def test_no_withholding_entered_is_reported_not_taken_as_zero(fixture):
+    """Leaving the withheld boxes blank is not the same as saying nothing
+    was withheld. Taken as zero it produces "you owe $32,727" on a normal
+    salary -- alarming, and not something the user ever told us.
+    """
+    session, _ = fixture
+    hid, _ = await _seed_household(session)
+    household = await session.get(Household, hid)
+    household.pay_frequency = "biweekly"
+    await _seed_profile(session, hid)
+    await _seed_stub(
+        session, hid, date(2026, 9, 1),
+        federal_withheld=Decimal("0.00"), federal_withheld_ytd=Decimal("0.00"),
+        state_withheld=Decimal("0.00"), state_withheld_ytd=Decimal("0.00"),
+        ss_withheld=Decimal("0.00"), ss_withheld_ytd=Decimal("0.00"),
+        medicare_withheld=Decimal("0.00"), medicare_withheld_ytd=Decimal("0.00"),
+    )
+    await session.flush()
+
+    result = await build_tax_inputs(session, hid, 2026)
+    assert result.inputs is not None, "the tax figures themselves are still sound"
+    assert "withholding" in result.missing
+
+
+@pytest.mark.asyncio
+async def test_any_withholding_at_all_is_enough_to_stay_quiet(fixture):
+    session, _ = fixture
+    hid, _ = await _seed_household(session)
+    household = await session.get(Household, hid)
+    household.pay_frequency = "biweekly"
+    await _seed_profile(session, hid)
+    await _seed_stub(session, hid, date(2026, 9, 1), medicare_withheld_ytd=Decimal("1758.60"))
+    await session.flush()
+
+    result = await build_tax_inputs(session, hid, 2026)
+    assert "withholding" not in result.missing

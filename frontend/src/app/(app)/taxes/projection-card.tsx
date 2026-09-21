@@ -7,13 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { FilingStatus, ProjectionEnvelope } from "@/lib/api/tax";
 import { formatCurrency } from "@/lib/format";
 
-const MISSING_LABELS: Record<string, string> = {
-  filing_status: "How you file — answer the questions below.",
-  paystub: "A recent paystub, including its year-to-date columns.",
-  prior_year_return: "Last year's return (only needed for the withholding check).",
-  pay_frequency: "How often you are paid — set it in Settings.",
-};
-
 const STATUS_LABELS: Record<FilingStatus, string> = {
   single: "single",
   married_joint: "married, filing together",
@@ -21,13 +14,6 @@ const STATUS_LABELS: Record<FilingStatus, string> = {
   head_of_household: "head of household",
   qualifying_surviving_spouse: "qualifying surviving spouse",
 };
-
-const COUNT_WORDS = ["No", "One", "Two", "Three", "Four"];
-
-function needed(count: number): string {
-  const word = COUNT_WORDS[count] ?? String(count);
-  return `${word} thing${count === 1 ? " is" : "s are"} needed before this can be worked out:`;
-}
 
 export function ProjectionCard({
   envelope,
@@ -70,20 +56,16 @@ export function ProjectionCard({
     );
   }
 
+  // What is still needed, and in what order, is the setup checklist's job
+  // -- this card only ever speaks for a projection it actually has.
   if (!envelope.available || !envelope.projection) {
-    const blocking = envelope.missing.filter((m) => m !== "prior_year_return");
     return (
       <Card>
         <CardHeader>
           <CardTitle>Your {envelope.year} taxes</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <p className="text-muted-foreground">{needed(blocking.length)}</p>
-          <ul className="list-disc pl-5">
-            {blocking.map((m) => (
-              <li key={m}>{MISSING_LABELS[m] ?? m}</li>
-            ))}
-          </ul>
+        <CardContent className="text-sm text-muted-foreground">
+          <p>Finish the steps below and the estimate appears here.</p>
         </CardContent>
       </Card>
     );
@@ -96,6 +78,9 @@ export function ProjectionCard({
   // year-to-date picture -- so show them, and say so rather than letting a
   // September paystub read as a full year.
   const unprojectedRemainder = envelope.missing.includes("pay_frequency");
+  // Blank withheld boxes are not a claim that nothing was withheld, so the
+  // refund-or-owed comparison has nothing real to stand on.
+  const noWithholding = envelope.missing.includes("withholding");
 
   return (
     <Card>
@@ -103,7 +88,15 @@ export function ProjectionCard({
         <CardTitle>Your {envelope.year} taxes</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
-        {unprojectedRemainder ? (
+        {noWithholding ? (
+          <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm">
+            <strong>No tax withheld entered yet.</strong> The tax below is
+            worked out from your pay, but whether you get a refund or owe
+            depends on what has already been taken out — copy the federal,
+            state, Social Security and Medicare boxes from your paystub to
+            see it.
+          </p>
+        ) : unprojectedRemainder ? (
           <>
             <p className="text-lg">
               So far this year,{" "}
@@ -141,8 +134,14 @@ export function ProjectionCard({
         <table className="w-full">
           <tbody>
             <tr className="border-b">
-              <td className="py-1">What you earn</td>
-              <td className="py-1 text-right">{formatCurrency(p.agi)}</td>
+              <td className="py-1">
+                Income counted for tax
+                <span className="block text-xs text-muted-foreground">
+                  Your pay after 401(k), HSA and other pre-tax deductions, plus
+                  any rental income.
+                </span>
+              </td>
+              <td className="py-1 text-right align-top">{formatCurrency(p.agi)}</td>
             </tr>
             <tr className="border-b">
               <td className="py-1">
@@ -170,16 +169,34 @@ export function ProjectionCard({
               <td className="py-1">Colorado income tax</td>
               <td className="py-1 text-right">{formatCurrency(p.state_tax)}</td>
             </tr>
-            <tr className="font-semibold">
+            <tr className="border-b font-semibold">
               <td className="py-1">
                 {unprojectedRemainder ? "Total tax so far" : "Total tax for the year"}
+                <span className="block text-xs font-normal text-muted-foreground">
+                  Federal, Social Security and Medicare, and Colorado added
+                  together — no single line on a tax form means this.
+                </span>
               </td>
-              <td className="py-1 text-right">{formatCurrency(p.total_liability)}</td>
+              <td className="py-1 text-right align-top">{formatCurrency(p.total_liability)}</td>
             </tr>
-            <tr>
-              <td className="py-1">Held back from your paychecks</td>
-              <td className="py-1 text-right">{formatCurrency(p.total_withheld_projected)}</td>
-            </tr>
+            {!noWithholding && (
+              <>
+                <tr className="border-b">
+                  <td className="py-1">Held back from your paychecks</td>
+                  <td className="py-1 text-right">
+                    {formatCurrency(p.total_withheld_projected)}
+                  </td>
+                </tr>
+                <tr className="font-semibold">
+                  <td className="py-1">
+                    {owed ? "Still to pay when you file" : "Refund when you file"}
+                  </td>
+                  <td className="py-1 text-right">
+                    {formatCurrency(Math.abs(p.refund_or_amount_due))}
+                  </td>
+                </tr>
+              </>
+            )}
           </tbody>
         </table>
 

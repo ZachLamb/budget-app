@@ -11,7 +11,14 @@ type FieldKey = Exclude<keyof PriorYearReturn, "year" | "filing_status" | "itemi
 
 // agi and schedule_e_net can legitimately be negative (e.g. a rental
 // loss), so they alone get no min="0".
-const FIELDS: { key: FieldKey; label: string; note: string; allowNegative?: boolean }[] = [
+const FIELDS: {
+  key: FieldKey;
+  label: string;
+  note: string;
+  allowNegative?: boolean;
+  /** Only a filer who already knows the term will have one of these. */
+  rare?: boolean;
+}[] = [
   {
     key: "agi",
     label: "Adjusted gross income",
@@ -35,27 +42,32 @@ const FIELDS: { key: FieldKey; label: string; note: string; allowNegative?: bool
   },
   {
     key: "itemized_amount",
+    rare: true,
     label: "Itemized deduction amount",
     note: "Only needed if you itemized instead of taking the standard deduction.",
   },
   {
     key: "schedule_e_net",
+    rare: true,
     label: "Rental/Schedule E net income or loss",
     note: "Net rental income or loss from last year. Can be negative — a rental loss reduces your income, and that loss can also carry forward.",
     allowNegative: true,
   },
   {
     key: "passive_loss_carryforward",
+    rare: true,
     label: "Passive loss carryforward",
     note: "Rental losses from prior years that were suspended and carry into this year.",
   },
   {
     key: "capital_loss_carryforward",
+    rare: true,
     label: "Capital loss carryforward",
     note: "Investment losses that exceeded the yearly limit and carry into this year.",
   },
   {
     key: "qbi_carryforward",
+    rare: true,
     label: "QBI carryforward",
     note: "Any unused qualified business income deduction carrying into this year.",
   },
@@ -93,6 +105,13 @@ export function PriorYearForm({
 }) {
   const [form, setForm] = useState<FormState>(() => toForm(prior));
   const [saving, setSaving] = useState(false);
+  // "QBI carryforward" next to "Total tax owed" reads as a page for
+  // accountants. The four figures on the front of a 1040 are what the
+  // withholding check actually needs; the rest stay folded away unless
+  // this return already has one.
+  const [showRare, setShowRare] = useState(() =>
+    FIELDS.some((f) => f.rare && !["", "0"].includes(toForm(prior)[f.key]))
+  );
 
   const set = (key: FieldKey) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -117,11 +136,13 @@ export function PriorYearForm({
       </CardHeader>
       <CardContent>
         <p className="mb-4 text-sm text-muted-foreground">
-          Only needed to check whether enough is being held back to avoid a
-          penalty. Leave anything blank you don&apos;t have handy.
+          Optional. It buys one thing: a check on whether enough tax is being
+          held back to avoid an underpayment penalty. Everything here is on
+          the first page of last year&apos;s return — leave blank what you
+          don&apos;t have handy.
         </p>
         <form onSubmit={handleSubmit} className="space-y-4">
-          {FIELDS.map(({ key, label, note, allowNegative }) => (
+          {FIELDS.filter((f) => !f.rare).map(({ key, label, note, allowNegative }) => (
             <div key={key}>
               <Label htmlFor={key}>{label}</Label>
               <Input
@@ -135,6 +156,36 @@ export function PriorYearForm({
               <p className="mt-1 text-xs text-muted-foreground">{note}</p>
             </div>
           ))}
+
+          <div className="rounded border p-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={showRare}
+                onChange={(e) => setShowRare(e.target.checked)}
+              />
+              I had rental income, itemized deductions, or losses carried
+              forward
+            </label>
+            {showRare && (
+              <div className="mt-3 space-y-4">
+                {FIELDS.filter((f) => f.rare).map(({ key, label, note, allowNegative }) => (
+                  <div key={key}>
+                    <Label htmlFor={key}>{label}</Label>
+                    <Input
+                      id={key}
+                      type="number"
+                      step="0.01"
+                      min={allowNegative ? undefined : "0"}
+                      value={form[key]}
+                      onChange={set(key)}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">{note}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <Button type="submit" disabled={saving}>
             {saving ? "Saving…" : "Save"}

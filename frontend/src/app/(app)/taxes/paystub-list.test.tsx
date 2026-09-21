@@ -29,6 +29,17 @@ describe("PaystubList", () => {
 
   it("shows an empty state with no paystubs", () => {
     render(<PaystubList paystubs={[]} onDelete={vi.fn()} />);
-    expect(screen.getByText(/no paystubs added yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/no paystubs yet/i)).toBeInTheDocument();
+  });
+  it("offers a correction so a typo does not cost the other fifteen figures", async () => {
+    const onEdit = vi.fn();
+    render(<PaystubList paystubs={[stub]} onDelete={vi.fn()} onEdit={onEdit} />);
+    await userEvent.click(screen.getByRole("button", { name: /correct paystub/i }));
+    expect(onEdit).toHaveBeenCalledWith(stub);
+  });
+
+  it("shows no correct button when editing is not wired up", () => {
+    render(<PaystubList paystubs={[stub]} onDelete={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /correct/i })).not.toBeInTheDocument();
   });
 });

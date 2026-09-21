@@ -80,21 +80,23 @@ async def list_paystubs(
     return [PaystubResponse.model_validate(s) for s in result.scalars().all()]
 
 
-@router.post("/paystubs", response_model=PaystubResponse, status_code=status.HTTP_201_CREATED)
-async def create_paystub(
+async def _check_paystub_is_sane(
+    db: AsyncSession,
+    household_id: str,
     data: PaystubCreate,
-    household_id: str = Depends(get_household_id),
-    db: AsyncSession = Depends(get_db),
-):
-    existing = (
-        await db.execute(
-            select(Paystub).where(
-                Paystub.household_id == household_id,
-                Paystub.pay_date == data.pay_date,
-            )
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
+    *,
+    excluding_id: str | None = None,
+) -> None:
+    """Shared by create and edit -- a correction deserves the same checks
+    as an entry, or the edit route becomes the way to smuggle in the very
+    typo these catch."""
+    clash = select(Paystub).where(
+        Paystub.household_id == household_id,
+        Paystub.pay_date == data.pay_date,
+    )
+    if excluding_id is not None:
+        clash = clash.where(Paystub.id != excluding_id)
+    if (await db.execute(clash)).scalar_one_or_none() is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"A paystub for {data.pay_date} already exists.",
@@ -112,16 +114,14 @@ async def create_paystub(
             ),
         )
 
+    previous = select(Paystub).where(
+        Paystub.household_id == household_id,
+        Paystub.pay_date < data.pay_date,
+    )
+    if excluding_id is not None:
+        previous = previous.where(Paystub.id != excluding_id)
     prior = (
-        await db.execute(
-            select(Paystub)
-            .where(
-                Paystub.household_id == household_id,
-                Paystub.pay_date < data.pay_date,
-            )
-            .order_by(Paystub.pay_date.desc())
-            .limit(1)
-        )
+        await db.execute(previous.order_by(Paystub.pay_date.desc()).limit(1))
     ).scalar_one_or_none()
     if prior is not None and data.gross_ytd < prior.gross_ytd:
         raise HTTPException(
@@ -133,8 +133,46 @@ async def create_paystub(
             ),
         )
 
+
+@router.post("/paystubs", response_model=PaystubResponse, status_code=status.HTTP_201_CREATED)
+async def create_paystub(
+    data: PaystubCreate,
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_paystub_is_sane(db, household_id, data)
+
     stub = Paystub(id=str(uuid.uuid4()), household_id=household_id, **data.model_dump())
     db.add(stub)
+    await db.flush()
+    await db.refresh(stub)
+    return PaystubResponse.model_validate(stub)
+
+
+@router.put("/paystubs/{paystub_id}", response_model=PaystubResponse)
+async def update_paystub(
+    paystub_id: str,
+    data: PaystubCreate,
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Correcting one figure should not cost the other fifteen -- deleting
+    and re-entering is where the next typo comes from."""
+    stub = (
+        await db.execute(
+            select(Paystub).where(
+                Paystub.id == paystub_id,
+                Paystub.household_id == household_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if stub is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paystub not found")
+
+    await _check_paystub_is_sane(db, household_id, data, excluding_id=paystub_id)
+
+    for field, value in data.model_dump().items():
+        setattr(stub, field, value)
     await db.flush()
     await db.refresh(stub)
     return PaystubResponse.model_validate(stub)

@@ -209,6 +209,9 @@ export const taxApi = {
         throw e;
       }),
 
+  updatePaystub: (id: string, data: PaystubInput) =>
+    api.put<WirePaystub>(`/tax/paystubs/${id}`, data).then((r) => coercePaystub(r.data)),
+
   savePriorYear: (year: number, data: Partial<PriorYearReturn>) =>
     api.put<PriorYearReturn>(`/tax/prior-year/${year}`, data).then((r) => r.data),
 
