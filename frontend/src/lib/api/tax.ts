@@ -99,6 +99,8 @@ export interface ProjectionEnvelope {
   missing: string[];
   remaining_pay_periods: number;
   projection: TaxProjection | null;
+  /** Filing statuses this year's rate tables populate. */
+  supported_filing_statuses: FilingStatus[];
 }
 
 interface WireProjectionEnvelope {
@@ -107,6 +109,7 @@ interface WireProjectionEnvelope {
   missing: string[];
   remaining_pay_periods: number;
   projection: WireTaxProjection | null;
+  supported_filing_statuses?: FilingStatus[];
 }
 
 export interface PriorYearReturn {
@@ -215,6 +218,7 @@ export const taxApi = {
       .then((r) => ({
         ...r.data,
         projection: r.data.projection ? coerceProjection(r.data.projection) : null,
+        supported_filing_statuses: r.data.supported_filing_statuses ?? [],
       })),
 
   impact: (body: { year: number; kind: ImpactKind; amount: number }) =>

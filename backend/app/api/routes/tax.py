@@ -248,14 +248,30 @@ async def get_projection(
     db: AsyncSession = Depends(get_db),
 ):
     rates = _rates_or_422(year)
+    supported = sorted(str(s) for s in rates.supported_statuses)
     assembled = await build_tax_inputs(db, household_id, year)
     if assembled.inputs is None:
-        return ProjectionEnvelope(year=year, available=False, missing=assembled.missing)
+        return ProjectionEnvelope(
+            year=year,
+            available=False,
+            missing=assembled.missing,
+            supported_filing_statuses=supported,
+        )
 
     try:
         projection = project(assembled.inputs, rates, assembled.remaining_periods)
-    except UnsupportedFilingStatusError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except UnsupportedFilingStatusError:
+        # A filing status we cannot compute is a data state, not a bad
+        # request. Raising here replaced the entire Taxes page with an
+        # engine message and a Retry button that could never succeed, and
+        # took the walkthrough -- the only way to correct the status --
+        # down with it.
+        return ProjectionEnvelope(
+            year=year,
+            available=False,
+            missing=[*assembled.missing, "unsupported_filing_status"],
+            supported_filing_statuses=supported,
+        )
 
     return ProjectionEnvelope(
         year=year,
@@ -263,6 +279,7 @@ async def get_projection(
         missing=assembled.missing,
         remaining_pay_periods=assembled.remaining_periods,
         projection=TaxProjectionResponse.model_validate(projection, from_attributes=True),
+        supported_filing_statuses=supported,
     )
 
 

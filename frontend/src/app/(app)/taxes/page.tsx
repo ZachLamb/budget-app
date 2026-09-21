@@ -158,7 +158,10 @@ export default function TaxesPage() {
       >
         {projectionQuery.data && profileQuery.data && paystubsQuery.data ? (
           <div className="space-y-6">
-            <ProjectionCard envelope={projectionQuery.data} />
+            <ProjectionCard
+              envelope={projectionQuery.data}
+              filingStatus={profileQuery.data.filing_status}
+            />
 
             {projectionQuery.data.available && projectionQuery.data.projection && (
               <WithholdingCard
@@ -176,6 +179,7 @@ export default function TaxesPage() {
             <FilingStatusWalkthrough
               profile={profileQuery.data}
               onSave={(data) => saveProfile.mutate(data)}
+              supportedStatuses={projectionQuery.data.supported_filing_statuses}
             />
 
             <PaystubList

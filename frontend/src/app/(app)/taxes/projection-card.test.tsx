@@ -26,13 +26,14 @@ const projection = {
 
 const available: ProjectionEnvelope = {
   year: 2026, available: true, missing: [], remaining_pay_periods: 3, projection,
+  supported_filing_statuses: ["single"],
 };
 
 describe("ProjectionCard", () => {
   it("says what is missing instead of showing a number it cannot stand behind", () => {
     render(
       <ProjectionCard
-        envelope={{ year: 2026, available: false, missing: ["filing_status", "paystub"], remaining_pay_periods: 0, projection: null }}
+        envelope={{ year: 2026, available: false, missing: ["filing_status", "paystub"], remaining_pay_periods: 0, projection: null, supported_filing_statuses: ["single"] }}
       />
     );
     expect(screen.getByText(/how you file/i)).toBeInTheDocument();
@@ -43,7 +44,7 @@ describe("ProjectionCard", () => {
   it("counts the things it is waiting for instead of always saying two", () => {
     render(
       <ProjectionCard
-        envelope={{ year: 2026, available: false, missing: ["paystub"], remaining_pay_periods: 0, projection: null }}
+        envelope={{ year: 2026, available: false, missing: ["paystub"], remaining_pay_periods: 0, projection: null, supported_filing_statuses: ["single"] }}
       />
     );
     expect(screen.getByText(/one thing is needed/i)).toBeInTheDocument();
@@ -78,6 +79,24 @@ describe("ProjectionCard", () => {
   it("says nothing about pay frequency when the year is fully projected", () => {
     render(<ProjectionCard envelope={available} />);
     expect(screen.queryByText(/rest of the year/i)).not.toBeInTheDocument();
+  });
+
+  it("explains an unsupported filing status instead of listing it as missing input", () => {
+    render(
+      <ProjectionCard
+        envelope={{
+          year: 2026, available: false, missing: ["unsupported_filing_status"],
+          remaining_pay_periods: 0, projection: null,
+          supported_filing_statuses: ["single"],
+        }}
+        filingStatus="married_joint"
+      />
+    );
+    expect(screen.getByText(/married, filing together/i)).toBeInTheDocument();
+    expect(screen.getByText(/single filers/i)).toBeInTheDocument();
+    // The engine's own words are for whoever adds the rate table, not the user.
+    expect(screen.queryByText(/sourced rate table/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/things are needed/i)).not.toBeInTheDocument();
   });
 
   it("shows an amount owed as owed, not as a negative refund", () => {

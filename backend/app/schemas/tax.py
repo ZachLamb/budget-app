@@ -155,6 +155,9 @@ class ProjectionEnvelope(BaseModel):
     missing: list[str] = []
     remaining_pay_periods: int = 0
     projection: Optional[TaxProjectionResponse] = None
+    # The filing statuses this year's rate tables actually populate, so the
+    # walkthrough can warn before saving one that produces no estimate.
+    supported_filing_statuses: list[str] = []
 
 
 IMPACT_KINDS = {

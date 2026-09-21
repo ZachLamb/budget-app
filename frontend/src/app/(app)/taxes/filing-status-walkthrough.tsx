@@ -59,17 +59,28 @@ function Choice({
 export function FilingStatusWalkthrough({
   profile,
   onSave,
+  supportedStatuses = [],
 }: {
   profile: TaxProfile;
   onSave: (data: {
     filing_status: FilingStatus;
     walkthrough_answers: Record<string, unknown>;
   }) => void;
+  /** Statuses the rate tables populate; anything else produces no estimate. */
+  supportedStatuses?: FilingStatus[];
 }) {
   const [answers, setAnswers] = useState<Answers>(
     (profile.walkthrough_answers as Answers) ?? {}
   );
   const status = determine(answers);
+  // A status can be stored without the answers behind it (an older profile,
+  // or one set outside this walkthrough). Saying so beats showing a blank
+  // set of questions next to a filled-in projection.
+  const savedWithoutAnswers = profile.filing_status !== null && status === null;
+  const unsupported =
+    status !== null &&
+    supportedStatuses.length > 0 &&
+    !supportedStatuses.includes(status);
 
   const set = (patch: Answers) =>
     setAnswers((prev) => {
@@ -91,6 +102,14 @@ export function FilingStatusWalkthrough({
           mistake this page can make, so we work it out rather than asking
           you to pick from a list.
         </p>
+
+        {savedWithoutAnswers && (
+          <p className="text-sm">
+            Currently saved as{" "}
+            <strong>{LABELS[profile.filing_status as FilingStatus]}</strong>.
+            Answer again to change it.
+          </p>
+        )}
 
         <fieldset>
           <legend className="text-sm font-medium">Are you married?</legend>
@@ -133,6 +152,16 @@ export function FilingStatusWalkthrough({
             <p className="font-medium">You file as: {LABELS[status]}</p>
             <p className="text-muted-foreground">{EXPLANATION[status]}</p>
           </div>
+        )}
+
+        {unsupported && (
+          <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm">
+            <strong>No estimate yet for this status.</strong> The tax tables
+            here only cover{" "}
+            {supportedStatuses.map((s) => LABELS[s]).join(" and ").toLowerCase()}{" "}
+            so far, and the rates differ by thousands between statuses. Saving
+            keeps your answer — the estimate appears once the tables cover it.
+          </p>
         )}
 
         {status && (

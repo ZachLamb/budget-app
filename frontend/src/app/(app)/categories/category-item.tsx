@@ -9,6 +9,7 @@ import {
   type CategoryUsage,
   type DeductionKind,
 } from "@/lib/api/categories";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,6 +41,26 @@ import { toastApiError } from "@/lib/toast-error";
 
 // The tax engine values these two very differently, so the user has to say
 // which one a deductible category is -- it cannot be inferred from the amount.
+const KIND_BADGES: Record<DeductionKind, string> = {
+  business_expense: "Business",
+  personal_itemized: "Personal",
+};
+
+// A tax line names the form a deduction is filed on, and the two forms map
+// straight onto the two kinds. Disagreement is almost always a mistake, and
+// a silent one: it changes what the deduction is worth without changing
+// anything visible.
+const LINE_IMPLIES: { pattern: RegExp; kind: DeductionKind; form: string }[] = [
+  { pattern: /schedule\s*e\b/i, kind: "business_expense", form: "Schedule E" },
+  { pattern: /schedule\s*a\b/i, kind: "personal_itemized", form: "Schedule A" },
+];
+
+function mismatch(taxLine: string | null, kind: DeductionKind) {
+  if (!taxLine) return null;
+  const hit = LINE_IMPLIES.find((l) => l.pattern.test(taxLine));
+  return hit && hit.kind !== kind ? hit : null;
+}
+
 const DEDUCTION_KINDS: { value: DeductionKind; label: string; help: string }[] = [
   {
     value: "business_expense",
@@ -177,6 +198,15 @@ export function CategoryItem({
       ) : (
         <span className="flex items-baseline gap-2 text-sm">
           {category.name}
+          {category.deductible && (
+            <Badge
+              variant="outline"
+              className="text-[10px]"
+              title={`Tax deductible — ${KIND_BADGES[category.deduction_kind].toLowerCase()}`}
+            >
+              {KIND_BADGES[category.deduction_kind]}
+            </Badge>
+          )}
           {usage && usage.transactions > 0 && (
             <span className="text-xs text-muted-foreground">
               {usage.transactions} txn{usage.transactions === 1 ? "" : "s"}
@@ -262,6 +292,20 @@ export function CategoryItem({
                     </div>
                   );
                 })}
+                {(() => {
+                  const wrong = mismatch(formState.tax_line, formState.deduction_kind);
+                  if (!wrong) return null;
+                  return (
+                    <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+                      The tax line says {wrong.form}, and {wrong.form} is a{" "}
+                      {wrong.kind === "business_expense"
+                        ? "business expense"
+                        : "personal deduction"}
+                      , but this is marked as the other one. That changes what
+                      it is worth — check which is right.
+                    </p>
+                  );
+                })()}
               </fieldset>
             </>
           )}

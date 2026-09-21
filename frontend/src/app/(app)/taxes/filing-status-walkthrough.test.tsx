@@ -79,4 +79,50 @@ describe("FilingStatusWalkthrough", () => {
     );
     expect(screen.getByRole("radio", { name: /no.*not married/i })).toBeChecked();
   });
+  it("warns before saving a status the estimate cannot use", async () => {
+    const onSave = vi.fn();
+    render(
+      <FilingStatusWalkthrough
+        profile={emptyProfile}
+        onSave={onSave}
+        supportedStatuses={["single"]}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("radio", { name: /yes.*married/i }));
+
+    expect(screen.getByText(/no estimate yet/i)).toBeInTheDocument();
+    // Their status is a fact about them: still saveable, just explained.
+    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ filing_status: "married_joint" })
+    );
+  });
+
+  it("says nothing extra for a supported status", async () => {
+    render(
+      <FilingStatusWalkthrough
+        profile={emptyProfile}
+        onSave={vi.fn()}
+        supportedStatuses={["single"]}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("radio", { name: /no.*not married/i }));
+    await userEvent.click(screen.getByRole("radio", { name: /no.*just me/i }));
+
+    expect(screen.queryByText(/no estimate yet/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the saved status when the answers behind it were never stored", () => {
+    render(
+      <FilingStatusWalkthrough
+        profile={{ ...emptyProfile, filing_status: "single" }}
+        onSave={vi.fn()}
+        supportedStatuses={["single"]}
+      />
+    );
+
+    expect(screen.getByText(/currently saved as/i)).toBeInTheDocument();
+  });
 });

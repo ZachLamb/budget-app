@@ -178,4 +178,38 @@ describe("CategoryItem", () => {
     );
     expect(screen.getByText("14 txns")).toBeInTheDocument();
   });
+  it("marks a deductible category in the list with its kind", () => {
+    renderItem(vi.fn(), makeCategory({ deductible: true, deduction_kind: "business_expense" }));
+    expect(screen.getByText("Business")).toBeInTheDocument();
+  });
+
+  it("shows no deduction badge on an ordinary category", () => {
+    renderItem(vi.fn(), makeCategory({ deductible: false }));
+    expect(screen.queryByText("Business")).not.toBeInTheDocument();
+    expect(screen.queryByText("Personal")).not.toBeInTheDocument();
+  });
+
+  it("flags a tax line that contradicts the deduction kind", async () => {
+    const cat = makeCategory({
+      deductible: true,
+      tax_line: "Schedule E — Cleaning",
+      deduction_kind: "personal_itemized",
+    });
+    const { user, ...utils } = renderCategoryItem(cat);
+
+    await user.click(utils.getByRole("button", { name: /edit/i }));
+    expect(utils.getByText(/Schedule E is a business expense/i)).toBeInTheDocument();
+  });
+
+  it("does not flag a tax line that agrees with the kind", async () => {
+    const cat = makeCategory({
+      deductible: true,
+      tax_line: "Schedule A — Medical",
+      deduction_kind: "personal_itemized",
+    });
+    const { user, ...utils } = renderCategoryItem(cat);
+
+    await user.click(utils.getByRole("button", { name: /edit/i }));
+    expect(utils.queryByText(/business expense, but/i)).not.toBeInTheDocument();
+  });
 });

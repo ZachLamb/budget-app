@@ -7,6 +7,8 @@ from decimal import Decimal
 
 import pytest
 
+from sqlalchemy import select
+
 from tests.test_categories_routes import fixture, _seed_household, _client
 from app.models import Household, Paystub, PriorYearReturn, TaxProfile
 
@@ -116,3 +118,41 @@ async def test_impact_rejects_an_unknown_kind(fixture):
             "year": 2026, "kind": "buy_a_boat", "amount": "1000.00",
         })
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_unsupported_filing_status_does_not_take_down_the_page(fixture):
+    """Saving "married" used to 422 and replace the whole Taxes page with
+    "married_joint is not populated for 2026 ... add its sourced rate table",
+    leaving a Retry button that could never succeed. The status is still a
+    fact about the user, so it saves -- the page just has to say why there
+    is no estimate instead of breaking.
+    """
+    session, _ = fixture
+    hid, headers = await _seed_ready_household(session)
+    profile = (await session.execute(
+        select(TaxProfile).where(TaxProfile.household_id == hid)
+    )).scalar_one()
+    profile.filing_status = "married_joint"
+    await session.flush()
+
+    async with _client() as client:
+        response = await client.get("/api/tax/projection", params={"year": 2026}, headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available"] is False
+    assert "unsupported_filing_status" in body["missing"]
+    assert body.get("projection") is None
+
+
+@pytest.mark.asyncio
+async def test_envelope_names_the_statuses_it_can_actually_compute(fixture):
+    """The walkthrough needs this to warn before saving a status that
+    cannot produce an estimate."""
+    session, _ = fixture
+    hid, headers = await _seed_ready_household(session)
+    async with _client() as client:
+        response = await client.get("/api/tax/projection", params={"year": 2026}, headers=headers)
+    body = response.json()
+    assert body["supported_filing_statuses"] == ["single"]
