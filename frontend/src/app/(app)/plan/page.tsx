@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { debtApi, type DebtAccount } from "@/lib/api/debt";
@@ -689,6 +690,34 @@ function DebtTab() {
       setAiError(userMessageFor(err));
     }
   };
+
+  // With no debts, every card on this tab is about nothing: a $0 total, a
+  // payoff strategy with no accounts to order, and an AI button that cannot
+  // be pressed. Leading with a disabled feature makes the page look broken
+  // rather than finished, so say what the tab is for and how to start it.
+  if (!isLoading && debtAccounts.length === 0) {
+    return (
+      <Card>
+        <CardContent className="space-y-3 py-12 text-center">
+          <CheckCircle2 className="mx-auto h-10 w-10 text-green-500" />
+          <p className="font-medium">No debt accounts yet</p>
+          <p className="mx-auto max-w-md text-sm text-muted-foreground">
+            Add a credit card or loan and this tab works out the payoff order,
+            what it costs in interest, and how much sooner extra payments
+            would finish it.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2 pt-1">
+            <Button asChild size="sm">
+              <Link href="/accounts">Add a credit card or loan</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/plan?tab=goals">Plan a savings goal instead</Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-4">

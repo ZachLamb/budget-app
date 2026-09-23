@@ -28,6 +28,18 @@ export interface DuplicateCluster {
   members: DuplicatePayeeMember[];
 }
 
+/** Per-payee totals, so the payees list can show what each one costs. */
+export interface PayeeActivity {
+  payee_id: string;
+  name: string;
+  transaction_count: number;
+  /** Signed sum: negative for money out. */
+  total_amount: string;
+  last_date: string | null;
+  top_category_id: string | null;
+  top_category_name: string | null;
+}
+
 export const payeesApi = {
   list: (q?: string) =>
     api.get<Payee[]>("/payees", { params: q ? { q } : undefined }).then((r) => r.data),
@@ -35,6 +47,7 @@ export const payeesApi = {
   update: (id: string, data: Partial<PayeeCreate>) =>
     api.put<Payee>(`/payees/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/payees/${id}`),
+  activity: () => api.get<PayeeActivity[]>("/payees/activity").then((r) => r.data),
   duplicates: () => api.get<DuplicateCluster[]>("/payees/duplicates").then((r) => r.data),
   merge: (targetId: string, sourceIds: string[]) =>
     api.post<Payee>("/payees/merge", { target_id: targetId, source_ids: sourceIds }).then((r) => r.data),

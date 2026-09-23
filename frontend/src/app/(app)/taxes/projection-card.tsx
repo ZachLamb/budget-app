@@ -117,7 +117,7 @@ export function ProjectionCard({
               That covers your pay so far, not the rest of the year — we don&apos;t
               know how often you&apos;re paid, so nothing has been added for the
               paychecks still to come. Set your{" "}
-              <Link href="/settings" className="underline">
+              <Link href="/settings#pay" className="underline">
                 pay schedule
               </Link>{" "}
               for a full-year estimate.

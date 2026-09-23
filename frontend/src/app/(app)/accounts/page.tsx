@@ -15,6 +15,8 @@ import { Plus, Trash2, Pencil, RefreshCw } from "lucide-react";
 import { appToast } from "@/lib/app-toast";
 import { toastApiError } from "@/lib/toast-error";
 import { formatCurrency, formatCurrencyNegative } from "@/lib/format";
+import { groupTotal, netWorth } from "@/lib/accounts/totals";
+import { transactionsApi } from "@/lib/api/transactions";
 import { useIsClient } from "@/lib/hooks";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
@@ -190,6 +192,18 @@ function AccountsContent() {
     accounts: accounts.filter((a: Account) => a.account_type === type.value),
   })).filter((g) => g.accounts.length > 0);
 
+  const worth = netWorth(accounts);
+
+  // Deleting an account takes its transactions with it, which is the part
+  // worth knowing before you confirm -- so count them while the dialog is
+  // open rather than after they are gone.
+  const { data: deleteImpact } = useQuery({
+    queryKey: ["transactions", "account-count", deleteId],
+    queryFn: () => transactionsApi.list({ account_id: deleteId!, page: 1, page_size: 1 }),
+    enabled: isClient && !!deleteId,
+  });
+  const deleteAccountName = accounts.find((a: Account) => a.id === deleteId)?.name;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -270,7 +284,7 @@ function AccountsContent() {
         emptyDescription={
           <>
             Add your first account to get started, or{" "}
-            <Link href="/settings" className="font-medium text-primary underline-offset-4 hover:underline">
+            <Link href="/settings#bank" className="font-medium text-primary underline-offset-4 hover:underline">
               connect your bank in Settings
             </Link>{" "}
             for automatic sync.
@@ -283,22 +297,81 @@ function AccountsContent() {
         }
         loadingFallback={<SkeletonTable rows={4} columns={3} />}
       >
+        <Card>
+          <CardContent className="grid gap-4 pt-6 sm:grid-cols-3">
+            <div>
+              <p className="text-sm text-muted-foreground">Held</p>
+              {/* An overdrawn account makes this negative, and a negative
+                  number printed in green reads as good news. */}
+              <p
+                className={cn(
+                  "font-mono text-xl font-semibold",
+                  worth.assets >= 0 ? "text-green-600" : "text-red-600",
+                )}
+              >
+                {formatCurrency(worth.assets)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Owed</p>
+              {/* Owing nothing is not a warning. */}
+              <p
+                className={cn(
+                  "font-mono text-xl font-semibold",
+                  worth.debts > 0 ? "text-red-600" : "text-muted-foreground",
+                )}
+              >
+                {worth.debts > 0 ? formatCurrencyNegative(worth.debts) : formatCurrency(0)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Net worth</p>
+              <p
+                className={cn(
+                  "font-mono text-xl font-semibold",
+                  worth.net >= 0 ? "text-green-600" : "text-red-600",
+                )}
+              >
+                {formatCurrency(worth.net)}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         {grouped.map((group) => (
           <Card key={group.value}>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-baseline justify-between space-y-0">
               <CardTitle className="text-lg">{group.label}</CardTitle>
+              {/* A single account is already its own subtotal. */}
+              {group.accounts.length > 1 && (
+                <span className="font-mono text-sm text-muted-foreground">
+                  {formatCurrency(groupTotal(group.accounts))}
+                </span>
+              )}
             </CardHeader>
             <CardContent className="space-y-3">
               {group.accounts.map((acct: Account) => (
                 <div key={acct.id} className="flex items-center justify-between rounded-md border p-3">
                   <div className="flex items-center gap-3">
                     <div>
-                      <p className="font-medium">{acct.name}</p>
-                      <p className="text-sm text-muted-foreground">{acct.institution}</p>
+                      <p className="font-medium">
+                        {/* The balance is a summary of transactions; the name
+                            is the way down to the ones behind it. */}
+                        <Link
+                          href={`/transactions?account_id=${encodeURIComponent(acct.id)}`}
+                          className="underline-offset-4 hover:underline"
+                        >
+                          {acct.name}
+                        </Link>
+                      </p>
+                      {acct.institution && (
+                        <p className="text-sm text-muted-foreground">{acct.institution}</p>
+                      )}
                       {DEBT_TYPES.includes(acct.account_type) && acct.interest_rate != null && (
                         <p className="text-xs text-muted-foreground">
                           {(Number(acct.interest_rate) * 100).toFixed(2)}% APR
-                          {acct.minimum_payment != null && ` · $${acct.minimum_payment} min`}
+                          {acct.minimum_payment != null &&
+                            ` · ${formatCurrency(Number(acct.minimum_payment))} min`}
                         </p>
                       )}
                       {acct.simplefin_id && acct.last_synced_at && (
@@ -392,7 +465,11 @@ function AccountsContent() {
         open={!!deleteId}
         onOpenChange={(open) => { if (!open) setDeleteId(null); }}
         title="Delete Account"
-        description="This will permanently delete this account and all its transactions. This cannot be undone."
+        description={
+          deleteImpact && deleteImpact.total > 0
+            ? `Deleting ${deleteAccountName ?? "this account"} also deletes its ${deleteImpact.total} transaction${deleteImpact.total === 1 ? "" : "s"}, and everything worked out from them — budget activity, reports and balance history. This cannot be undone.`
+            : `Deleting ${deleteAccountName ?? "this account"} is permanent. It has no transactions to lose.`
+        }
         onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId); }}
       />
     </div>

@@ -136,7 +136,7 @@ export function CycleReviewSection({ className }: { className?: string }) {
               <>Pay schedule and cycle checklist edits are disabled in the demo.</>
             ) : (
               <>
-                <Link href="/settings" className="text-primary underline-offset-4 hover:underline">
+                <Link href="/settings#pay" className="text-primary underline-offset-4 hover:underline">
                   Set a pay schedule
                 </Link>{" "}
                 to anchor this checklist to your paychecks.

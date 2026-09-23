@@ -30,6 +30,10 @@ export function parseTransactionFiltersFromSearchParams(
   const category_id = params.get("category_id")?.trim();
   if (category_id && category_id !== "all") filters.category_id = category_id;
 
+  // Carried so the payees list can hand off to "everything at this merchant".
+  const payee_id = params.get("payee_id")?.trim();
+  if (payee_id && payee_id !== "all") filters.payee_id = payee_id;
+
   const date_from = params.get("date_from")?.trim();
   if (date_from) filters.date_from = date_from;
 
@@ -53,6 +57,7 @@ export function transactionFiltersToSearchParams(
   if (filters.search?.trim()) params.set("search", filters.search.trim());
   if (filters.account_id) params.set("account_id", filters.account_id);
   if (filters.category_id) params.set("category_id", filters.category_id);
+  if (filters.payee_id) params.set("payee_id", filters.payee_id);
   if (filters.date_from) params.set("date_from", filters.date_from);
   if (filters.date_to) params.set("date_to", filters.date_to);
   if (filters.uncategorized) params.set("uncategorized", "1");

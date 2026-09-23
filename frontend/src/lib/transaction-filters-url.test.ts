@@ -43,3 +43,24 @@ describe("clampPage", () => {
     expect(clampPage(0, 3)).toBe(1);
   });
 });
+
+describe("payee_id round trip", () => {
+  it("parses a payee handed over from the payees list", () => {
+    const f = parseTransactionFiltersFromSearchParams(
+      new URLSearchParams("payee_id=p-1"),
+    );
+    expect(f.payee_id).toBe("p-1");
+  });
+
+  it("treats the all sentinel as no payee filter", () => {
+    const f = parseTransactionFiltersFromSearchParams(
+      new URLSearchParams("payee_id=all"),
+    );
+    expect(f.payee_id).toBeUndefined();
+  });
+
+  it("writes the payee back into the URL so the view survives a refresh", () => {
+    const qs = transactionFiltersToSearchParams({ page: 1, payee_id: "p-1" }).toString();
+    expect(qs).toBe("payee_id=p-1");
+  });
+});

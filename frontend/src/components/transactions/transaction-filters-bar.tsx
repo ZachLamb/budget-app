@@ -3,16 +3,20 @@
 import type { Account } from "@/lib/api/accounts";
 import type { TransactionFilters } from "@/lib/api/transactions";
 import type { FlatCategory } from "@/lib/hooks";
+import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
+import { activeFilterChips, clearFiltersPatch } from "@/lib/transactions/active-filters";
 
 export interface TransactionFiltersBarProps {
   filters: TransactionFilters;
   accounts: Account[];
   allCategories: FlatCategory[];
   onFiltersChange: (patch: Partial<TransactionFilters>) => void;
+  /** Name of the payee behind `filters.payee_id`, when it is known. */
+  payeeName?: string | null;
 }
 
 export function TransactionFiltersBar({
@@ -20,7 +24,14 @@ export function TransactionFiltersBar({
   accounts,
   allCategories,
   onFiltersChange,
+  payeeName,
 }: TransactionFiltersBarProps) {
+  const chips = activeFilterChips(filters, {
+    payeeName,
+    accountName: accounts.find((a) => a.id === filters.account_id)?.name,
+    categoryName: allCategories.find((c) => c.id === filters.category_id)?.name,
+  });
+
   return (
     <div className="sticky top-0 z-10 -mx-1 border-b bg-background/95 px-1 pb-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <Card className="border-0 shadow-none">
@@ -99,6 +110,37 @@ export function TransactionFiltersBar({
               />
             </div>
           </div>
+
+          {chips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 pt-3">
+              <span className="text-xs text-muted-foreground">Showing only:</span>
+              {chips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={() =>
+                    onFiltersChange({
+                      [chip.key]: chip.key === "uncategorized" ? false : undefined,
+                      page: 1,
+                    })
+                  }
+                  className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2.5 py-1 text-xs hover:bg-muted"
+                  aria-label={`Remove filter: ${chip.label}`}
+                >
+                  {chip.label}
+                  <X className="h-3 w-3" />
+                </button>
+              ))}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => onFiltersChange(clearFiltersPatch())}
+              >
+                Clear all
+              </Button>
+            </div>
+          )}
         </CardHeader>
       </Card>
     </div>

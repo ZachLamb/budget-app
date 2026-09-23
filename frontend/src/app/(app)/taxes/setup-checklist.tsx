@@ -51,7 +51,7 @@ export function buildSteps({
       title: "How often you're paid",
       why: "Without it the rest of the year is left out of the estimate.",
       done: !missing.includes("pay_frequency"),
-      href: "/settings",
+      href: "/settings#pay",
       hrefLabel: "Set it in Settings",
     },
     {

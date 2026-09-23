@@ -67,6 +67,7 @@ async def _enrich_transactions(db: AsyncSession, txns: list) -> list[Transaction
 async def list_transactions(
     account_id: Optional[str] = None,
     category_id: Optional[str] = None,
+    payee_id: Optional[str] = Query(None, max_length=36),
     search: Optional[str] = Query(None, max_length=200),
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
@@ -87,6 +88,10 @@ async def list_transactions(
         base_query = base_query.where(Transaction.account_id == account_id)
     if category_id:
         base_query = base_query.where(Transaction.category_id == category_id)
+    if payee_id:
+        # Narrows the household-scoped query above, so an id belonging to
+        # another household can only remove rows, never reach theirs.
+        base_query = base_query.where(Transaction.payee_id == payee_id)
     if uncategorized:
         base_query = base_query.where(Transaction.category_id.is_(None))
     if date_from:

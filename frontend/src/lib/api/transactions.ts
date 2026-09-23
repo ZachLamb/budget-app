@@ -42,6 +42,7 @@ export interface TransactionCreate {
 export interface TransactionFilters {
   account_id?: string;
   category_id?: string;
+  payee_id?: string;
   search?: string;
   date_from?: string;
   date_to?: string;

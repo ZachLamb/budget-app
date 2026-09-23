@@ -88,7 +88,7 @@ export function MobileSyncBanner() {
               Sync now
             </Button>
             <Button variant="ghost" size="sm" className="h-8" asChild>
-              <Link href="/settings">Details</Link>
+              <Link href="/settings#bank">Details</Link>
             </Button>
           </div>
         </div>
@@ -109,7 +109,7 @@ export function MobileSyncBanner() {
           {last?.error_message ?? "Check your bank connection in Settings."}
         </p>
         <Button variant="outline" size="sm" className="h-8" asChild>
-          <Link href="/settings">Settings</Link>
+          <Link href="/settings#bank">Settings</Link>
         </Button>
       </div>
     </div>

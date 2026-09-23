@@ -61,7 +61,7 @@ describe("MobileSyncBanner", () => {
     renderBanner();
     expect(await screen.findByRole("status")).toBeInTheDocument();
     expect(await screen.findByText(/Token expired/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings#bank");
   });
 
   it("shows syncing state while a sync is running", async () => {
@@ -91,6 +91,6 @@ describe("MobileSyncBanner", () => {
     renderBanner();
     expect(await screen.findByText(/Bank data may be outdated/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sync now/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Details" })).toHaveAttribute("href", "/settings");
+    expect(screen.getByRole("link", { name: "Details" })).toHaveAttribute("href", "/settings#bank");
   });
 });

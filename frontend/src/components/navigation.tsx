@@ -24,6 +24,7 @@ import {
   Sun,
   Map,
   Receipt,
+  Landmark,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -50,6 +51,7 @@ const manageNavItems = [
   { href: "/categories", label: "Categories", icon: Tags },
   { href: "/payees", label: "Payees", icon: Users },
   { href: "/rules", label: "Rules", icon: Wand2 },
+  { href: "/taxes", label: "Taxes", icon: Landmark },
   { href: "/deductions", label: "Deductions", icon: Receipt },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

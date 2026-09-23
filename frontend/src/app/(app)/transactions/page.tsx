@@ -410,6 +410,11 @@ function TransactionsContent() {
   };
 
   const totalPages = txnData ? Math.max(1, Math.ceil(txnData.total / txnData.page_size)) : 1;
+  // Every row in a payee-filtered list is that payee, so the first one names
+  // the filter -- no extra request just to label a chip.
+  const filteredPayeeName = filters.payee_id
+    ? (txnData?.transactions.find((t) => t.payee_id === filters.payee_id)?.payee_name ?? null)
+    : null;
 
   const categorySuggestionByTxnId = useMemo(() => {
     const m = new Map<string, LlmSuggestion>();
@@ -897,6 +902,7 @@ function TransactionsContent() {
         accounts={accounts}
         allCategories={allCategories}
         onFiltersChange={updateFilters}
+        payeeName={filteredPayeeName}
       />
       <TransactionListSection
         filters={filters}
