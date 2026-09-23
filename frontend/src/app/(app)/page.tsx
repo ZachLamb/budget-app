@@ -380,7 +380,7 @@ function WelcomeBanner() {
       </p>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" className="gap-2" asChild>
-          <Link href="/settings">
+          <Link href="/settings#bank">
             <Plug className="h-4 w-4 text-primary" /> Connect bank (read-only via SimpleFIN)
           </Link>
         </Button>
@@ -465,6 +465,26 @@ function DashboardContent() {
     queryFn: () => transactionsApi.list({ uncategorized: true, page: 1, page_size: 1 }),
     enabled: isClient,
   });
+  // The spending chart covers the pay window, so only a backlog inside that
+  // window can be the reason it is empty. Counting every uncategorized
+  // transaction ever let one stray deposit from March explain away a quiet
+  // fortnight, and categorizing it would not have changed a thing.
+  const { data: uncatInWindowProbe } = useQuery({
+    queryKey: ["transactions", "uncategorized-count", cycleFrom, cycleTo],
+    queryFn: () =>
+      transactionsApi.list({
+        uncategorized: true,
+        date_from: cycleFrom,
+        date_to: cycleTo,
+        page: 1,
+        page_size: 1,
+      }),
+    enabled: isClient && !!cycleFrom && !!cycleTo,
+  });
+  const uncategorizedCounts = {
+    inWindow: uncatInWindowProbe?.total ?? 0,
+    total: uncatProbe?.total ?? 0,
+  };
 
   const { data: goals = [] } = useQuery({
     queryKey: ["goals"],
@@ -564,7 +584,7 @@ function DashboardContent() {
                   </>
                 ) : null}
                 .{" "}
-                <Link href="/settings" className="text-primary underline-offset-4 hover:underline">
+                <Link href="/settings#pay" className="text-primary underline-offset-4 hover:underline">
                   Pay schedule
                 </Link>
               </span>
@@ -601,10 +621,14 @@ function DashboardContent() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Assets</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-600" />
+            <TrendingUp className={cn("h-4 w-4", totalAssets >= 0 ? "text-green-600" : "text-red-600")} />
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-green-600">{formatCurrency(totalAssets)}</p>
+            {/* An overdrawn account makes this negative, and a negative number
+                printed in green reads as good news. */}
+            <p className={cn("text-2xl font-bold", totalAssets >= 0 ? "text-green-600" : "text-red-600")}>
+              {formatCurrency(totalAssets)}
+            </p>
           </CardContent>
         </Card>
 
@@ -757,9 +781,9 @@ function DashboardContent() {
               error={spendingErr}
               onRetry={() => refetchSpending()}
               isEmpty={!spendingLoading && pieData.length === 0}
-              emptyDescription={spendingEmptyState(uncatProbe?.total ?? 0).description}
+              emptyDescription={spendingEmptyState(uncategorizedCounts).description}
               emptyAction={
-                spendingEmptyState(uncatProbe?.total ?? 0).showCategorizeAction ? (
+                spendingEmptyState(uncategorizedCounts).showCategorizeAction ? (
                   // Telling someone with a categorize backlog to "add or import
                   // transactions" sends them the wrong way entirely.
                   <Button variant="outline" size="sm" asChild>

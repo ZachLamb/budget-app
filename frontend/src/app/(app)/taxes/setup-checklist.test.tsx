@@ -49,7 +49,7 @@ describe("SetupChecklist", () => {
     render(<SetupChecklist steps={steps} year={year} />);
     expect(screen.getByRole("link", { name: /set it in settings/i })).toHaveAttribute(
       "href",
-      "/settings"
+      "/settings#pay"
     );
   });
 

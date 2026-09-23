@@ -2,7 +2,16 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { payeesApi, type Payee, type PayeeCreate, type DuplicateCluster } from "@/lib/api/payees";
+import {
+  PAYEE_SORTS,
+  PAYEE_SORT_LABELS,
+  mergeActivity,
+  sortPayees,
+  type PayeeSort,
+} from "@/lib/payees/sort";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { invalidateTransactionDerived } from "@/lib/query-invalidation";
 import { accountsApi, type Account } from "@/lib/api/accounts";
 import { useFlatCategories, useIsClient } from "@/lib/hooks";
@@ -26,6 +35,7 @@ import { cn } from "@/lib/utils";
 
 function PayeesContent() {
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<PayeeSort>("name");
   const [addOpen, setAddOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -44,6 +54,14 @@ function PayeesContent() {
     queryFn: accountsApi.list,
     enabled: isClient,
   });
+  // Unfiltered on purpose: one cached response serves every search term,
+  // and the rows it decorates are already scoped by the payees query.
+  const { data: activity = [] } = useQuery({
+    queryKey: ["payeeActivity"],
+    queryFn: payeesApi.activity,
+    enabled: isClient,
+    meta: inlineErrorQueryMeta,
+  });
 
   const { allCategories, catNameMap } = useFlatCategories();
   const acctNameMap = Object.fromEntries(accounts.map((a: Account) => [a.id, a.name]));
@@ -52,6 +70,11 @@ function PayeesContent() {
   // from being mostly em-dashes. They reappear once any payee has a value.
   const showDefaultCategory = payees.some((p: Payee) => p.default_category_id);
   const showTransferAccount = payees.some((p: Payee) => p.transfer_account_id);
+
+  const payeeById = new Map(payees.map((p: Payee) => [p.id, p]));
+  const rows = sortPayees(mergeActivity(payees, activity), sort);
+  const activityById = new Map(rows.map((r) => [r.id, r]));
+  const pendingDelete = deleteId ? activityById.get(deleteId) : undefined;
 
   // Deterministic duplicate-payee detection (same merchant, different descriptors).
   const [dismissedDupes, setDismissedDupes] = useState<Set<string>>(new Set());
@@ -95,6 +118,7 @@ function PayeesContent() {
     },
     onSuccess: (_res, c) => {
       queryClient.invalidateQueries({ queryKey: ["payees"] });
+      queryClient.invalidateQueries({ queryKey: ["payeeActivity"] });
       queryClient.invalidateQueries({ queryKey: ["payeeDuplicates"] });
       // Merging payees reassigns their transactions, so category totals move too.
       invalidateTransactionDerived(queryClient);
@@ -107,6 +131,7 @@ function PayeesContent() {
     mutationFn: payeesApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payees"] });
+      queryClient.invalidateQueries({ queryKey: ["payeeActivity"] });
       appToast.success("Payee created");
       setAddOpen(false);
       setForm({ name: "" });
@@ -118,6 +143,7 @@ function PayeesContent() {
     mutationFn: ({ id, data }: { id: string; data: Partial<PayeeCreate> }) => payeesApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payees"] });
+      queryClient.invalidateQueries({ queryKey: ["payeeActivity"] });
       appToast.success("Payee updated");
       setEditId(null);
     },
@@ -127,6 +153,7 @@ function PayeesContent() {
     mutationFn: payeesApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payees"] });
+      queryClient.invalidateQueries({ queryKey: ["payeeActivity"] });
       appToast.success("Payee deleted");
     },
     onError: (e) => toastApiError("Failed to delete payee", e),
@@ -221,7 +248,11 @@ function PayeesContent() {
         open={!!deleteId}
         onOpenChange={(open) => { if (!open) setDeleteId(null); }}
         title="Delete Payee"
-        description="This will permanently delete this payee."
+        description={
+          pendingDelete && pendingDelete.transaction_count > 0
+            ? `${pendingDelete.name} is on ${pendingDelete.transaction_count} transaction${pendingDelete.transaction_count === 1 ? "" : "s"}. Those keep the payee, so this delete will be refused — merge it into another payee instead.`
+            : "This payee isn't used by any transaction. Deleting it is permanent."
+        }
         onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId); }}
       />
 
@@ -298,9 +329,22 @@ function PayeesContent() {
 
       <Card>
         <CardHeader>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input className="pl-9" placeholder="Search payees..." aria-label="Search payees" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-48 flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input className="pl-9" placeholder="Search payees..." aria-label="Search payees" value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <Label htmlFor="payee-sort" className="text-sm text-muted-foreground">Sort by</Label>
+            <select
+              id="payee-sort"
+              className="h-9 rounded-md border bg-background px-2 text-sm"
+              value={sort}
+              onChange={(e) => setSort(e.target.value as PayeeSort)}
+            >
+              {PAYEE_SORTS.map((s) => (
+                <option key={s} value={s}>{PAYEE_SORT_LABELS[s]}</option>
+              ))}
+            </select>
           </div>
         </CardHeader>
         <CardContent>
@@ -317,15 +361,61 @@ function PayeesContent() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
+                  <TableHead>Usually</TableHead>
+                  <TableHead className="text-right">Transactions</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Last</TableHead>
                   {showDefaultCategory && <TableHead>Default Category</TableHead>}
                   {showTransferAccount && <TableHead>Transfer Account</TableHead>}
                   <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {payees.map((payee: Payee) => (
-                  <TableRow key={payee.id}>
-                    <TableCell className="font-medium">{payee.name}</TableCell>
+                {rows.map((row) => {
+                  const payee = payeeById.get(row.id);
+                  if (!payee) return null;
+                  return (
+                  <TableRow key={row.id}>
+                    <TableCell className="font-medium">
+                      {row.transaction_count > 0 ? (
+                        // The list is only worth opening if it leads somewhere;
+                        // the name is the way into this merchant's history.
+                        <Link
+                          href={`/transactions?payee_id=${encodeURIComponent(row.id)}`}
+                          className="underline-offset-4 hover:underline"
+                        >
+                          {row.name}
+                        </Link>
+                      ) : (
+                        row.name
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {row.top_category_name ? (
+                        <Badge variant="outline">{row.top_category_name}</Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm">
+                      {row.transaction_count > 0 ? (
+                        row.transaction_count
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Never used</span>
+                      )}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        "text-right font-mono text-sm",
+                        row.total_amount < 0 && "text-red-600",
+                        row.total_amount > 0 && "text-green-600",
+                      )}
+                    >
+                      {row.transaction_count > 0 ? formatCurrency(row.total_amount) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right text-sm text-muted-foreground">
+                      {row.last_date ? formatDate(row.last_date) : "—"}
+                    </TableCell>
                     {showDefaultCategory && (
                       <TableCell>
                         {payee.default_category_id ? (
@@ -349,7 +439,8 @@ function PayeesContent() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </QueryState>

@@ -179,7 +179,14 @@ function RulesContent() {
         description="Match payees, notes, or amounts and assign categories automatically."
         actions={
           <>
-          <Button variant="outline" onClick={() => applyRulesMutation.mutate()} disabled={applyRulesMutation.isPending}>
+          <Button
+            variant="outline"
+            onClick={() => applyRulesMutation.mutate()}
+            // Running no rules over every transaction is a no-op dressed up as
+            // an action; with none written the button only offers confusion.
+            disabled={applyRulesMutation.isPending || rules.length === 0}
+            title={rules.length === 0 ? "Add a rule first — there is nothing to run yet" : undefined}
+          >
             <Play className="mr-2 h-4 w-4" /> Run Rules
           </Button>
           <Button

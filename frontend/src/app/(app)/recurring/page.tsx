@@ -416,7 +416,14 @@ function RecurringContent() {
             onRetry={() => refetch()}
             isEmpty={!isLoading && items.length === 0}
             emptyTitle="No recurring transactions yet"
-            emptyDescription="Add one manually or accept a suggestion from your recent spending."
+            emptyDescription={
+              // The page offers suggestions from the last 90 days. When it has
+              // none it used to promise them anyway, leaving people hunting for
+              // a list that was never going to appear.
+              suggestions.length > 0
+                ? "Add one manually, or accept a suggestion from your recent spending above."
+                : "Add one manually. We also watch the last 90 days for charges that repeat and suggest them here — nothing has repeated often enough yet."
+            }
             emptyAction={
               <Button
                 type="button"

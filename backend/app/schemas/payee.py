@@ -1,5 +1,6 @@
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
 
 
@@ -46,3 +47,20 @@ class PayeeMergeRequest(BaseModel):
 
     target_id: str
     source_ids: list[str]
+
+
+class PayeeActivityResponse(BaseModel):
+    """What a payee has actually done, for the payees list.
+
+    A payee with no transactions reports zeroes and a null date rather
+    than being left out: an unused payee is precisely the row someone
+    came to the page to tidy up.
+    """
+
+    payee_id: str
+    name: str
+    transaction_count: int
+    total_amount: Decimal
+    last_date: Optional[date]
+    top_category_id: Optional[str]
+    top_category_name: Optional[str]

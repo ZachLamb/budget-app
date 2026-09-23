@@ -47,7 +47,7 @@ describe("ProjectionCard", () => {
       />
     );
     expect(screen.getByText(/rest of the year/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /pay schedule/i })).toHaveAttribute("href", "/settings");
+    expect(screen.getByRole("link", { name: /pay schedule/i })).toHaveAttribute("href", "/settings#pay");
   });
 
   it("does not call a partial-year balance a refund", () => {

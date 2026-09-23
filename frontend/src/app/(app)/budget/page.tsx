@@ -43,6 +43,8 @@ import { cn } from "@/lib/utils";
 import { formatCurrency, getMonthString, formatMonthDisplay, navigateMonth } from "@/lib/format";
 import { carryoverNote, overspendNote, rtaDeductionNote } from "@/lib/budget-rollover-copy";
 import { applyAssignedOptimistic } from "@/lib/budget-optimistic";
+import { uncategorizedIncome } from "@/lib/budget/uncategorized-income";
+import { transactionsApi } from "@/lib/api/transactions";
 import { getApiErrorMessage, useIsClient } from "@/lib/hooks";
 import { toastApiError } from "@/lib/toast-error";
 import { AI_COPY } from "@/lib/ai-copy";
@@ -593,6 +595,29 @@ function BudgetContent() {
     meta: inlineErrorQueryMeta,
   });
 
+  // Income here is grouped by category, so a deposit without one reads as
+  // zero next to a Dashboard that counts it. Fetch the month's uncategorized
+  // rows so the card can name the gap instead of leaving the two pages to
+  // contradict each other.
+  const monthEndDay = new Date(
+    Number(month.split("-")[0]),
+    Number(month.split("-")[1]),
+    0,
+  ).getDate();
+  const { data: uncategorizedPage } = useQuery({
+    queryKey: ["transactions", "uncategorized-month", month],
+    queryFn: () =>
+      transactionsApi.list({
+        uncategorized: true,
+        date_from: `${month}-01`,
+        date_to: `${month}-${String(monthEndDay).padStart(2, "0")}`,
+        page: 1,
+        page_size: 200,
+      }),
+    enabled: isClient,
+  });
+  const missingIncome = uncategorizedIncome(uncategorizedPage);
+
   const copyMutation = useMutation({
     mutationFn: () => budgetApi.copyMonth(navigateMonth(month, -1), month),
     onSuccess: (result) => {
@@ -706,6 +731,19 @@ function BudgetContent() {
             <p className="text-2xl font-bold font-mono">
               {formatCurrency(data?.total_income ?? 0)}
             </p>
+            {missingIncome && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {missingIncome.partial ? "At least " : ""}
+                {formatCurrency(missingIncome.amount)} more came in this month
+                without a category, so it isn&apos;t counted here.{" "}
+                <Link
+                  href={`/transactions?uncategorized=1&date_from=${month}-01&date_to=${month}-${String(monthEndDay).padStart(2, "0")}`}
+                  className="underline"
+                >
+                  Categorize it
+                </Link>
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>

@@ -127,3 +127,50 @@ async def test_cross_household_isolation(fixture):
         assert (await client.post("/api/transactions", headers=headers_b, json={
             "account_id": account_a, "date": "2026-06-15", "amount": "-1.00",
         })).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_filters_by_payee(fixture):
+    """The payees list links through to "everything at this merchant", which
+    needs the list endpoint to filter on the payee it hands over."""
+    session, _ = fixture
+    _, headers, account_id = await _seed_user_with_account(session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post("/api/transactions", headers=headers, json={
+            "account_id": account_id, "date": "2026-06-15",
+            "payee_name": "Blue Bottle", "amount": "-4.50",
+        })
+        await client.post("/api/transactions", headers=headers, json={
+            "account_id": account_id, "date": "2026-06-16",
+            "payee_name": "Somewhere Else", "amount": "-9.00",
+        })
+        payee_id = first.json()["payee_id"]
+        assert payee_id
+
+        resp = await client.get(
+            "/api/transactions", headers=headers, params={"payee_id": payee_id}
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert [t["payee_name"] for t in body["transactions"]] == ["Blue Bottle"]
+
+
+@pytest.mark.asyncio
+async def test_list_by_payee_from_another_household_returns_nothing(fixture):
+    """The filter narrows a household-scoped query, so an id from elsewhere
+    can only ever remove rows -- never reach someone else's."""
+    session, _ = fixture
+    _, headers, account_id = await _seed_user_with_account(session)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post("/api/transactions", headers=headers, json={
+            "account_id": account_id, "date": "2026-06-15",
+            "payee_name": "Blue Bottle", "amount": "-4.50",
+        })
+        resp = await client.get(
+            "/api/transactions", headers=headers, params={"payee_id": str(uuid.uuid4())}
+        )
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0

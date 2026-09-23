@@ -104,8 +104,15 @@ export function FsaReviewPanel({
           onClick={() => setFsaOpen(!fsaOpen)}
         >
           <div className="flex items-center gap-2">
-            <Stethoscope className="h-5 w-5 text-purple-500" />
-            <span className="font-semibold">FSA Reimbursement Review</span>
+            <Stethoscope className="h-5 w-5 shrink-0 text-purple-500" />
+            <span className="min-w-0">
+              <span className="font-semibold">FSA Reimbursement Review</span>
+              {/* Collapsed, this was a title and nothing else — sitting above
+                  the filters with no clue what it does or why it is here. */}
+              <span className="block text-xs font-normal text-muted-foreground">
+                Find health spending you could claim back from a Healthcare FSA
+              </span>
+            </span>
           </div>
           <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", fsaOpen && "rotate-180")} />
         </button>

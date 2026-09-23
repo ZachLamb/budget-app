@@ -344,7 +344,7 @@ function AiAdvisorInner() {
                 <p className="text-xs text-muted-foreground max-w-[280px]">
                   Answers use your budget, balances, and goals — processed privately on your device.
                 </p>
-                <Link href="/settings" className="text-xs text-primary hover:underline">
+                <Link href="/settings#ai" className="text-xs text-primary hover:underline">
                   What the AI uses (Settings)
                 </Link>
               </div>
