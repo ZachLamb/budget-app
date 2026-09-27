@@ -356,6 +356,24 @@ async def test_audit_write_failure_does_not_break_the_response(monkeypatch) -> N
     assert '"error"' not in resp.text
 
 
+def test_sanitizer_does_not_truncate_a_prompt_the_field_accepted():
+    """Two limits, one prompt.
+
+    The field accepted 4,000 characters while `sanitize_user_text` cut at
+    2,000, so a prompt could pass validation and still reach the model a
+    third shorter — silently losing, on the paystub reader, the rules that
+    forbid inventing figures and the paragraph that says document text is
+    not instructions.
+    """
+    from app.api.routes.llm import _MAX_SYSTEM_CHARS
+    from app.services.ai.prompt_safety import sanitize_user_text
+
+    prompt = "word " * 700  # 3,500 chars, inside the field cap
+    assert len(prompt) < _MAX_SYSTEM_CHARS
+    delivered = sanitize_user_text(prompt, max_len=_MAX_SYSTEM_CHARS)
+    assert "…" not in delivered, "prompt was truncated after passing validation"
+
+
 def test_system_prompt_cap_fits_first_party_prompts():
     """The cap has to clear this app's own prompts.
 

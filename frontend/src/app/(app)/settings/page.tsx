@@ -733,8 +733,8 @@ function SettingsContent() {
               AI
             </CardTitle>
             <CardDescription>
-              Master switch for the chat advisor and AI-powered features. Setup and cloud permissions are
-              below when enabled. {AI_COPY.educationalDisclaimer}
+              Master switch for the chat advisor and AI-powered features. Setup is below
+              when enabled. {AI_COPY.educationalDisclaimer}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -770,10 +770,13 @@ function SettingsContent() {
               <p>
                 <span className="font-medium text-foreground">Shared with AI:</span> Account names,
                 balances, spending by category, and goals — never credentials or account numbers.
+                If you read a tax document on the Taxes page, that document&apos;s text is shared
+                too, for that one request.
               </p>
               <p>
-                <span className="font-medium text-foreground">Where it runs:</span> Prefer on-device
-                models in your browser; cloud is opt-in per feature when you enable it below.
+                <span className="font-medium text-foreground">Where it runs:</span> On a model in
+                your browser by default, so nothing leaves this device. Point it at your own model
+                server below and requests go there instead, by way of this app&apos;s backend.
               </p>
             </div>
           </CardContent>

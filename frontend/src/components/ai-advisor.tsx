@@ -110,6 +110,7 @@ function AiAdvisorInner() {
     enabled: isClient,
     staleTime: 60_000,
   });
+  const usesLocalServer = Boolean(aiSettings?.prefer_local_server);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -298,7 +299,12 @@ function AiAdvisorInner() {
             </div>
             <div>
               <p id="ai-advisor-title" className="text-sm font-semibold leading-none">AI Financial Advisor</p>
-              <span className="text-xs text-muted-foreground">On-device · Private</span>
+              {/* "On-device" is a claim about where the data goes, so it has to
+                  follow the setting rather than be decoration. With a local
+                  server chosen, requests leave the browser for it. */}
+              <span className="text-xs text-muted-foreground">
+                {usesLocalServer ? "Your model server · Private" : "On-device · Private"}
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -342,7 +348,10 @@ function AiAdvisorInner() {
               <div className="text-center space-y-1">
                 <p className="font-medium text-sm">Your personal finance advisor</p>
                 <p className="text-xs text-muted-foreground max-w-[280px]">
-                  Answers use your budget, balances, and goals — processed privately on your device.
+                  Answers use your budget, balances, and goals —{" "}
+                  {usesLocalServer
+                    ? "sent to the model server you run, and nowhere else."
+                    : "processed privately on your device."}
                 </p>
                 <Link href="/settings#ai" className="text-xs text-primary hover:underline">
                   What the AI uses (Settings)
