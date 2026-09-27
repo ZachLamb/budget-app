@@ -234,3 +234,27 @@ export const taxApi = {
         blended_rate_percent: num(r.data.blended_rate_percent),
       })),
 };
+
+/** One filed return, in the shape tests/backtest/README.md documents. */
+export interface BacktestReturn {
+  year: number;
+  filing_status: string;
+  wages?: string;
+  pretax_401k?: string;
+  pretax_hsa?: string;
+  federal_withheld?: string;
+  state_withheld?: string;
+  ss_withheld?: string;
+  medicare_withheld?: string;
+  actual_taxable_income?: string;
+  actual_federal_income_tax?: string;
+  actual_state_tax?: string;
+  actual_ss_tax?: string;
+  actual_medicare_tax?: string;
+}
+
+export const backtestApi = {
+  /** Development only; the route 404s when a production marker is set. */
+  writeFixture: (returns: BacktestReturn[]) =>
+    api.post("/dev/backtest-fixture", { returns }).then(() => undefined),
+};

@@ -79,7 +79,11 @@ async function generateStructuredOnce(
 /** A JSON object handed back unvalidated, for callers that verify it themselves. */
 export type RawStructured = Record<string, unknown>;
 
-const RAW_FEATURES = new Set<FeatureId>(["prior_year_extract", "paystub_extract"]);
+const RAW_FEATURES = new Set<FeatureId>([
+  "prior_year_extract",
+  "paystub_extract",
+  "w2_extract",
+]);
 
 function parseForFeature(
   feature: FeatureId,

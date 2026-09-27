@@ -38,6 +38,7 @@ _ALLOWED_FEATURES: frozenset[str] = frozenset(
         # server as primary; the on-device path never leaves the browser.
         "prior_year_extract",
         "paystub_extract",
+        "w2_extract",
     }
 )
 

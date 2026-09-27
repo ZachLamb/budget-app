@@ -23,6 +23,7 @@ import { PaystubForm } from "./paystub-form";
 import { PriorYearForm } from "./prior-year-form";
 import { PriorYearUpload } from "./prior-year-upload";
 import { PaystubUpload } from "./paystub-upload";
+import { BacktestPanel } from "./backtest-panel";
 import type { PaystubKey } from "@/lib/tax-docs/paystub-extract";
 import type { PriorYearKey } from "@/lib/tax-docs/prior-year-extract";
 import { toastApiError } from "@/lib/toast-error";
@@ -280,6 +281,11 @@ export default function TaxesPage() {
               prefill={extracted?.values}
               onSave={async (data) => { await savePriorYear.mutateAsync(data); }}
             />
+
+            {/* The fixture it writes describes a real filed return, so the
+                panel is not in a production build at all. The endpoint
+                refuses independently. */}
+            {process.env.NODE_ENV !== "production" && <BacktestPanel />}
 
             <p className="text-sm text-muted-foreground">
               Spending you have marked tax deductible is valued against this

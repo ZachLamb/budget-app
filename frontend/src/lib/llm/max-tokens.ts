@@ -17,6 +17,7 @@ const MAX_TOKENS: Partial<Record<FeatureId, number>> = {
   // budget that only covers the answer returns nothing at all.
   prior_year_extract: 8192,
   paystub_extract: 8192,
+  w2_extract: 8192,
 };
 
 export function maxTokensFor(feature: FeatureId, override?: number): number {

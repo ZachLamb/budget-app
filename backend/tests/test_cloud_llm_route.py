@@ -403,6 +403,7 @@ def test_extraction_features_run_deterministically():
 
     assert _temperature_for("prior_year_extract") == 0.0
     assert _temperature_for("paystub_extract") == 0.0
+    assert _temperature_for("w2_extract") == 0.0
     # Everything else keeps the sampling it was tuned with.
     assert _temperature_for("financial_advice") == 0.3
     assert _temperature_for("free_form_qa") == 0.3

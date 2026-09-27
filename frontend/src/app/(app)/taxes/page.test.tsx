@@ -14,6 +14,9 @@ vi.mock("./prior-year-upload", () => ({
 vi.mock("./paystub-upload", () => ({
   PaystubUpload: () => null,
 }));
+vi.mock("./backtest-panel", () => ({
+  BacktestPanel: () => null,
+}));
 
 vi.mock("@/lib/api/tax", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/tax")>();
