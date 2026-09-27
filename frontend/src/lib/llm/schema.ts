@@ -22,6 +22,34 @@ const SCHEMAS: Partial<Record<FeatureId, Record<string, unknown>>> = {
   // Every figure is an object or null -- there is deliberately no way to
   // express "0 because I could not find it". The model can emit a number
   // alongside the line it was read from, or nothing at all.
+  w2_extract: {
+    type: "object",
+    required: [
+      "wages",
+      "federal_withheld",
+      "ss_wages",
+      "ss_withheld",
+      "medicare_wages",
+      "medicare_withheld",
+      "pretax_401k",
+      "pretax_hsa",
+      "state_wages",
+      "state_withheld",
+    ],
+    additionalProperties: false,
+    properties: {
+      wages: QUOTED_FIGURE,
+      federal_withheld: QUOTED_FIGURE,
+      ss_wages: QUOTED_FIGURE,
+      ss_withheld: QUOTED_FIGURE,
+      medicare_wages: QUOTED_FIGURE,
+      medicare_withheld: QUOTED_FIGURE,
+      pretax_401k: QUOTED_FIGURE,
+      pretax_hsa: QUOTED_FIGURE,
+      state_wages: QUOTED_FIGURE,
+      state_withheld: QUOTED_FIGURE,
+    },
+  },
   paystub_extract: {
     type: "object",
     required: ["pay_date", "gross", "gross_ytd", "federal_withheld", "federal_withheld_ytd", "state_withheld", "state_withheld_ytd", "ss_withheld", "ss_withheld_ytd", "medicare_withheld", "medicare_withheld_ytd", "pretax_401k", "pretax_401k_ytd", "pretax_hsa", "pretax_hsa_ytd"],

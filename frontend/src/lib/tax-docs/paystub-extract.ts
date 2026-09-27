@@ -17,6 +17,7 @@ import {
   verifyQuotedFields,
   type VerifiedFields,
 } from "./verify";
+import { MEDICARE_RATE, SOCIAL_SECURITY_RATE, rateLooksWrong } from "./fica";
 
 export type { ExtractedField } from "./verify";
 
@@ -144,17 +145,14 @@ export function payrollTaxDoubts(extraction: PaystubExtraction): string[] {
   const check = (key: PaystubKey, rate: number, name: string) => {
     const amount = extraction.fields[key]?.value;
     if (amount === undefined) return;
-    const expected = gross * rate;
-    // Wide band: the Social Security wage cap, mid-year job changes and
-    // pre-tax deductions all move the real ratio legitimately.
-    if (amount > expected * 1.25 || amount < expected * 0.5) {
+    if (rateLooksWrong(amount, gross, rate)) {
       doubts.push(
         `${name} year-to-date is ${(amount / gross * 100).toFixed(2)}% of gross pay; ${(rate * 100).toFixed(2)}% is the usual rate. Worth a second look.`,
       );
     }
   };
 
-  check("ss_withheld_ytd", 0.062, "Social Security");
-  check("medicare_withheld_ytd", 0.0145, "Medicare");
+  check("ss_withheld_ytd", SOCIAL_SECURITY_RATE, "Social Security");
+  check("medicare_withheld_ytd", MEDICARE_RATE, "Medicare");
   return doubts;
 }

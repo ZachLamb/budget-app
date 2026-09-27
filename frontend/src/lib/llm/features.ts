@@ -22,7 +22,8 @@ export type FeatureId =
   | "fsa_review"
   | "debt_rate_suggestions"
   | "prior_year_extract"
-  | "paystub_extract";
+  | "paystub_extract"
+  | "w2_extract";
 
 export interface FeaturePolicy {
   /** Stable identifier — also used as the consent record's `feature` field. */
@@ -43,6 +44,15 @@ const LIGHT_TIERS: Tier[] = [1, 2];
 const HEAVY_TIERS: Tier[] = [1];
 
 const FEATURES: Record<FeatureId, FeaturePolicy> = {
+  w2_extract: {
+    id: "w2_extract",
+    label: "Read a W-2",
+    // The document never leaves the browser, so this stays on-device only.
+    allowedTiers: LIGHT_TIERS,
+    minimumTier: 1,
+    defaultTier: 1,
+    enabled: true,
+  },
   paystub_extract: {
     id: "paystub_extract",
     label: "Read a paystub",

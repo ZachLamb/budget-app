@@ -131,6 +131,7 @@ async def test_is_known_feature():
     # model server, so it has to be on the allowlist to get there at all.
     assert consent_service.is_known_feature("prior_year_extract")
     assert consent_service.is_known_feature("paystub_extract")
+    assert consent_service.is_known_feature("w2_extract")
 
 
 # ── Expiration behavior ──────────────────────────────────────────────────────

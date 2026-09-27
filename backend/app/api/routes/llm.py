@@ -33,7 +33,9 @@ router = APIRouter()
 # nothing and costs plenty: a reasoning model wanders further at higher
 # temperature, and its wandering comes out of the same token budget as its
 # answer.
-_DETERMINISTIC_FEATURES = frozenset({"prior_year_extract", "paystub_extract"})
+_DETERMINISTIC_FEATURES = frozenset(
+    {"prior_year_extract", "paystub_extract", "w2_extract"}
+)
 
 
 def _temperature_for(feature: str) -> float:
