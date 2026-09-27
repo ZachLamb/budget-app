@@ -5,6 +5,16 @@ import TaxesPage from "./page";
 import { taxApi } from "@/lib/api/tax";
 import type { ProjectionEnvelope, TaxProfile, Paystub, PriorYearReturn, ImpactResult } from "@/lib/api/tax";
 
+// The upload cards need the AI gate provider, which the app layout supplies
+// and this test does not. These cases are about the projection UI, so stub
+// the cards rather than stand up the whole LLM stack around them.
+vi.mock("./prior-year-upload", () => ({
+  PriorYearUpload: () => null,
+}));
+vi.mock("./paystub-upload", () => ({
+  PaystubUpload: () => null,
+}));
+
 vi.mock("@/lib/api/tax", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/tax")>();
   return {

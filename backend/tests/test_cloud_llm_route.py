@@ -7,6 +7,7 @@ import contextlib
 from typing import AsyncIterator, Optional
 
 import pytest
+from pydantic import ValidationError
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
@@ -353,3 +354,37 @@ async def test_audit_write_failure_does_not_break_the_response(monkeypatch) -> N
     assert "answer" in resp.text
     assert '"done":true' in resp.text
     assert '"error"' not in resp.text
+
+
+def test_system_prompt_cap_fits_first_party_prompts():
+    """The cap has to clear this app's own prompts.
+
+    It was 2,000, which silently rejected the FSA reviewer (2,268 chars)
+    and the paystub reader (3,031) as soon as a user chose their own model
+    server — a 422 with nothing explaining which field was at fault.
+    """
+    from app.api.routes.llm import CloudGenerateRequest
+
+    ok = CloudGenerateRequest(
+        feature="paystub_extract", prompt="x", system="s" * 3_500, max_tokens=2_048
+    )
+    assert len(ok.system) == 3_500
+
+    with pytest.raises(ValidationError):
+        CloudGenerateRequest(feature="paystub_extract", prompt="x", system="s" * 4_001)
+
+
+def test_extraction_features_run_deterministically():
+    """Reading figures off a document has one right answer.
+
+    Sampling buys nothing there, and costs: a reasoning model wanders
+    further at higher temperature, out of the same token budget it needs
+    for the answer.
+    """
+    from app.api.routes.llm import _temperature_for
+
+    assert _temperature_for("prior_year_extract") == 0.0
+    assert _temperature_for("paystub_extract") == 0.0
+    # Everything else keeps the sampling it was tuned with.
+    assert _temperature_for("financial_advice") == 0.3
+    assert _temperature_for("free_form_qa") == 0.3
