@@ -145,8 +145,9 @@ def project(inputs: TaxInputs, rates: RateSet, remaining_periods: int = 0) -> Ta
     ss_base = min(fica_wages, fed.social_security_wage_base)
     social_security_tax = _cents(ss_base * fed.social_security_rate)
     medicare_tax = _cents(fica_wages * fed.medicare_rate)
+    additional_medicare_threshold = fed.additional_medicare_threshold[inputs.filing_status]
     additional_medicare_tax = _cents(
-        max(ZERO, fica_wages - fed.additional_medicare_threshold)
+        max(ZERO, fica_wages - additional_medicare_threshold)
         * fed.additional_medicare_rate
     )
     explain.append(ExplainStep(
@@ -157,7 +158,7 @@ def project(inputs: TaxInputs, rates: RateSet, remaining_periods: int = 0) -> Ta
     explain.append(ExplainStep(
         "Medicare", medicare_tax + additional_medicare_tax,
         "1.45% on all wages, plus 0.9% above "
-        f"{money(fed.additional_medicare_threshold)}.",
+        f"{money(additional_medicare_threshold)}.",
     ))
 
     # --- State -----------------------------------------------------------
