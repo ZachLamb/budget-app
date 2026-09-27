@@ -9,7 +9,7 @@ import { DocumentPicker, WhereItRuns } from "./document-picker";
 import {
   FIELD_LABELS,
   FORM_LINES,
-  PRIOR_YEAR_KEYS,
+  PRIOR_YEAR_FORM_KEYS,
   type PriorYearExtraction,
   type PriorYearKey,
 } from "@/lib/tax-docs/prior-year-extract";
@@ -39,8 +39,11 @@ export function PriorYearUpload({
     if (extracted) setResult(extracted);
   };
 
-  const found = result ? PRIOR_YEAR_KEYS.filter((k) => result.fields[k]) : [];
-  const notFound = result ? PRIOR_YEAR_KEYS.filter((k) => !result.fields[k]) : [];
+  // Only the figures this form stores. The reader also takes line 16 for
+  // the back-test, and showing it here would offer a figure with nowhere
+  // to go.
+  const found = result ? PRIOR_YEAR_FORM_KEYS.filter((k) => result.fields[k]) : [];
+  const notFound = result ? PRIOR_YEAR_FORM_KEYS.filter((k) => !result.fields[k]) : [];
 
   return (
     <Card>
@@ -75,7 +78,7 @@ export function PriorYearUpload({
             ) : (
               <>
                 <p>
-                  Found {found.length} of {PRIOR_YEAR_KEYS.length} figures
+                  Found {found.length} of {PRIOR_YEAR_FORM_KEYS.length} figures
                   {result.year !== null && <> on a {result.year} return</>}.
                   Check each one against your copy before saving.
                 </p>

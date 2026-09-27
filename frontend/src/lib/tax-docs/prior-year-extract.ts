@@ -17,9 +17,26 @@ export const PRIOR_YEAR_KEYS = [
   "taxable_income",
   "total_tax",
   "total_withheld",
+  "tax_before_credits",
 ] as const;
 
 export type PriorYearKey = (typeof PRIOR_YEAR_KEYS)[number];
+
+/**
+ * The four figures the prior-year form stores.
+ *
+ * `tax_before_credits` is read from the same document but is not one of
+ * them: line 16 is what the back-test compares the engine against, and
+ * line 24 is what the safe-harbor check is measured against. Same page,
+ * different jobs -- so the reader takes both and each consumer picks the
+ * one that is right for it.
+ */
+export const PRIOR_YEAR_FORM_KEYS: readonly PriorYearKey[] = [
+  "agi",
+  "taxable_income",
+  "total_tax",
+  "total_withheld",
+];
 
 /** Form 1040 line numbers, shown so the figure can be checked by eye. */
 export const FORM_LINES: Record<PriorYearKey, string> = {
@@ -27,6 +44,7 @@ export const FORM_LINES: Record<PriorYearKey, string> = {
   taxable_income: "Form 1040 line 15",
   total_tax: "Form 1040 line 24",
   total_withheld: "Form 1040 line 25d",
+  tax_before_credits: "Form 1040 line 16",
 };
 
 export const FIELD_LABELS: Record<PriorYearKey, string> = {
@@ -34,6 +52,7 @@ export const FIELD_LABELS: Record<PriorYearKey, string> = {
   taxable_income: "Taxable income",
   total_tax: "Total tax owed",
   total_withheld: "Total withheld",
+  tax_before_credits: "Tax before credits",
 };
 
 export interface PriorYearExtraction extends VerifiedFields<PriorYearKey> {
@@ -96,6 +115,17 @@ export function applyCrossChecks(extraction: PriorYearExtraction): PriorYearExtr
   // Nobody pays more tax than they earned; that is a misread line.
   if (agi !== undefined && totalTax !== undefined && agi > 0 && totalTax > agi) {
     drop("total_tax", "it came out higher than the whole year's income");
+  }
+
+  // Line 16 gets the same income bound, and nothing more. Its relationship
+  // to line 24 is not an ordering: credits pull line 24 below it, additional
+  // taxes push line 24 above it, so neither being larger proves a misread.
+  const beforeCredits = extraction.fields.tax_before_credits?.value;
+  if (beforeCredits !== undefined && beforeCredits < 0) {
+    drop("tax_before_credits", "tax before credits cannot be negative");
+  }
+  if (agi !== undefined && beforeCredits !== undefined && agi > 0 && beforeCredits > agi) {
+    drop("tax_before_credits", "it came out higher than the whole year's income");
   }
 
   return { ...out, year: extraction.year };
