@@ -401,3 +401,54 @@ async def test_delete_succeeds_for_a_household_with_tax_data(fk_fixture):
             )
         ).scalars().all()
         assert left == [], f"{model.__name__} survived the delete"
+
+
+@pytest.mark.asyncio
+async def test_cascade_covers_every_table_that_references_a_household(fixture):
+    """The cascade is a hand-written list; the schema is the real answer.
+
+    Three tax tables were missing from it, which on Postgres made account
+    deletion fail outright for anyone who had used the Taxes page. Nothing
+    caught it: the list and the schema were only ever compared by eye, and
+    SQLite does not enforce the foreign key that would have objected.
+
+    So compare them here. Add a household-scoped table, forget the
+    cascade, and this fails with its name.
+    """
+    from sqlalchemy import event
+    from app.api.routes.me import _delete_household_cascade
+    from app.database import Base
+
+    session, engine = fixture
+
+    referencing = {
+        table.name
+        for table in Base.metadata.tables.values()
+        if any(
+            fk.column.table.name == "households"
+            for column in table.columns
+            for fk in column.foreign_keys
+        )
+    }
+    # Users are deleted by the caller before the household is wiped, so the
+    # cascade itself never touches them.
+    referencing.discard("users")
+
+    deleted_from: set[str] = set()
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute")
+    def _record(_conn, _cursor, statement, *_args):  # pragma: no cover - trivial
+        text = " ".join(statement.split())
+        if text.upper().startswith("DELETE FROM "):
+            deleted_from.add(text.split()[2].strip('"'))
+
+    household = await _make_household(session)
+    await session.commit()
+    await _delete_household_cascade(session, household.id)
+    await session.commit()
+
+    missing = sorted(referencing - deleted_from)
+    assert not missing, (
+        "these tables reference households but the delete cascade never "
+        f"clears them: {missing}"
+    )
