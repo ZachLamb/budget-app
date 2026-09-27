@@ -121,7 +121,7 @@ async def test_impact_rejects_an_unknown_kind(fixture):
 
 
 @pytest.mark.asyncio
-async def test_unsupported_filing_status_does_not_take_down_the_page(fixture):
+async def test_unsupported_filing_status_does_not_take_down_the_page(fixture, monkeypatch):
     """Saving "married" used to 422 and replace the whole Taxes page with
     "married_joint is not populated for 2026 ... add its sourced rate table",
     leaving a Retry button that could never succeed. The status is still a
@@ -135,6 +135,17 @@ async def test_unsupported_filing_status_does_not_take_down_the_page(fixture):
     )).scalar_one()
     profile.filing_status = "married_joint"
     await session.flush()
+
+    # Every 2026 status is populated now, so narrow the supported set to
+    # make one unsupported again. `get_rates` reads this at call time, so
+    # patching it reaches the route however it imported the function. The
+    # degraded path still matters: it is what the first unsourced year hits.
+    from app.services.tax.rates import federal_2026
+    from app.services.tax.rates.registry import FilingStatus
+
+    monkeypatch.setattr(
+        federal_2026, "SUPPORTED_STATUSES", frozenset({FilingStatus.SINGLE})
+    )
 
     async with _client() as client:
         response = await client.get("/api/tax/projection", params={"year": 2026}, headers=headers)
@@ -155,4 +166,10 @@ async def test_envelope_names_the_statuses_it_can_actually_compute(fixture):
     async with _client() as client:
         response = await client.get("/api/tax/projection", params={"year": 2026}, headers=headers)
     body = response.json()
-    assert body["supported_filing_statuses"] == ["single"]
+    assert sorted(body["supported_filing_statuses"]) == [
+        "head_of_household",
+        "married_joint",
+        "married_separate",
+        "qualifying_surviving_spouse",
+        "single",
+    ]

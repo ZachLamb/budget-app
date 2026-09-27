@@ -20,7 +20,11 @@ def test_2026_single_figures_match_published_values():
     assert fed.social_security_wage_base == Decimal("184500")
     assert fed.social_security_rate == Decimal("0.062")
     assert fed.medicare_rate == Decimal("0.0145")
-    assert fed.additional_medicare_threshold == Decimal("200000")
+    assert fed.additional_medicare_threshold[FilingStatus.SINGLE] == Decimal("200000")
+    # The surtax starts $50,000 higher jointly and $75,000 lower filing
+    # separately. One figure for all three was wrong for two of them.
+    assert fed.additional_medicare_threshold[FilingStatus.MARRIED_JOINT] == Decimal("250000")
+    assert fed.additional_medicare_threshold[FilingStatus.MARRIED_SEPARATE] == Decimal("125000")
     assert fed.additional_medicare_rate == Decimal("0.009")
 
     brackets = fed.brackets[FilingStatus.SINGLE]
@@ -64,3 +68,61 @@ def test_passive_loss_allowance_constants():
     assert pal.max_allowance == Decimal("25000")
     assert pal.phaseout_start == Decimal("100000")
     assert pal.phaseout_end == Decimal("150000")
+
+
+def test_2026_brackets_reproduce_the_revenue_procedure_worked_figures():
+    """Rev. Proc. 2025-32 prints the tax at each bracket floor.
+
+    Those printed amounts are an independent check on the thresholds: get a
+    threshold wrong and the cumulative tax at the next floor stops matching.
+    """
+    from decimal import Decimal
+    from app.services.tax.rates.registry import FilingStatus, get_rates
+
+    fed = get_rates(2026).federal
+
+    def tax_at(status: FilingStatus, taxable: Decimal) -> Decimal:
+        total, floor = Decimal("0"), Decimal("0")
+        for bracket in fed.brackets[status]:
+            ceiling = bracket.upper if bracket.upper is not None else taxable
+            if taxable <= floor:
+                break
+            slice_top = min(taxable, ceiling)
+            total += (slice_top - floor) * bracket.rate
+            floor = ceiling
+        return total
+
+    # "The Tax Is" column, table by table, at each bracket floor.
+    cases = [
+        (FilingStatus.MARRIED_JOINT, "100800", "11600"),
+        (FilingStatus.MARRIED_JOINT, "211400", "35932"),
+        (FilingStatus.MARRIED_JOINT, "768700", "206583.50"),
+        (FilingStatus.SINGLE, "105700", "17966"),
+        (FilingStatus.SINGLE, "640600", "192979.25"),
+        (FilingStatus.HEAD_OF_HOUSEHOLD, "67450", "7740"),
+        (FilingStatus.HEAD_OF_HOUSEHOLD, "105700", "16155"),
+        (FilingStatus.HEAD_OF_HOUSEHOLD, "201750", "39207"),
+        (FilingStatus.MARRIED_SEPARATE, "256225", "58448"),
+        (FilingStatus.MARRIED_SEPARATE, "384350", "103291.75"),
+    ]
+    for status, taxable, expected in cases:
+        got = tax_at(status, Decimal(taxable))
+        assert abs(got - Decimal(expected)) < Decimal("0.51"), (
+            f"{status.value} at {taxable}: engine {got}, Rev. Proc. {expected}"
+        )
+
+
+def test_surviving_spouse_uses_the_joint_table_not_an_approximation_of_it():
+    """Table 1 is headed "Married Individuals Filing Joint Returns AND
+    Surviving Spouses" — the same table, not a near-enough one."""
+    from app.services.tax.rates.registry import FilingStatus, get_rates
+
+    fed = get_rates(2026).federal
+    assert (
+        fed.brackets[FilingStatus.QUALIFYING_SURVIVING_SPOUSE]
+        == fed.brackets[FilingStatus.MARRIED_JOINT]
+    )
+    assert (
+        fed.standard_deduction[FilingStatus.QUALIFYING_SURVIVING_SPOUSE]
+        == fed.standard_deduction[FilingStatus.MARRIED_JOINT]
+    )

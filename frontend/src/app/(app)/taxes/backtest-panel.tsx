@@ -25,6 +25,20 @@ import { W2Upload } from "./w2-upload";
  * describes a real person's filed return.
  */
 
+/**
+ * The 1040 reader does not take the checked filing-status box yet, and the
+ * engine now computes all five. Guessing "single" would put a wrong status
+ * into a fixture whose whole job is catching wrong numbers, so it is asked
+ * for instead.
+ */
+const FILING_STATUSES = [
+  ["single", "Single"],
+  ["married_joint", "Married filing jointly"],
+  ["married_separate", "Married filing separately"],
+  ["head_of_household", "Head of household"],
+  ["qualifying_surviving_spouse", "Qualifying surviving spouse"],
+] as const;
+
 /** Figures the fixture wants that no reader here supplies. */
 const HAND_ENTERED = [
   {
@@ -43,6 +57,7 @@ export function BacktestPanel() {
   const [priorYear, setPriorYear] = useState<number | null>(null);
   const [w2, setW2] = useState<Partial<Record<W2Key, number>> | null>(null);
   const [stateTax, setStateTax] = useState("");
+  const [filingStatus, setFilingStatus] = useState<string>("single");
   const [saving, setSaving] = useState(false);
 
   // Gross wages are box 1 plus the deferrals, because box 1 is already net
@@ -58,7 +73,7 @@ export function BacktestPanel() {
       ? null
       : {
           year: priorYear,
-          filing_status: "single",
+          filing_status: filingStatus,
           wages: money(grossWages),
           pretax_401k: money(w2?.pretax_401k),
           pretax_hsa: money(w2?.pretax_hsa),
@@ -116,6 +131,25 @@ export function BacktestPanel() {
           }}
         />
         <W2Upload onUse={setW2} />
+
+        <div>
+          <Label htmlFor="backtest-filing-status">Filing status on that return</Label>
+          <select
+            id="backtest-filing-status"
+            className="mt-1 block h-9 max-w-xs rounded-md border bg-background px-2 text-sm"
+            value={filingStatus}
+            onChange={(e) => setFilingStatus(e.target.value)}
+          >
+            {FILING_STATUSES.map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-muted-foreground">
+            From the checked box at the top of the 1040. The reader does not
+            take it yet, and the wrong one silently changes every figure the
+            gate compares.
+          </p>
+        </div>
 
         {HAND_ENTERED.map((field) => (
           <div key={field.key}>

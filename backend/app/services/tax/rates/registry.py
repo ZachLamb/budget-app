@@ -41,7 +41,11 @@ class FederalRates:
     social_security_wage_base: Decimal
     social_security_rate: Decimal
     medicare_rate: Decimal
-    additional_medicare_threshold: Decimal
+    # Per status: the 0.9% surtax starts at $250,000 jointly, $125,000
+    # filing separately and $200,000 otherwise. A single figure here
+    # overstated a couple's tax by up to $450 and understated a separate
+    # filer's, silently, because the arithmetic still looked ordinary.
+    additional_medicare_threshold: dict[FilingStatus, Decimal]
     additional_medicare_rate: Decimal
 
 

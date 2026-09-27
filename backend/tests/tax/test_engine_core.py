@@ -136,8 +136,28 @@ def test_refund_is_positive_and_amount_due_is_negative():
 
 
 def test_unsupported_filing_status_raises_rather_than_approximating():
+    """Every 2026 status is populated now, so this builds a rate set that
+    is missing one. The guarantee is about the engine, not the calendar:
+    a status with no sourced brackets must raise rather than borrow
+    another status's numbers."""
+    import dataclasses
+
+    without_joint = dataclasses.replace(
+        RATES,
+        federal=dataclasses.replace(
+            RATES.federal,
+            brackets={
+                status: brackets
+                for status, brackets in RATES.federal.brackets.items()
+                if status is not FilingStatus.MARRIED_JOINT
+            },
+        ),
+        supported_statuses=frozenset(
+            RATES.supported_statuses - {FilingStatus.MARRIED_JOINT}
+        ),
+    )
     with pytest.raises(UnsupportedFilingStatusError):
-        project(make_inputs(filing_status=FilingStatus.MARRIED_JOINT), RATES)
+        project(make_inputs(filing_status=FilingStatus.MARRIED_JOINT), without_joint)
 
 
 def test_explain_trace_is_populated_and_ordered():
