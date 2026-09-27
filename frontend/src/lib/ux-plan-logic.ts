@@ -92,7 +92,7 @@ export function buildSetupSteps(input: SetupStepInput): SetupStep[] {
     },
     {
       id: "bank",
-      label: "Connect bank (SimpleFIN, optional)",
+      label: "Connect bank (SimpleFIN)",
       done: input.simplefinConfigured,
       href: "/settings#bank",
       optional: true,

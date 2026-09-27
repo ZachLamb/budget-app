@@ -40,14 +40,21 @@ def _temperature_for(feature: str) -> float:
     return 0.0 if feature in _DETERMINISTIC_FEATURES else 0.3
 
 
+# 2,000 was below this app's own first-party system prompts: the FSA
+# reviewer is 2,268 characters and the paystub reader 3,031. The field cap
+# rejected them outright, and `sanitize_user_text` — a separate limit —
+# silently truncated whatever got past it, cutting the tail off the prompt.
+# On the paystub reader that tail was the part that matters: "never return 0
+# to mean not found", the source_text contract, and the whole paragraph
+# telling the model that document text is data and not instructions.
+#
+# One constant for both, so the two limits cannot drift apart again.
+_MAX_SYSTEM_CHARS = 4_000
+
 class CloudGenerateRequest(BaseModel):
     feature: str = Field(..., min_length=1, max_length=64)
     prompt: str = Field(..., min_length=1, max_length=8_000)
-    # 2,000 was below this app's own first-party system prompts: the FSA
-    # reviewer is 2,268 characters and the paystub reader 3,031, so both
-    # were rejected here with a bare 422 whenever a user pointed the app at
-    # their own model server. Still a bound, just one the prompts fit in.
-    system: Optional[str] = Field(default=None, max_length=4_000)
+    system: Optional[str] = Field(default=None, max_length=_MAX_SYSTEM_CHARS)
     # A reasoning model spends its budget thinking before it answers: asked
     # to read a paystub, gemma-4-12b used 2,045 tokens of reasoning and had
     # none left for the JSON, returning finish_reason "length" and empty
@@ -172,7 +179,7 @@ async def cloud_generate(
             detail="Cloud AI not authorized for this feature. Grant consent first.",
         )
 
-    system_prompt = sanitize_user_text(body.system or "", max_len=2_000) if body.system else ""
+    system_prompt = sanitize_user_text(body.system or "", max_len=_MAX_SYSTEM_CHARS) if body.system else ""
     # The prompt carries interpolated user-authored text (payee names, memos)
     # assembled client-side, so it gets the same structural cleaning as the
     # system prompt. The cap matches the field's own max_length.

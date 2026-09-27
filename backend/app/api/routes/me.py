@@ -44,9 +44,12 @@ from app.models import (
     LlmAudit,
     LlmConsent,
     Payee,
+    Paystub,
+    PriorYearReturn,
     RecurringSuggestionDismissal,
     RecurringTransaction,
     SyncLog,
+    TaxProfile,
     Transaction,
     User,
     WebAuthnCredential,
@@ -210,6 +213,31 @@ async def export_my_data(
                 yield sep + _dumps(_row_to_dict(r))
                 sep = b","
             yield b"]"
+
+        # Tax figures are household data like any other, and the most
+        # sensitive rows here. Leaving them out of a "copy of everything we
+        # have" made the export quietly incomplete.
+        async for chunk in emit_small(
+            "tax_profile",
+            select(TaxProfile).where(TaxProfile.household_id == household_id),
+        ):
+            yield chunk
+
+        async for chunk in emit_small(
+            "paystubs",
+            select(Paystub)
+            .where(Paystub.household_id == household_id)
+            .order_by(Paystub.pay_date),
+        ):
+            yield chunk
+
+        async for chunk in emit_small(
+            "prior_year_returns",
+            select(PriorYearReturn)
+            .where(PriorYearReturn.household_id == household_id)
+            .order_by(PriorYearReturn.year),
+        ):
+            yield chunk
 
         # accounts
         async for chunk in emit_small(
@@ -561,6 +589,18 @@ async def _delete_household_cascade(db: AsyncSession, household_id: str) -> bool
         )
     )
     await db.execute(delete(SyncLog).where(SyncLog.household_id == household_id))
+    # Tax rows reference the household too. Leaving them out did not orphan
+    # them -- it made the whole delete fail, because Postgres refuses to drop
+    # a household that paystubs still point at. Anyone who had opened the
+    # Taxes page could not delete their account at all, and the test suite
+    # could not see it: SQLite skips foreign keys unless asked not to.
+    await db.execute(delete(Paystub).where(Paystub.household_id == household_id))
+    await db.execute(
+        delete(PriorYearReturn).where(PriorYearReturn.household_id == household_id)
+    )
+    await db.execute(
+        delete(TaxProfile).where(TaxProfile.household_id == household_id)
+    )
     await db.delete(household)
     await db.flush()
     return True
