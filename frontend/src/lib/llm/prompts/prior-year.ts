@@ -24,15 +24,19 @@ Return this shape exactly:
   "agi": {"value": <number>, "source_text": "<the line you read it from>"} or null,
   "taxable_income": {...} or null,
   "total_tax": {...} or null,
-  "total_withheld": {...} or null
+  "total_withheld": {...} or null,
+  "tax_before_credits": {...} or null
 }
 
 Which line each figure comes from:
 - agi — "Adjusted gross income", Form 1040 line 11
 - taxable_income — "Taxable income", Form 1040 line 15
-- total_tax — "Total tax", Form 1040 line 24. NOT line 16 ("Tax"), and NOT \
-line 22 or 23. Line 24 is the one that includes self-employment and other \
-additional taxes.
+- total_tax — "Total tax", Form 1040 line 24. NOT line 22 or 23. Line 24 is \
+the one that includes self-employment and other additional taxes.
+- tax_before_credits — "Tax", Form 1040 line 16. This is a DIFFERENT figure \
+from total_tax and both are wanted: line 16 is the tax on the brackets alone, \
+before credits and before additional taxes. On a simple return the two are \
+equal; report both anyway, each quoted from its own line.
 - total_withheld — "Total federal income tax withheld", Form 1040 line 25d
 
 Rules you must follow:

@@ -46,7 +46,14 @@ const SCHEMAS: Partial<Record<FeatureId, Record<string, unknown>>> = {
   },
   prior_year_extract: {
     type: "object",
-    required: ["year", "agi", "taxable_income", "total_tax", "total_withheld"],
+    required: [
+      "year",
+      "agi",
+      "taxable_income",
+      "total_tax",
+      "total_withheld",
+      "tax_before_credits",
+    ],
     additionalProperties: false,
     properties: {
       year: { type: ["integer", "null"] },
@@ -54,6 +61,7 @@ const SCHEMAS: Partial<Record<FeatureId, Record<string, unknown>>> = {
       taxable_income: QUOTED_FIGURE,
       total_tax: QUOTED_FIGURE,
       total_withheld: QUOTED_FIGURE,
+      tax_before_credits: QUOTED_FIGURE,
     },
   },
   fsa_review: {

@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { applyCrossChecks, verifyExtraction } from "./prior-year-extract";
+import {
+  PRIOR_YEAR_KEYS,
+  applyCrossChecks,
+  verifyExtraction,
+} from "./prior-year-extract";
 
 const TODAY = new Date(2026, 8, 23);
 
@@ -27,7 +31,8 @@ describe("verifyExtraction", () => {
       TODAY,
     );
     expect(r.year).toBe(2025);
-    expect(r.missing).toEqual([]);
+    // Line 16 is not in this fixture, so it is correctly absent.
+    expect(r.missing).toEqual(["tax_before_credits"]);
     expect(r.rejections).toEqual([]);
     expect(r.fields.total_tax).toEqual({
       value: 44844,
@@ -82,7 +87,7 @@ describe("verifyExtraction", () => {
   it("survives a model returning nonsense instead of an object", () => {
     const r = verifyExtraction("sorry, I could not read that", DOC, TODAY);
     expect(r.fields).toEqual({});
-    expect(r.missing).toHaveLength(4);
+    expect(r.missing).toHaveLength(PRIOR_YEAR_KEYS.length);
   });
 
   it("ignores a year that cannot be a filed return", () => {
@@ -107,7 +112,7 @@ describe("applyCrossChecks", () => {
 
   it("leaves a consistent set of figures alone", () => {
     const r = applyCrossChecks(base);
-    expect(r.missing).toEqual([]);
+    expect(r.rejections).toEqual([]);
     expect(Object.keys(r.fields).sort()).toEqual([
       "agi",
       "taxable_income",
@@ -191,7 +196,7 @@ describe("against text pdf.js actually produced", () => {
         TODAY,
       ),
     );
-    expect(r.missing).toEqual([]);
+    expect(r.rejections).toEqual([]);
     expect(r.fields.agi?.value).toBe(154692);
     expect(r.fields.total_tax?.value).toBe(44844);
   });
@@ -235,7 +240,7 @@ describe("against text pdf.js actually produced", () => {
       ),
     );
     expect(r.fields).toEqual({});
-    expect(r.missing).toHaveLength(4);
+    expect(r.missing).toHaveLength(PRIOR_YEAR_KEYS.length);
     expect(r.rejections).toEqual([]);
   });
 
@@ -252,5 +257,135 @@ describe("against text pdf.js actually produced", () => {
     );
     expect(r.fields.total_tax?.value).toBe(25860);
     expect(r.fields.total_tax?.sourceText).toContain("16 Tax");
+  });
+});
+
+describe("line 16 and line 24 are different figures", () => {
+  /** A return with a credit: line 16 is the bracket tax, line 24 is net of it. */
+  const WITH_CREDIT =
+    "11 Adjusted gross income ............................ 154,692 " +
+    "15 Taxable income ................................... 138,592 " +
+    "16 Tax .............................................. 25,860 " +
+    "20 Nonrefundable credits ............................. 2,000 " +
+    "24 Total tax ........................................ 23,860";
+
+  it("keeps both, each quoted from its own line", () => {
+    const r = applyCrossChecks(
+      verifyExtraction(
+        {
+          year: 2025,
+          taxable_income: field(138592, "15 Taxable income ................................... 138,592"),
+          tax_before_credits: field(25860, "16 Tax .............................................. 25,860"),
+          total_tax: field(23860, "24 Total tax ........................................ 23,860"),
+        },
+        WITH_CREDIT,
+        TODAY,
+      ),
+    );
+    expect(r.fields.tax_before_credits?.value).toBe(25860);
+    expect(r.fields.total_tax?.value).toBe(23860);
+    expect(r.rejections).toEqual([]);
+  });
+
+  it("does not treat line 24 being lower than line 16 as a misread", () => {
+    // Credits legitimately pull total tax below the bracket tax. An ordering
+    // check between them would throw away a correct read of a real return.
+    const r = applyCrossChecks(
+      verifyExtraction(
+        {
+          tax_before_credits: field(25860, "16 Tax .............................................. 25,860"),
+          total_tax: field(23860, "24 Total tax ........................................ 23,860"),
+        },
+        WITH_CREDIT,
+        TODAY,
+      ),
+    );
+    expect(r.missing).not.toContain("tax_before_credits");
+    expect(r.missing).not.toContain("total_tax");
+  });
+
+  it("does not treat line 24 being higher than line 16 as a misread either", () => {
+    // Self-employment tax pushes line 24 above line 16 on the same return.
+    const doc =
+      "11 Adjusted gross income 154,692 16 Tax 25,860 24 Total tax 31,400";
+    const r = applyCrossChecks(
+      verifyExtraction(
+        {
+          agi: field(154692, "11 Adjusted gross income 154,692"),
+          tax_before_credits: field(25860, "16 Tax 25,860"),
+          total_tax: field(31400, "24 Total tax 31,400"),
+        },
+        doc,
+        TODAY,
+      ),
+    );
+    expect(r.fields.tax_before_credits?.value).toBe(25860);
+    expect(r.fields.total_tax?.value).toBe(31400);
+  });
+
+  it("still holds line 16 to the income bound", () => {
+    const doc = "11 Adjusted gross income 154,692 16 Tax 900,000";
+    const r = applyCrossChecks(
+      verifyExtraction(
+        {
+          agi: field(154692, "11 Adjusted gross income 154,692"),
+          tax_before_credits: field(900000, "16 Tax 900,000"),
+        },
+        doc,
+        TODAY,
+      ),
+    );
+    expect(r.fields.tax_before_credits).toBeUndefined();
+    expect(r.rejections.join(" ")).toContain("higher than the whole year's income");
+  });
+});
+
+
+/**
+ * A real answer from a real model, on a return where the two tax lines
+ * differ. Captured from google/gemma-4-12b-qat through the app's own
+ * prompt. The point of the fixture is the pair: line 24 at 44,844 and
+ * line 16 at 25,860, each quoted from its own line.
+ */
+const REAL_MODEL_OUTPUT = {
+    "year": 2025,
+    "agi": {
+      "value": 154692,
+      "source_text": "11 Adjusted gross income ............................ 154,692"
+    },
+    "taxable_income": {
+      "value": 138592,
+      "source_text": "15 Taxable income ................................... 138,592"
+    },
+    "total_tax": {
+      "value": 44844,
+      "source_text": "24 Total tax ........................................ 44,844"
+    },
+    "total_withheld": {
+      "value": 48863,
+      "source_text": "25d Federal income tax withheld from all forms ....... 48,863"
+    },
+    "tax_before_credits": {
+      "value": 25860,
+      "source_text": "16 Tax .............................................. 25,860"
+    }
+  };
+
+describe("a real model's real output", () => {
+  const r = applyCrossChecks(
+    verifyExtraction(REAL_MODEL_OUTPUT, REAL_PDF_TEXT, TODAY),
+  );
+
+  it("keeps all five figures with nothing rejected", () => {
+    expect(r.rejections).toEqual([]);
+    expect(r.missing).toEqual([]);
+    expect(r.year).toBe(2025);
+  });
+
+  it("reads line 16 and line 24 as the different figures they are", () => {
+    expect(r.fields.total_tax?.value).toBe(44844);
+    expect(r.fields.tax_before_credits?.value).toBe(25860);
+    expect(r.fields.total_tax?.sourceText).toContain("24 Total tax");
+    expect(r.fields.tax_before_credits?.sourceText).toContain("16 Tax");
   });
 });
