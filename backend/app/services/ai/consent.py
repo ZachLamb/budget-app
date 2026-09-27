@@ -33,6 +33,11 @@ _ALLOWED_FEATURES: frozenset[str] = frozenset(
         "financial_advice",
         "fsa_review",
         "debt_rate_suggestions",
+        # Read figures off a tax document the user picked. The document text
+        # only reaches this proxy when the user has chosen their own model
+        # server as primary; the on-device path never leaves the browser.
+        "prior_year_extract",
+        "paystub_extract",
     }
 )
 

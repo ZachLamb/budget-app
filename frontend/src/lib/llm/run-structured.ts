@@ -17,6 +17,7 @@ import {
   type FsaStructuredResult,
 } from "./contracts";
 import { schemaForFeature } from "./schema";
+import { createLocalServerProvider } from "./providers/local-server";
 
 const JSON_NUDGE = "\n\nReturn only valid JSON with no markdown fences or extra text.";
 
@@ -38,6 +39,16 @@ export interface RunStructuredOptions {
   prompt: string;
   signal?: AbortSignal;
   maxTokens?: number;
+  /**
+   * Try the user's own model server before anything on-device.
+   *
+   * Mirrors `useLlm.run()`, so "Use as my primary AI model" means what it
+   * says for structured features too. Without it, a browser with no
+   * on-device tier could run the streaming and pipeline features on its
+   * own server but not these -- they failed with "Local structured AI is
+   * not available on this device" while a loaded model sat idle.
+   */
+  preferLocal?: boolean;
 }
 
 export interface ResolvedStructuredProvider {
@@ -65,13 +76,32 @@ async function generateStructuredOnce(
   });
 }
 
-function parseForFeature(feature: FeatureId, raw: unknown): FsaStructuredResult | CategorizeSuggestion[] {
+/** A JSON object handed back unvalidated, for callers that verify it themselves. */
+export type RawStructured = Record<string, unknown>;
+
+const RAW_FEATURES = new Set<FeatureId>(["prior_year_extract", "paystub_extract"]);
+
+function parseForFeature(
+  feature: FeatureId,
+  raw: unknown,
+): FsaStructuredResult | CategorizeSuggestion[] | RawStructured {
   if (feature === "fsa_review") return parseFsaStructured(raw);
   if (feature === "categorize_transaction") return parseCategorizeSuggestions(raw);
+  if (RAW_FEATURES.has(feature)) {
+    // Checking these figures needs the document they were read from, which
+    // lives with the caller -- so this only guarantees an object came back.
+    // The caller's own verification decides whether any of it is believable.
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new StructuredParseError("Expected a JSON object of figures", feature);
+    }
+    return raw as RawStructured;
+  }
   throw new Error(`Unsupported structured feature: ${feature}`);
 }
 
-export async function runStructuredJson<T extends FsaStructuredResult | CategorizeSuggestion[]>(
+export async function runStructuredJson<
+  T extends FsaStructuredResult | CategorizeSuggestion[] | RawStructured,
+>(
   feature: FeatureId,
   ctx: RouterContext,
   opts: RunStructuredOptions,
@@ -82,14 +112,6 @@ export async function runStructuredJson<T extends FsaStructuredResult | Categori
     const raw = demoStructuredResult(feature);
     return { data: parseForFeature(feature, raw) as T, tier: 2 };
   }
-
-  const decision =
-    resolved ??
-    (await (async () => {
-      const d = await decide(feature, ctx);
-      if (d.kind !== "ready") throw new Error(d.message);
-      return { provider: d.provider, tier: d.tier as 1 | 2 };
-    })());
 
   const tryParse = async (provider: LLMProvider): Promise<T> => {
     // Schema-constrained generation can be REJECTED by the engine at
@@ -128,6 +150,25 @@ export async function runStructuredJson<T extends FsaStructuredResult | Categori
       }
     }
   };
+
+  // Tried before the router is even consulted, and any failure falls through
+  // to on-device -- structured AI never hard-fails just because the user's
+  // own server hiccuped.
+  if (opts.preferLocal && !resolved) {
+    try {
+      return { data: await tryParse(createLocalServerProvider(feature)), tier: 2 };
+    } catch (err) {
+      if (opts.signal?.aborted) throw err;
+    }
+  }
+
+  const decision =
+    resolved ??
+    (await (async () => {
+      const d = await decide(feature, ctx);
+      if (d.kind !== "ready") throw new Error(d.message);
+      return { provider: d.provider, tier: d.tier as 1 | 2 };
+    })());
 
   if (decision.tier === 1 || decision.tier === 2) {
     return {

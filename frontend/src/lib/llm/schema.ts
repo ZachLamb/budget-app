@@ -7,7 +7,55 @@ import type { FeatureId } from "./features";
  * Schemas mirror the parsers in `contracts.ts` (`parseFsaStructured`,
  * `parseCategorizeSuggestions`) so Nano emits already-valid JSON.
  */
+/** A figure the model may only give together with the line it read it from. */
+const QUOTED_FIGURE = {
+  type: ["object", "null"],
+  required: ["value", "source_text"],
+  additionalProperties: false,
+  properties: {
+    value: { type: "number" },
+    source_text: { type: "string" },
+  },
+} as const;
+
 const SCHEMAS: Partial<Record<FeatureId, Record<string, unknown>>> = {
+  // Every figure is an object or null -- there is deliberately no way to
+  // express "0 because I could not find it". The model can emit a number
+  // alongside the line it was read from, or nothing at all.
+  paystub_extract: {
+    type: "object",
+    required: ["pay_date", "gross", "gross_ytd", "federal_withheld", "federal_withheld_ytd", "state_withheld", "state_withheld_ytd", "ss_withheld", "ss_withheld_ytd", "medicare_withheld", "medicare_withheld_ytd", "pretax_401k", "pretax_401k_ytd", "pretax_hsa", "pretax_hsa_ytd"],
+    additionalProperties: false,
+    properties: {
+      pay_date: { type: ["string", "null"] },
+      gross: QUOTED_FIGURE,
+      gross_ytd: QUOTED_FIGURE,
+      federal_withheld: QUOTED_FIGURE,
+      federal_withheld_ytd: QUOTED_FIGURE,
+      state_withheld: QUOTED_FIGURE,
+      state_withheld_ytd: QUOTED_FIGURE,
+      ss_withheld: QUOTED_FIGURE,
+      ss_withheld_ytd: QUOTED_FIGURE,
+      medicare_withheld: QUOTED_FIGURE,
+      medicare_withheld_ytd: QUOTED_FIGURE,
+      pretax_401k: QUOTED_FIGURE,
+      pretax_401k_ytd: QUOTED_FIGURE,
+      pretax_hsa: QUOTED_FIGURE,
+      pretax_hsa_ytd: QUOTED_FIGURE,
+    },
+  },
+  prior_year_extract: {
+    type: "object",
+    required: ["year", "agi", "taxable_income", "total_tax", "total_withheld"],
+    additionalProperties: false,
+    properties: {
+      year: { type: ["integer", "null"] },
+      agi: QUOTED_FIGURE,
+      taxable_income: QUOTED_FIGURE,
+      total_tax: QUOTED_FIGURE,
+      total_withheld: QUOTED_FIGURE,
+    },
+  },
   fsa_review: {
     type: "object",
     required: ["eligible"],

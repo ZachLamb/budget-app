@@ -12,6 +12,11 @@ const MAX_TOKENS: Partial<Record<FeatureId, number>> = {
   free_form_qa: 1024,
   financial_advice: 1024,
   debt_rate_suggestions: 768,
+  // Both budgets carry a reasoning model's thinking as well as its answer:
+  // the thinking alone ran to ~2,000 tokens on a one-page paystub, and a
+  // budget that only covers the answer returns nothing at all.
+  prior_year_extract: 8192,
+  paystub_extract: 8192,
 };
 
 export function maxTokensFor(feature: FeatureId, override?: number): number {

@@ -141,6 +141,7 @@ def _build_payload(
     *,
     max_tokens: int,
     stream: bool,
+    temperature: float = 0.3,
 ) -> dict:
     settings = get_settings()
     messages: list[dict[str, str]] = []
@@ -152,7 +153,7 @@ def _build_payload(
         "messages": messages,
         "stream": stream,
         "max_tokens": max_tokens,
-        "temperature": 0.3,
+        "temperature": temperature,
     }
 
 
@@ -161,6 +162,7 @@ async def stream_complete(
     system: Optional[str] = None,
     *,
     max_tokens: int = 1024,
+    temperature: float = 0.3,
 ) -> AsyncIterator[str]:
     """Stream text chunks from /v1/chat/completions."""
     settings = get_settings()
@@ -171,10 +173,13 @@ async def stream_complete(
         raise LlmStreamError("Cloud AI backend is not configured.")
 
     url = _backend_url("/v1/chat/completions")
-    payload = _build_payload(prompt, system, max_tokens=max_tokens, stream=True)
+    payload = _build_payload(
+        prompt, system, max_tokens=max_tokens, stream=True, temperature=temperature
+    )
     headers = {**_build_headers(), "Accept": "text/event-stream"}
 
     yielded = False
+    hit_token_limit = False
     try:
         async with _make_client(
             httpx.Timeout(_STREAM_TIMEOUT, connect=_CONNECT_TIMEOUT)
@@ -196,6 +201,8 @@ async def stream_complete(
                     choices = event.get("choices") or []
                     if not choices:
                         continue
+                    if choices[0].get("finish_reason") == "length":
+                        hit_token_limit = True
                     delta = choices[0].get("delta") or {}
                     chunk = delta.get("content")
                     if isinstance(chunk, str) and chunk:
@@ -208,4 +215,14 @@ async def stream_complete(
         raise LlmStreamError("Cloud AI backend is unreachable.") from e
 
     if not yielded:
+        # A reasoning model thinks in the same token budget it answers in,
+        # and its thinking never reaches this stream (only `delta.content`
+        # does). Run out mid-thought and the result is a clean, empty,
+        # entirely baffling response — so name the actual cause.
+        if hit_token_limit:
+            raise LlmStreamError(
+                "The model used its whole response budget thinking and never "
+                "produced an answer. Raise the token limit, or load a model "
+                "that does not reason before replying."
+            )
         raise LlmStreamError("Cloud model returned an empty response.")

@@ -29,11 +29,30 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# Copying figures off a document has one right answer, so sampling buys
+# nothing and costs plenty: a reasoning model wanders further at higher
+# temperature, and its wandering comes out of the same token budget as its
+# answer.
+_DETERMINISTIC_FEATURES = frozenset({"prior_year_extract", "paystub_extract"})
+
+
+def _temperature_for(feature: str) -> float:
+    return 0.0 if feature in _DETERMINISTIC_FEATURES else 0.3
+
+
 class CloudGenerateRequest(BaseModel):
     feature: str = Field(..., min_length=1, max_length=64)
     prompt: str = Field(..., min_length=1, max_length=8_000)
-    system: Optional[str] = Field(default=None, max_length=2_000)
-    max_tokens: int = Field(default=1024, ge=1, le=2_048, alias="maxTokens")
+    # 2,000 was below this app's own first-party system prompts: the FSA
+    # reviewer is 2,268 characters and the paystub reader 3,031, so both
+    # were rejected here with a bare 422 whenever a user pointed the app at
+    # their own model server. Still a bound, just one the prompts fit in.
+    system: Optional[str] = Field(default=None, max_length=4_000)
+    # A reasoning model spends its budget thinking before it answers: asked
+    # to read a paystub, gemma-4-12b used 2,045 tokens of reasoning and had
+    # none left for the JSON, returning finish_reason "length" and empty
+    # content. The ceiling has to leave room for both.
+    max_tokens: int = Field(default=1024, ge=1, le=8_192, alias="maxTokens")
 
     model_config = {"populate_by_name": True}
 
@@ -176,6 +195,7 @@ async def cloud_generate(
                 user_prompt,
                 system_prompt or None,
                 max_tokens=body.max_tokens,
+                temperature=_temperature_for(body.feature),
             ):
                 completion_buf.append(chunk)
                 yield _sse({"content": chunk})
@@ -184,10 +204,15 @@ async def cloud_generate(
                 yield _sse({"error": "Cloud model returned an empty response."})
             else:
                 yield _sse({"done": True})
-        except llm_client.LlmStreamError:
+        except llm_client.LlmStreamError as e:
             status_code = 502
             logger.warning("cloud_generate stream failed")
-            yield _sse({"error": "Cloud AI stream interrupted or unavailable."})
+            # Every LlmStreamError message is a sentence written for the user
+            # ("the model used its whole budget thinking", "backend is not
+            # configured") and tells them what to change. Flattening them all
+            # to one generic line threw that away -- unlike an unexpected
+            # exception below, whose text could carry internals.
+            yield _sse({"error": str(e) or "Cloud AI stream interrupted or unavailable."})
         except (asyncio.CancelledError, GeneratorExit):
             # Client hung up mid-stream (pressed Stop, closed the tab). Both
             # forms show up in practice: Starlette cancels the request task, and

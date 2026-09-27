@@ -20,7 +20,9 @@ export type FeatureId =
   | "free_form_qa"
   | "financial_advice"
   | "fsa_review"
-  | "debt_rate_suggestions";
+  | "debt_rate_suggestions"
+  | "prior_year_extract"
+  | "paystub_extract";
 
 export interface FeaturePolicy {
   /** Stable identifier — also used as the consent record's `feature` field. */
@@ -41,6 +43,24 @@ const LIGHT_TIERS: Tier[] = [1, 2];
 const HEAVY_TIERS: Tier[] = [1];
 
 const FEATURES: Record<FeatureId, FeaturePolicy> = {
+  paystub_extract: {
+    id: "paystub_extract",
+    label: "Read a paystub",
+    // The document never leaves the browser, so this stays on-device only.
+    allowedTiers: LIGHT_TIERS,
+    minimumTier: 1,
+    defaultTier: 1,
+    enabled: true,
+  },
+  prior_year_extract: {
+    id: "prior_year_extract",
+    label: "Read last year's return",
+    // The document never leaves the browser, so this stays on-device only.
+    allowedTiers: LIGHT_TIERS,
+    minimumTier: 1,
+    defaultTier: 1,
+    enabled: true,
+  },
   explain_charge: {
     id: "explain_charge",
     label: "Explain a charge",

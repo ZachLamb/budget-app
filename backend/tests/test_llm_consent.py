@@ -127,6 +127,10 @@ async def test_is_known_feature():
     assert consent_service.is_known_feature("explain_charge")
     assert consent_service.is_known_feature("financial_advice")
     assert not consent_service.is_known_feature("anything_else")
+    # Document extraction reaches the proxy when the user runs their own
+    # model server, so it has to be on the allowlist to get there at all.
+    assert consent_service.is_known_feature("prior_year_extract")
+    assert consent_service.is_known_feature("paystub_extract")
 
 
 # ── Expiration behavior ──────────────────────────────────────────────────────

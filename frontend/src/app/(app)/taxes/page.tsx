@@ -21,6 +21,10 @@ import { FilingStatusWalkthrough } from "./filing-status-walkthrough";
 import { PaystubList } from "./paystub-list";
 import { PaystubForm } from "./paystub-form";
 import { PriorYearForm } from "./prior-year-form";
+import { PriorYearUpload } from "./prior-year-upload";
+import { PaystubUpload } from "./paystub-upload";
+import type { PaystubKey } from "@/lib/tax-docs/paystub-extract";
+import type { PriorYearKey } from "@/lib/tax-docs/prior-year-extract";
 import { toastApiError } from "@/lib/toast-error";
 import { appToast } from "@/lib/app-toast";
 
@@ -28,6 +32,17 @@ export default function TaxesPage() {
   const year = new Date().getFullYear();
   const queryClient = useQueryClient();
   const [correcting, setCorrecting] = useState<Paystub | null>(null);
+  // Remounting the form is how extracted figures reach it -- the same
+  // trick the paystub form uses, and it avoids a setState-in-effect reset.
+  const [extracted, setExtracted] = useState<{
+    values: Partial<Record<PriorYearKey, number>>;
+    nonce: number;
+  } | null>(null);
+  const [stubExtracted, setStubExtracted] = useState<{
+    values: Partial<Record<PaystubKey, number>>;
+    payDate: string | null;
+    nonce: number;
+  } | null>(null);
 
   const projectionQuery = useQuery({
     queryKey: ["tax-projection", year],
@@ -222,9 +237,27 @@ export default function TaxesPage() {
               onDelete={(id) => deletePaystub.mutate(id)}
               onEdit={(stub) => setCorrecting(stub)}
             />
+            {/* Only offered for a new stub: correcting one is about the
+                figures already saved, not a fresh document. */}
+            {!correcting && (
+              <PaystubUpload
+                onUse={(values, payDate) =>
+                  setStubExtracted((prev) => ({
+                    values,
+                    payDate,
+                    nonce: (prev?.nonce ?? 0) + 1,
+                  }))
+                }
+              />
+            )}
             <PaystubForm
-              key={correcting?.id ?? "new-paystub"}
+              key={
+                correcting?.id ??
+                (stubExtracted ? `stub-${stubExtracted.nonce}` : "new-paystub")
+              }
               editing={correcting}
+              prefill={correcting ? undefined : stubExtracted?.values}
+              prefillDate={correcting ? undefined : stubExtracted?.payDate}
               onCancelEdit={() => setCorrecting(null)}
               onAdd={async (data) => {
                 if (correcting) {
@@ -235,8 +268,16 @@ export default function TaxesPage() {
               }}
             />
 
+            <PriorYearUpload
+              onUse={(values) =>
+                setExtracted((prev) => ({ values, nonce: (prev?.nonce ?? 0) + 1 }))
+              }
+            />
+
             <PriorYearForm
+              key={extracted ? `extracted-${extracted.nonce}` : "prior-year"}
               prior={priorYearQuery.data ?? null}
+              prefill={extracted?.values}
               onSave={async (data) => { await savePriorYear.mutateAsync(data); }}
             />
 

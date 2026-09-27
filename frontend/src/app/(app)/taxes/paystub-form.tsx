@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Paystub, PaystubInput } from "@/lib/api/tax";
+import { cn } from "@/lib/utils";
 
 type MoneyField = Exclude<keyof PaystubInput, "pay_date">;
 
@@ -47,10 +48,12 @@ function formFrom(stub: Paystub | null): Record<MoneyField, string> {
 }
 
 function MoneyInput({
-  id, label, value, onChange, required,
+  id, label, value, onChange, required, fromDocument,
 }: {
   id: MoneyField; label: string; value: string; required?: boolean;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  /** Filled in from an uploaded stub, and not yet checked by a person. */
+  fromDocument?: boolean;
 }) {
   return (
     <div>
@@ -68,7 +71,13 @@ function MoneyInput({
         aria-required={required || undefined}
         value={value}
         onChange={onChange}
+        className={cn(fromDocument && "border-amber-500/60")}
       />
+      {fromDocument && (
+        <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+          Read from your document — check it.
+        </p>
+      )}
     </div>
   );
 }
@@ -77,6 +86,8 @@ export function PaystubForm({
   onAdd,
   editing = null,
   onCancelEdit,
+  prefill,
+  prefillDate,
 }: {
   onAdd: (data: PaystubInput) => Promise<void>;
   /**
@@ -87,16 +98,46 @@ export function PaystubForm({
    */
   editing?: Paystub | null;
   onCancelEdit?: () => void;
+  /**
+   * Figures read off an uploaded stub. The parent remounts this form by
+   * key when a new set arrives, so these only seed initial state.
+   */
+  prefill?: Partial<Record<MoneyField, number>>;
+  prefillDate?: string | null;
 }) {
-  const [payDate, setPayDate] = useState(editing?.pay_date ?? "");
-  const [form, setForm] = useState<Record<MoneyField, string>>(formFrom(editing));
+  const [payDate, setPayDate] = useState(
+    editing?.pay_date ?? prefillDate ?? "",
+  );
+  const [form, setForm] = useState<Record<MoneyField, string>>(() => {
+    const base = formFrom(editing);
+    if (!prefill) return base;
+    return Object.entries(prefill).reduce(
+      (acc, [key, value]) =>
+        value === undefined ? acc : { ...acc, [key]: String(value) },
+      base,
+    );
+  });
   const [saving, setSaving] = useState(false);
+  // Cleared as soon as a field is touched: once you have edited it, it is
+  // your figure and the note stops being true.
+  const [fromDocument, setFromDocument] = useState<Set<string>>(
+    () => new Set(Object.keys(prefill ?? {})),
+  );
   const [showPretax, setShowPretax] = useState(
-    () => PRETAX_FIELDS.some((f) => Number(editing?.[f] ?? 0) > 0)
+    () =>
+      PRETAX_FIELDS.some((f) => Number(editing?.[f] ?? 0) > 0) ||
+      PRETAX_FIELDS.some((f) => (prefill?.[f] ?? 0) > 0)
   );
 
-  const set = (key: MoneyField) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const set = (key: MoneyField) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((f) => ({ ...f, [key]: e.target.value }));
+    setFromDocument((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -164,6 +205,7 @@ export function PaystubForm({
                   label={`${label} this check`}
                   value={form[now]}
                   onChange={set(now)}
+                  fromDocument={fromDocument.has(now)}
                   required={required}
                 />
                 <MoneyInput
@@ -171,6 +213,7 @@ export function PaystubForm({
                   label={`${label} YTD`}
                   value={form[ytd]}
                   onChange={set(ytd)}
+                  fromDocument={fromDocument.has(ytd)}
                   required={required}
                 />
               </div>
@@ -200,12 +243,14 @@ export function PaystubForm({
                       label={`${label} this check`}
                       value={form[now]}
                       onChange={set(now)}
+                      fromDocument={fromDocument.has(now)}
                     />
                     <MoneyInput
                       id={ytd}
                       label={`${label} YTD`}
                       value={form[ytd]}
                       onChange={set(ytd)}
+                      fromDocument={fromDocument.has(ytd)}
                     />
                   </div>
                 ))}

@@ -99,11 +99,30 @@ function toForm(prior: PriorYearReturn | null): FormState {
 export function PriorYearForm({
   prior,
   onSave,
+  prefill,
 }: {
   prior: PriorYearReturn | null;
   onSave: (data: Partial<PriorYearReturn>) => Promise<void>;
+  /**
+   * Figures read off an uploaded return. The parent remounts this form by
+   * key when a new set arrives, so these only need to seed initial state.
+   */
+  prefill?: Partial<Record<FieldKey, number>>;
 }) {
-  const [form, setForm] = useState<FormState>(() => toForm(prior));
+  const [form, setForm] = useState<FormState>(() => {
+    const base = toForm(prior);
+    if (!prefill) return base;
+    return Object.entries(prefill).reduce(
+      (acc, [key, value]) =>
+        value === undefined ? acc : { ...acc, [key]: String(value) },
+      base,
+    );
+  });
+  // Cleared as soon as a field is touched: once you have edited it, it is
+  // your figure and the note stops being true.
+  const [fromDocument, setFromDocument] = useState<Set<string>>(
+    () => new Set(Object.keys(prefill ?? {})),
+  );
   const [saving, setSaving] = useState(false);
   // "QBI carryforward" next to "Total tax owed" reads as a page for
   // accountants. The four figures on the front of a 1040 are what the
@@ -113,8 +132,15 @@ export function PriorYearForm({
     FIELDS.some((f) => f.rare && !["", "0"].includes(toForm(prior)[f.key]))
   );
 
-  const set = (key: FieldKey) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const set = (key: FieldKey) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((f) => ({ ...f, [key]: e.target.value }));
+    setFromDocument((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -155,7 +181,13 @@ export function PriorYearForm({
                 value={form[key]}
                 onChange={set(key)}
               />
-              <p className="mt-1 text-xs text-muted-foreground">{note}</p>
+              {fromDocument.has(key) ? (
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                  Read from your document — check it against your copy.
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">{note}</p>
+              )}
             </div>
           ))}
 
