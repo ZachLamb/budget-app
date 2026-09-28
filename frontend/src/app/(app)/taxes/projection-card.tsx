@@ -56,6 +56,32 @@ export function ProjectionCard({
     );
   }
 
+  // A state with no sourced rate table is not a blank to fill in either.
+  // The federal side is unaffected, but showing a total without the state
+  // part -- or with another state's rate -- would be a confident wrong
+  // number, which is the one thing this page must not produce.
+  if (envelope.missing.includes("unsupported_state")) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Your {envelope.year} taxes</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p>
+            There&apos;s no rate table for your state yet, so there is no
+            estimate to show.
+          </p>
+          <p className="text-muted-foreground">
+            State tax differs by thousands between states, and the federal
+            figures alone would read as your whole bill. Your paystubs and
+            answers below are saved and will be used as soon as your
+            state&apos;s rates are added.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   // What is still needed, and in what order, is the setup checklist's job
   // -- this card only ever speaks for a projection it actually has.
   if (!envelope.available || !envelope.projection) {

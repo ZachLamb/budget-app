@@ -107,7 +107,9 @@ def _inputs_from(record: dict) -> TaxInputs:
 def _rates_for(record: dict, failures: list[str]) -> RateSet | None:
     year = record["year"]
     try:
-        return get_rates(year)
+        # The fixture's own state, defaulting to Colorado -- the only
+        # state with a non-zero table, and the one this README documents.
+        return get_rates(year, record.get("state", "CO"))
     except UnknownTaxYearError:
         # A year with no rate table FAILS rather than skipping: silently
         # passing over it would report a green back-test that tested nothing.

@@ -43,7 +43,7 @@ async def _seed_tax_ready(session, hid: str, *, gross_ytd="179000.00"):
     December paystub, so YTD is the whole year and no projection is needed."""
     household = await session.get(Household, hid)
     household.pay_frequency = "monthly"
-    session.add(TaxProfile(id=str(uuid.uuid4()), household_id=hid, filing_status="single"))
+    session.add(TaxProfile(id=str(uuid.uuid4()), household_id=hid, filing_status="single", state="CO"))
     session.add(Paystub(
         id=str(uuid.uuid4()), household_id=hid, pay_date=_date(2026, 12, 31),
         gross=Decimal("0.00"), gross_ytd=Decimal(gross_ytd),

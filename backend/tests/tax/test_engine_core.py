@@ -15,7 +15,7 @@ from app.services.tax.rates.registry import (
     get_rates,
 )
 
-RATES = get_rates(2026)
+RATES = get_rates(2026, "CO")
 
 
 def make_inputs(**overrides) -> TaxInputs:

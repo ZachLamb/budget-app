@@ -25,7 +25,16 @@ class UnknownTaxYearError(LookupError):
 
 
 class UnsupportedFilingStatusError(NotImplementedError):
-    """Phase 1 populates SINGLE only; others must not be approximated."""
+    """A filing status with no sourced brackets must not be approximated."""
+
+
+class UnsupportedStateError(NotImplementedError):
+    """No sourced rate table for this state.
+
+    Distinct from a state that taxes nothing: those have a real table with
+    a zero rate. This means "we do not know", and the caller must say so
+    rather than return a figure.
+    """
 
 
 @dataclass(frozen=True)
@@ -72,14 +81,69 @@ class RateSet:
     supported_statuses: frozenset[FilingStatus]
 
 
-def get_rates(year: int) -> RateSet:
-    from app.services.tax.rates import colorado_2026, federal_2026
+def supported_statuses(year: int) -> frozenset[FilingStatus]:
+    """Filing statuses with sourced brackets for this year.
+
+    Separate from `get_rates` because the walkthrough wants this list even
+    when the state is unknown, and a state is not needed to answer it.
+    """
+    from app.services.tax.rates import federal_2026
+
+    if year != 2026:
+        raise UnknownTaxYearError(
+            f"No tax rate table for {year}. Rate tables are added "
+            f"deliberately, one module per year -- see app/services/tax/rates/."
+        )
+    return federal_2026.SUPPORTED_STATUSES
+
+
+def supported_states(year: int) -> frozenset[str]:
+    """State codes with a sourced table for this year."""
+    from app.services.tax.rates import colorado_2026, no_income_tax_states_2026
+
+    if year != 2026:
+        raise UnknownTaxYearError(
+            f"No tax rate table for {year}. Rate tables are added "
+            f"deliberately, one module per year -- see app/services/tax/rates/."
+        )
+    return frozenset({colorado_2026.RATES.code, *no_income_tax_states_2026.CODES})
+
+
+def get_state_rates(year: int, state_code: str) -> StateRates:
+    """Rates for one state, or a refusal.
+
+    Every state used to resolve to Colorado, because `get_rates` hardcoded
+    it. A filer in Texas was quietly charged 4.4% of their taxable income
+    in a state that has no income tax at all, and nothing on the page
+    suggested the figure was made up.
+    """
+    from app.services.tax.rates import colorado_2026, no_income_tax_states_2026
+
+    if year != 2026:
+        raise UnknownTaxYearError(
+            f"No tax rate table for {year}. Rate tables are added "
+            f"deliberately, one module per year -- see app/services/tax/rates/."
+        )
+
+    code = (state_code or "").strip().upper()
+    if code == colorado_2026.RATES.code:
+        return colorado_2026.RATES
+    if code in no_income_tax_states_2026.RATES:
+        return no_income_tax_states_2026.RATES[code]
+    raise UnsupportedStateError(
+        f"No {year} rate table for {code or 'an unset state'}. Add its "
+        f"sourced module rather than approximating from another state."
+    )
+
+
+def get_rates(year: int, state_code: str) -> RateSet:
+    from app.services.tax.rates import federal_2026
 
     if year == 2026:
         return RateSet(
             year=2026,
             federal=federal_2026.RATES,
-            state=colorado_2026.RATES,
+            state=get_state_rates(year, state_code),
             passive_loss=federal_2026.PASSIVE_LOSS,
             supported_statuses=federal_2026.SUPPORTED_STATUSES,
         )

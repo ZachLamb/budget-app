@@ -36,7 +36,7 @@ def test_remaining_pay_periods_unknown_frequency_is_zero():
 
 async def _seed_profile(session, hid: str, status: str = "single"):
     session.add(TaxProfile(
-        id=str(uuid.uuid4()), household_id=hid, filing_status=status,
+        id=str(uuid.uuid4()), household_id=hid, filing_status=status, state="CO",
     ))
     await session.flush()
 

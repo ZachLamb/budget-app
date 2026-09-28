@@ -17,7 +17,7 @@ async def _seed_ready_household(session, *, gross_ytd="179000.00"):
     hid, headers = await _seed_household(session)
     household = await session.get(Household, hid)
     household.pay_frequency = "monthly"
-    session.add(TaxProfile(id=str(uuid.uuid4()), household_id=hid, filing_status="single"))
+    session.add(TaxProfile(id=str(uuid.uuid4()), household_id=hid, filing_status="single", state="CO"))
     # A December stub leaves zero periods, so YTD is the whole year.
     session.add(Paystub(
         id=str(uuid.uuid4()), household_id=hid, pay_date=date(2026, 12, 31),
@@ -173,3 +173,70 @@ async def test_envelope_names_the_statuses_it_can_actually_compute(fixture):
         "qualifying_surviving_spouse",
         "single",
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_profile_with_no_state_reports_it_rather_than_assuming_colorado(fixture):
+    """The projection used to apply Colorado's 4.4% to everybody.
+
+    A filer in Texas saw a state tax line for a state that has none, and
+    nothing said the figure was assumed. An unknown state is now a gap in
+    the answer, like an unknown filing status.
+    """
+    session, _ = fixture
+    hid, headers = await _seed_ready_household(session)
+    profile = (await session.execute(
+        select(TaxProfile).where(TaxProfile.household_id == hid)
+    )).scalar_one()
+    profile.state = None
+    await session.flush()
+
+    async with _client() as client:
+        response = await client.get("/api/tax/projection", params={"year": 2026}, headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available"] is False
+    assert "state" in body["missing"]
+    assert body.get("projection") is None
+
+
+@pytest.mark.asyncio
+async def test_a_state_with_no_rate_table_degrades_instead_of_erroring(fixture):
+    session, _ = fixture
+    hid, headers = await _seed_ready_household(session)
+    profile = (await session.execute(
+        select(TaxProfile).where(TaxProfile.household_id == hid)
+    )).scalar_one()
+    profile.state = "NY"
+    await session.flush()
+
+    async with _client() as client:
+        response = await client.get("/api/tax/projection", params={"year": 2026}, headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available"] is False
+    assert "unsupported_state" in body["missing"]
+
+
+@pytest.mark.asyncio
+async def test_a_no_income_tax_state_gets_a_projection_with_zero_state_tax(fixture):
+    """Texas owes nothing to the state, and that is an answer worth
+    showing -- not a reason to withhold the whole estimate."""
+    session, _ = fixture
+    hid, headers = await _seed_ready_household(session)
+    profile = (await session.execute(
+        select(TaxProfile).where(TaxProfile.household_id == hid)
+    )).scalar_one()
+    profile.state = "TX"
+    await session.flush()
+
+    async with _client() as client:
+        response = await client.get("/api/tax/projection", params={"year": 2026}, headers=headers)
+
+    body = response.json()
+    assert body["available"] is True
+    assert body["projection"]["state_tax"] == "0.00"
+    # The federal side is untouched by the state having no tax.
+    assert body["projection"]["taxable_income"] == "162900.00"
