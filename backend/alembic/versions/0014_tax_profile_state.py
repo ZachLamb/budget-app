@@ -22,7 +22,20 @@ branch_labels = None
 depends_on = None
 
 
+def _has_column(table: str, column: str) -> bool:
+    """The baseline creates every table from `Base.metadata`, so on a
+    fresh database this column already exists, while on one stamped
+    before the model gained it, it does not. The migration has to work
+    on both -- an unguarded ADD COLUMN crashes the whole chain on a
+    fresh install."""
+    bind = op.get_bind()
+    return column in {c["name"] for c in sa.inspect(bind).get_columns(table)}
+
+
+
 def upgrade() -> None:
+    if _has_column("tax_profiles", "state"):
+        return
     op.add_column(
         "tax_profiles",
         sa.Column("state", sa.String(length=2), nullable=True),
@@ -30,4 +43,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not _has_column("tax_profiles", "state"):
+        return
     op.drop_column("tax_profiles", "state")

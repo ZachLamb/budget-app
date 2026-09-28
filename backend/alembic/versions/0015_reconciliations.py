@@ -24,7 +24,18 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(name: str) -> bool:
+    """The baseline creates every table from `Base.metadata`, so on a
+    fresh database this table already exists, while on one stamped
+    before the model was written, it does not. The migration has to work
+    on both -- an unguarded create_table crashes the whole chain on a
+    fresh install."""
+    return name in set(sa.inspect(op.get_bind()).get_table_names())
+
+
 def upgrade() -> None:
+    if _has_table("reconciliations"):
+        return
     op.create_table(
         "reconciliations",
         sa.Column("id", sa.String(length=36), primary_key=True),
@@ -56,6 +67,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not _has_table("reconciliations"):
+        return
     op.drop_index("ix_reconciliations_account_date", table_name="reconciliations")
     op.drop_index("ix_reconciliations_account_id", table_name="reconciliations")
     op.drop_table("reconciliations")
