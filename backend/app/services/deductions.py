@@ -24,6 +24,7 @@ from app.services.tax import (
     ExtraItemizedDeduction,
     UnknownTaxYearError,
     UnsupportedFilingStatusError,
+    UnsupportedStateError,
     get_rates,
     impact_of,
     project,
@@ -112,13 +113,16 @@ async def _value_deductions(
     A returned 0.00 IS an answer: it means those deductions are worth
     nothing this year.
     """
-    try:
-        rates = get_rates(year)
-    except UnknownTaxYearError:
-        return None, None, None, None
-
     assembled = await build_tax_inputs(db, household_id, year)
     if assembled.inputs is None:
+        return None, None, None, None
+
+    # An unknown or unsourced state means the saving cannot be computed.
+    # Returning zero here would read as "these deductions are worth
+    # nothing", which is a different and wrong answer.
+    try:
+        rates = get_rates(year, assembled.state or "")
+    except (UnknownTaxYearError, UnsupportedStateError):
         return None, None, None, None
 
     inputs = assembled.inputs

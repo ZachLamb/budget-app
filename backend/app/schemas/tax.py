@@ -21,6 +21,7 @@ _VALID_STATUSES = {
 
 class TaxProfileUpdate(BaseModel):
     filing_status: Optional[str] = None
+    state: Optional[str] = None
     walkthrough_answers: Optional[dict[str, Any]] = None
     de_minimis_election: Optional[bool] = None
 
@@ -31,11 +32,25 @@ class TaxProfileUpdate(BaseModel):
             raise ValueError(f"filing_status must be one of {sorted(_VALID_STATUSES)}")
         return v
 
+    @field_validator("state")
+    @classmethod
+    def _two_letter_state(cls, v: Optional[str]) -> Optional[str]:
+        # Any two-letter code is accepted, not just the ones with a rate
+        # table: where someone lives is a fact about them, and the
+        # projection says separately that it has no table for it.
+        if v is None:
+            return v
+        code = v.strip().upper()
+        if len(code) != 2 or not code.isalpha():
+            raise ValueError("state must be a two-letter code, e.g. \"CO\"")
+        return code
+
 
 class TaxProfileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     filing_status: Optional[str] = None
+    state: Optional[str] = None
     walkthrough_answers: Optional[dict[str, Any]] = None
     walkthrough_completed_at: Optional[datetime] = None
     de_minimis_election: bool = False

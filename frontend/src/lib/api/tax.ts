@@ -12,6 +12,8 @@ export type FilingStatus =
 
 export interface TaxProfile {
   filing_status: FilingStatus | null;
+  /** Two-letter code. Null means unknown, never a default. */
+  state: string | null;
   walkthrough_answers: Record<string, unknown> | null;
   walkthrough_completed_at: string | null;
   de_minimis_election: boolean;

@@ -24,6 +24,7 @@ from app.services.tax.rates.registry import (
     RateSet,
     UnknownTaxYearError,
     UnsupportedFilingStatusError,
+    UnsupportedStateError,
     get_rates,
 )
 
@@ -32,5 +33,6 @@ __all__ = [
     "ExtraPretax401k", "ExtraPretaxHsa", "ExtraWages", "FilingStatus",
     "RateSet", "SafeHarborResult", "ScheduleEResult", "TaxInputs",
     "TaxProjection", "UnknownTaxYearError", "UnsupportedFilingStatusError",
+    "UnsupportedStateError",
     "WithholdingBuckets", "get_rates", "impact_of", "project",
 ]

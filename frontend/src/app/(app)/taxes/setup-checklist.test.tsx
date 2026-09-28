@@ -31,7 +31,9 @@ describe("SetupChecklist", () => {
       hasPriorYear: false,
     });
     render(<SetupChecklist steps={steps} year={year} />);
-    expect(screen.getByText(/1 of 3 done/i)).toBeInTheDocument();
+    // Filing status and state are both absent from `missing`, so both are
+    // done; paystub and pay frequency are not.
+    expect(screen.getByText(/2 of 4 done/i)).toBeInTheDocument();
   });
 
   it("reassures that nothing is filed or sent", () => {

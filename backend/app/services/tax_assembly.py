@@ -42,6 +42,8 @@ class AssemblyResult:
     inputs: TaxInputs | None
     remaining_periods: int
     missing: list[str]
+    """Two-letter state code from the profile, or None when it is unset."""
+    state: str | None = None
 
 
 def remaining_pay_periods(
@@ -76,6 +78,14 @@ async def build_tax_inputs(
     if profile is None or not profile.filing_status:
         missing.append("filing_status")
 
+    # State tax is a real part of the bill, so an unknown state is a gap in
+    # the answer, not a detail. It used to default to Colorado for
+    # everybody, which produced a confident wrong number for anyone who
+    # lives anywhere else.
+    state = (profile.state or None) if profile is not None else None
+    if not state:
+        missing.append("state")
+
     latest_stub = (
         await db.execute(
             select(Paystub)
@@ -96,10 +106,12 @@ async def build_tax_inputs(
     projectable_frequency = bool(PERIODS_PER_YEAR.get(frequency or ""))
 
     # Only check for prior_year_return if we have the critical blocking items.
-    if profile is None or not profile.filing_status or latest_stub is None:
+    if profile is None or not profile.filing_status or latest_stub is None or not state:
         if not projectable_frequency:
             missing.append("pay_frequency")
-        return AssemblyResult(inputs=None, remaining_periods=0, missing=missing)
+        return AssemblyResult(
+            inputs=None, remaining_periods=0, missing=missing, state=state
+        )
 
     prior = (
         await db.execute(
@@ -162,4 +174,6 @@ async def build_tax_inputs(
         prior_year_total_tax=prior.total_tax if prior else None,
         prior_year_agi=prior.agi if prior else None,
     )
-    return AssemblyResult(inputs=inputs, remaining_periods=periods, missing=missing)
+    return AssemblyResult(
+        inputs=inputs, remaining_periods=periods, missing=missing, state=state
+    )

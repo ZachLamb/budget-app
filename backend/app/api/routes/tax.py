@@ -256,6 +256,10 @@ from fastapi import Query
 from app.schemas.tax import (
     ImpactRequest, ImpactResponse, ProjectionEnvelope, TaxProjectionResponse,
 )
+from app.services.tax.rates.registry import (
+    UnsupportedStateError,
+    supported_statuses,
+)
 from app.services.tax import (
     ExtraBusinessExpense, ExtraItemizedDeduction, ExtraPretax401k,
     ExtraPretaxHsa, ExtraWages, UnknownTaxYearError,
@@ -272,9 +276,18 @@ _CHANGE_TYPES = {
 }
 
 
-def _rates_or_422(year: int):
+def _rates_or_422(year: int, state_code: str):
     try:
-        return get_rates(year)
+        return get_rates(year, state_code)
+    except UnknownTaxYearError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _supported_statuses_or_422(year: int) -> list[str]:
+    """The statuses list does not need a state, and is wanted even when the
+    state is unknown -- the walkthrough reads it to warn before saving."""
+    try:
+        return sorted(str(s) for s in supported_statuses(year))
     except UnknownTaxYearError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -285,14 +298,26 @@ async def get_projection(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):
-    rates = _rates_or_422(year)
-    supported = sorted(str(s) for s in rates.supported_statuses)
+    supported = _supported_statuses_or_422(year)
     assembled = await build_tax_inputs(db, household_id, year)
     if assembled.inputs is None:
         return ProjectionEnvelope(
             year=year,
             available=False,
             missing=assembled.missing,
+            supported_filing_statuses=supported,
+        )
+
+    try:
+        rates = _rates_or_422(year, assembled.state or "")
+    except UnsupportedStateError:
+        # A state with no sourced table is a data state, not a bad request
+        # -- same shape as an unsupported filing status. Everything the
+        # user entered stays; the page says why there is no estimate.
+        return ProjectionEnvelope(
+            year=year,
+            available=False,
+            missing=[*assembled.missing, "unsupported_state"],
             supported_filing_statuses=supported,
         )
 
@@ -327,7 +352,11 @@ async def post_impact(
     household_id: str = Depends(get_household_id),
     db: AsyncSession = Depends(get_db),
 ):
-    rates = _rates_or_422(data.year)
+    assembled_for_state = await build_tax_inputs(db, household_id, data.year)
+    try:
+        rates = _rates_or_422(data.year, assembled_for_state.state or "")
+    except UnsupportedStateError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     assembled = await build_tax_inputs(db, household_id, data.year)
     if assembled.inputs is None:
         raise HTTPException(

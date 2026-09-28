@@ -14,7 +14,7 @@ from app.services.tax.inputs import ScheduleEResult, TaxInputs, WithholdingBucke
 from app.services.tax.limitations import allowed_rental_loss
 from app.services.tax.rates.registry import FilingStatus, get_rates
 
-RATES = get_rates(2026)
+RATES = get_rates(2026, "CO")
 PAL = RATES.passive_loss
 LOSS = Decimal("-18000")
 

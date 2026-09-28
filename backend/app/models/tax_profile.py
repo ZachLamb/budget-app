@@ -32,6 +32,10 @@ class TaxProfile(Base):
     # Nullable on arrival: rows migrated from tax_settings have no status,
     # and the Taxes page prompts for the walkthrough.
     filing_status: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, default=None)
+    # Two-letter code. Nullable because every existing row predates this
+    # column, and the engine must say it does not know the state rather
+    # than fall back to one -- it used to charge everybody Colorado.
+    state: Mapped[Optional[str]] = mapped_column(String(2), nullable=True, default=None)
     # The walkthrough's ANSWERS, not just its conclusion -- so next year it
     # can ask "is this still true?" and a surprising number can be traced
     # back to the answer that caused it.
@@ -86,6 +90,10 @@ class PriorYearReturn(Base):
     household_id: Mapped[str] = mapped_column(String(36), ForeignKey("households.id"), index=True)
     year: Mapped[int] = mapped_column(Integer)
     filing_status: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, default=None)
+    # Two-letter code. Nullable because every existing row predates this
+    # column, and the engine must say it does not know the state rather
+    # than fall back to one -- it used to charge everybody Colorado.
+    state: Mapped[Optional[str]] = mapped_column(String(2), nullable=True, default=None)
 
     agi: Mapped[Optional[Decimal]] = mapped_column(_MONEY, nullable=True, default=None)
     taxable_income: Mapped[Optional[Decimal]] = mapped_column(_MONEY, nullable=True, default=None)

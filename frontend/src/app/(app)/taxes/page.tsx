@@ -9,7 +9,6 @@ import {
   type PaystubInput,
   type PriorYearReturn,
   type TaxProfile,
-  type FilingStatus,
 } from "@/lib/api/tax";
 import Link from "next/link";
 import { useState } from "react";
@@ -18,6 +17,7 @@ import { SetupChecklist, buildSteps } from "./setup-checklist";
 import { WithholdingCard } from "./withholding-card";
 import { NextDollarCard } from "./next-dollar-card";
 import { FilingStatusWalkthrough } from "./filing-status-walkthrough";
+import { StatePicker } from "./state-picker";
 import { PaystubList } from "./paystub-list";
 import { PaystubForm } from "./paystub-form";
 import { PriorYearForm } from "./prior-year-form";
@@ -102,10 +102,9 @@ export default function TaxesPage() {
   };
 
   const saveProfile = useMutation({
-    mutationFn: (data: {
-      filing_status: FilingStatus;
-      walkthrough_answers: Record<string, unknown>;
-    }) => taxApi.saveProfile(data as Partial<TaxProfile>),
+    // The walkthrough saves a status and its answers; the state picker
+    // saves a state. Both are partial updates to the same profile.
+    mutationFn: (data: Partial<TaxProfile>) => taxApi.saveProfile(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tax-profile"] });
       invalidateProjection();
@@ -231,6 +230,11 @@ export default function TaxesPage() {
               profile={profileQuery.data}
               onSave={(data) => saveProfile.mutate(data)}
               supportedStatuses={projectionQuery.data.supported_filing_statuses}
+            />
+
+            <StatePicker
+              profile={profileQuery.data}
+              onSave={(data) => saveProfile.mutate(data)}
             />
 
             <PaystubList

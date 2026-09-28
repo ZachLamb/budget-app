@@ -39,6 +39,14 @@ export function buildSteps({
       done: !missing.includes("filing_status"),
     },
     {
+      key: "state",
+      title: "Where you file",
+      why:
+        "State tax is a real part of the bill, and the rates differ by " +
+        "thousands between states.",
+      done: !missing.includes("state"),
+    },
+    {
       key: "paystub",
       title: "Your most recent paystub",
       why:
