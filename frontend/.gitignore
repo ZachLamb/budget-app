@@ -53,3 +53,7 @@ next-env.d.ts
 
 # pdf.js font data, copied from node_modules by scripts/copy-pdf-assets.mjs
 /public/pdfjs/
+
+# Tesseract drops its language data beside the process that loaded it.
+# It is a 5MB download, not source.
+eng.traineddata

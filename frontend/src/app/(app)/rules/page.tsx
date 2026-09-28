@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rulesApi, type Rule, type RuleCreate, type RuleSuggestion } from "@/lib/api/rules";
+import { useRulePreview } from "@/hooks/use-rule-preview";
+import { RuleMatchList, MatchCountBadge } from "./rule-match-list";
 import { invalidateTransactionDerived } from "@/lib/query-invalidation";
 import { reportsApi, type LlmSuggestion } from "@/lib/api/reports";
 import { useCategorizeSuggestions } from "@/hooks/use-categorize-suggestions";
 import { useMerchantNameRefine } from "@/hooks/use-merchant-name-refine";
 import { useFlatCategories, useIsClient } from "@/lib/hooks";
-import { toastApiError } from "@/lib/toast-error";
+import { toastApiError, getApiErrorMessage } from "@/lib/toast-error";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Trash2, Sparkles, Play, Check, X } from "lucide-react";
+import { Plus, Trash2, Sparkles, Play, Check, X, Eye } from "lucide-react";
 import { appToast } from "@/lib/app-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SkeletonTable } from "@/components/skeleton-table";
@@ -40,6 +42,10 @@ const MATCH_TYPES = [
 
 function RulesContent() {
   const [addOpen, setAddOpen] = useState(false);
+  // Which single rule the user is inspecting, and whether the
+  // run-everything confirmation is open.
+  const [inspecting, setInspecting] = useState<Rule | null>(null);
+  const [runOpen, setRunOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<LlmSuggestion[]>([]);
@@ -50,6 +56,18 @@ function RulesContent() {
     category_id: "",
     priority: 0,
   });
+
+  // Asked while the pattern is being typed, so "does this catch what I
+  // meant" is answered before the rule exists rather than after it has
+  // run over everything.
+  const livePreview = useRulePreview(
+    {
+      match_field: form.match_field,
+      match_type: form.match_type,
+      match_value: form.match_value,
+    },
+    { enabled: addOpen },
+  );
 
   const queryClient = useQueryClient();
   const isClient = useIsClient();
@@ -134,12 +152,47 @@ function RulesContent() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules"] }),
   });
 
+  // Only asked once the confirmation is open: it is a full scan, and
+  // nobody needs it computed on page load.
+  const runPreview = useQuery({
+    queryKey: ["rule-preview-all"],
+    queryFn: rulesApi.previewAll,
+    enabled: runOpen,
+    meta: inlineErrorQueryMeta,
+  });
+
+  const rulePreview = useQuery({
+    queryKey: ["rule-preview", inspecting?.id],
+    queryFn: () => rulesApi.previewRule(inspecting!.id),
+    enabled: !!inspecting,
+    meta: inlineErrorQueryMeta,
+  });
+
+  const applyOneMutation = useMutation({
+    mutationFn: (id: string) => rulesApi.applyRule(id),
+    onSuccess: (data) => {
+      invalidateTransactionDerived(queryClient);
+      queryClient.invalidateQueries({ queryKey: ["rule-preview"] });
+      queryClient.invalidateQueries({ queryKey: ["rule-preview-all"] });
+      setInspecting(null);
+      appToast.success(
+        data.categorized === 0
+          ? "Nothing to categorize — no uncategorized transactions matched"
+          : `Categorized ${data.categorized} transaction${data.categorized === 1 ? "" : "s"}`,
+      );
+    },
+    onError: (e) => toastApiError("Failed to apply rule", e),
+  });
+
   const applyRulesMutation = useMutation({
     mutationFn: reportsApi.applyRules,
     onSuccess: () => {
       // Running rules recategorizes transactions in bulk, which moves budget
       // activity and spending-by-category — not just the transaction list.
       invalidateTransactionDerived(queryClient);
+      queryClient.invalidateQueries({ queryKey: ["rule-preview"] });
+      queryClient.invalidateQueries({ queryKey: ["rule-preview-all"] });
+      setRunOpen(false);
       appToast.success("Rules applied to uncategorized transactions");
     },
     onError: (e) => toastApiError("Failed to apply rules", e),
@@ -181,7 +234,10 @@ function RulesContent() {
           <>
           <Button
             variant="outline"
-            onClick={() => applyRulesMutation.mutate()}
+            // Shows what would change first. Recategorizing the ledger in
+            // bulk from a button with no preview is a change you cannot
+            // see until you go looking for it.
+            onClick={() => setRunOpen(true)}
             // Running no rules over every transaction is a no-op dressed up as
             // an action; with none written the button only offers confusion.
             disabled={applyRulesMutation.isPending || rules.length === 0}
@@ -226,8 +282,45 @@ function RulesContent() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Match Value</Label>
-                  <Input value={form.match_value} onChange={(e) => setForm({ ...form, match_value: e.target.value })} placeholder="e.g. Starbucks" />
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="rule-match-value">Match Value</Label>
+                    <MatchCountBadge
+                      preview={livePreview.preview}
+                      isFetching={livePreview.isFetching}
+                      error={livePreview.error}
+                    />
+                  </div>
+                  <Input
+                    id="rule-match-value"
+                    value={form.match_value}
+                    onChange={(e) => setForm({ ...form, match_value: e.target.value })}
+                    placeholder="e.g. Starbucks"
+                  />
+                  {/* The count alone tells you whether the pattern is too
+                      broad; the rows tell you whether it is the right
+                      kind of broad. */}
+                  {livePreview.preview && livePreview.preview.total > 0 && (
+                    <div className="max-h-52 overflow-y-auto rounded-md bg-muted/40 p-2">
+                      <RuleMatchList
+                        preview={livePreview.preview}
+                        needle={livePreview.needle}
+                      />
+                    </div>
+                  )}
+                  {livePreview.preview?.total === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Nothing uncategorized matches this yet. That is fine for a
+                      rule meant to catch future transactions.
+                    </p>
+                  )}
+                  {/* The server refuses patterns that cannot compile or
+                      could run forever, and says which. Showing that here
+                      beats discovering it on submit. */}
+                  {livePreview.error ? (
+                    <p className="text-xs text-destructive">
+                      {getApiErrorMessage(livePreview.error, "That pattern was rejected.")}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="space-y-2">
                   <Label>Assign Category</Label>
@@ -444,7 +537,17 @@ function RulesContent() {
                         {rule.enabled ? <Badge className="bg-green-100 text-green-800 hover:bg-green-200">On</Badge> : <Badge variant="secondary">Off</Badge>}
                       </Button>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setInspecting(rule)}
+                        aria-label={`Preview matches for ${rule.match_value}`}
+                        title="See what this rule would catch"
+                      >
+                        <Eye className="h-3 w-3" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteId(rule.id)} aria-label={`Delete rule for ${rule.match_value}`}>
                         <Trash2 className="h-3 w-3" />
                       </Button>
@@ -456,6 +559,99 @@ function RulesContent() {
           </QueryState>
         </CardContent>
       </Card>
+
+      {/* One rule, on its own. "Run Rules" answers what everything does
+          together; this answers what this one does, which is the question
+          you have when a rule looks wrong. */}
+      <Dialog open={!!inspecting} onOpenChange={(open) => !open && setInspecting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {inspecting ? `Matches for "${inspecting.match_value}"` : "Matches"}
+            </DialogTitle>
+          </DialogHeader>
+          {inspecting && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {inspecting.match_field} {inspecting.match_type}{" "}
+                <span className="font-mono">{inspecting.match_value}</span>{" "}
+                &rarr;{" "}
+                <Badge variant="secondary">
+                  {catNameMap[inspecting.category_id] || inspecting.category_id}
+                </Badge>
+              </p>
+              {rulePreview.isError ? (
+                <p className="text-sm text-destructive">
+                  {getApiErrorMessage(rulePreview.error, "Could not check this rule.")}
+                </p>
+              ) : rulePreview.isLoading || !rulePreview.data ? (
+                <p className="text-sm text-muted-foreground">Checking…</p>
+              ) : (
+                <RuleMatchList
+                  preview={rulePreview.data}
+                  needle={inspecting.match_type === "regex" ? "" : inspecting.match_value}
+                  emptyMessage="Nothing uncategorized matches this rule right now."
+                />
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setInspecting(null)}>
+                  Close
+                </Button>
+                <Button
+                  onClick={() => applyOneMutation.mutate(inspecting.id)}
+                  disabled={
+                    applyOneMutation.isPending || !rulePreview.data?.total
+                  }
+                >
+                  {applyOneMutation.isPending
+                    ? "Applying…"
+                    : `Apply this rule${
+                        rulePreview.data?.total ? ` (${rulePreview.data.total})` : ""
+                      }`}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Every enabled rule, before running any of them. */}
+      <Dialog open={runOpen} onOpenChange={setRunOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Run all rules</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {runPreview.isError ? (
+              <p className="text-sm text-destructive">
+                {getApiErrorMessage(runPreview.error, "Could not work out what would change.")}
+              </p>
+            ) : runPreview.isLoading || !runPreview.data ? (
+              <p className="text-sm text-muted-foreground">
+                Working out what would change…
+              </p>
+            ) : (
+              <RuleMatchList
+                preview={runPreview.data}
+                emptyMessage="No uncategorized transactions match any of your rules, so running them would change nothing."
+              />
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setRunOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => applyRulesMutation.mutate()}
+                disabled={applyRulesMutation.isPending || !runPreview.data?.total}
+              >
+                {applyRulesMutation.isPending
+                  ? "Applying…"
+                  : `Apply${runPreview.data?.total ? ` to ${runPreview.data.total}` : ""}`}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
