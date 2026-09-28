@@ -42,6 +42,14 @@ class TaxProfile(Base):
     walkthrough_answers: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True, default=None)
     walkthrough_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     de_minimis_election: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # "schedule_e" | "schedule_c". Nullable, and no default: a rental
+    # reported as a business owes self-employment tax on its profit and
+    # one reported as rental property does not, so picking either on the
+    # user's behalf invents about 15% of the profit in one direction or
+    # the other. Unanswered is reported as missing.
+    rental_treatment: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

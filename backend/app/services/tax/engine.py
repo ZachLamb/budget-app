@@ -24,6 +24,11 @@ from app.services.tax.rates.registry import (
     UnsupportedFilingStatusError,
 )
 from app.services.tax.safe_harbor import evaluate_safe_harbor
+from app.services.tax.self_employment import (
+    RentalTreatment,
+    SelfEmploymentTax,
+    compute as compute_se_tax,
+)
 
 CENTS = Decimal("0.01")
 
@@ -105,10 +110,48 @@ def project(inputs: TaxInputs, rates: RateSet, remaining_periods: int = 0) -> Ta
                 "Net rental income after expenses and depreciation.",
             ))
 
-    agi = income_tax_wages + schedule_e_contribution
+    # --- Self-employment tax ---------------------------------------------
+    # A rental reported on Schedule C is a business: its profit owes both
+    # halves of Social Security and Medicare, which no paystub withholds
+    # and which is the usual reason a first-year filer owes far more than
+    # they expected. A Schedule E rental owes none of it. The engine does
+    # not choose between them -- `rental_treatment` is None until someone
+    # answers, and the route reports that as a missing input rather than
+    # projecting a number that is wrong by about 15% of the profit.
+    se: SelfEmploymentTax | None = None
+    if (
+        inputs.rental_treatment is RentalTreatment.SCHEDULE_C
+        and schedule_e_contribution > ZERO
+    ):
+        se = compute_se_tax(
+            schedule_e_contribution,
+            wages_subject_to_ss=fica_wages,
+            filing_status=inputs.filing_status,
+            rates=fed,
+        )
+        explain.append(ExplainStep(
+            "Self-employment tax", _cents(se.total),
+            "Your rental is reported as a business, so its profit owes both "
+            "halves of Social Security and Medicare — the half an employer "
+            f"would normally pay as well as your own. {se.reason}",
+        ))
+
+    # Half the self-employment tax comes off income before income tax is
+    # worked out. Above-the-line, so it applies whether or not you
+    # itemize -- and it must land here, before the deduction below, or
+    # the income tax above it is computed on the wrong figure.
+    se_deduction = se.deductible_half if se else ZERO
+    agi = income_tax_wages + schedule_e_contribution - se_deduction
+    if se_deduction > ZERO:
+        explain.append(ExplainStep(
+            "Deduction for half of self-employment tax", _cents(-se_deduction),
+            "An employer's half of these taxes is a business expense, so "
+            "half of what you pay comes off your income before income tax.",
+        ))
     explain.append(ExplainStep(
         "Adjusted gross income", _cents(agi),
-        "Wages less pre-tax deferrals, plus rental income or allowed loss.",
+        "Wages less pre-tax deferrals, plus rental income or allowed loss."
+        + (", less half your self-employment tax." if se_deduction > ZERO else ""),
     ))
 
     # --- Deduction ------------------------------------------------------
@@ -171,6 +214,7 @@ def project(inputs: TaxInputs, rates: RateSet, remaining_periods: int = 0) -> Ta
     total_liability = _cents(
         federal_income_tax + social_security_tax + medicare_tax
         + additional_medicare_tax + state_tax
+        + (se.total if se else ZERO)
     )
     total_withheld = _cents(
         inputs.withheld_ytd_total + inputs.projected_remaining_withholding.total
@@ -200,6 +244,7 @@ def project(inputs: TaxInputs, rates: RateSet, remaining_periods: int = 0) -> Ta
         effective_rate=effective_rate,
         schedule_e_allowed_loss=_cents(allowed_loss),
         schedule_e_suspended_loss=_cents(suspended_loss),
+        self_employment=se,
         safe_harbor=evaluate_safe_harbor(
             total_liability=total_liability,
             projected_withholding=total_withheld,

@@ -62,6 +62,20 @@ export function buildSteps({
       href: "/settings#pay",
       hrefLabel: "Set it in Settings",
     },
+    // Only appears once there is a rental to ask about -- a pure W-2
+    // filer never sees a step they cannot act on.
+    ...(missing.includes("rental_treatment")
+      ? [
+          {
+            key: "rental_treatment",
+            title: "How your rental is run",
+            why:
+              "Whether its profit owes self-employment tax turns on this, " +
+              "and that is about 15% of the profit either way.",
+            done: false,
+          },
+        ]
+      : []),
     {
       key: "prior_year_return",
       title: "Last year's return",
