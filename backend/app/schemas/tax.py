@@ -162,6 +162,27 @@ class TaxProjectionResponse(BaseModel):
     explain: list[ExplainStepResponse]
 
 
+class InstallmentResponse(BaseModel):
+    number: int
+    due_date: date
+    amount: Decimal
+    status: str
+
+
+class QuarterlyPlanResponse(BaseModel):
+    """Estimated payments, or why none can be named.
+
+    `total` of null means the shortfall is unknown; zero means nothing is
+    owed. They look the same on a screen and are different answers, so the
+    field is nullable rather than defaulted.
+    """
+
+    installments: list[InstallmentResponse] = []
+    total: Optional[Decimal] = None
+    periods_past: int = 0
+    reason: Optional[str] = None
+
+
 class ProjectionEnvelope(BaseModel):
     """Never returns a fabricated projection. When inputs are incomplete,
     `available` is false and `missing` says what to enter."""
@@ -173,6 +194,9 @@ class ProjectionEnvelope(BaseModel):
     # The filing statuses this year's rate tables actually populate, so the
     # walkthrough can warn before saving one that produces no estimate.
     supported_filing_statuses: list[str] = []
+    # Derived from the safe-harbor shortfall and today's date, which the
+    # engine deliberately has no access to.
+    quarterly: Optional[QuarterlyPlanResponse] = None
 
 
 IMPACT_KINDS = {

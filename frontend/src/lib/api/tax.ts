@@ -10,6 +10,21 @@ export type FilingStatus =
   | "single" | "married_joint" | "married_separate"
   | "head_of_household" | "qualifying_surviving_spouse";
 
+export interface QuarterlyInstallment {
+  number: number;
+  due_date: string;
+  amount: number;
+  status: "paid_or_past" | "due_next" | "upcoming";
+}
+
+export interface QuarterlyPlan {
+  installments: QuarterlyInstallment[];
+  /** Null means the shortfall is unknown; 0 means nothing is owed. */
+  total: number | null;
+  periods_past: number;
+  reason: string | null;
+}
+
 export interface TaxProfile {
   filing_status: FilingStatus | null;
   /** Two-letter code. Null means unknown, never a default. */
@@ -103,6 +118,7 @@ export interface ProjectionEnvelope {
   projection: TaxProjection | null;
   /** Filing statuses this year's rate tables populate. */
   supported_filing_statuses: FilingStatus[];
+  quarterly?: QuarterlyPlan | null;
 }
 
 interface WireProjectionEnvelope {
@@ -111,6 +127,12 @@ interface WireProjectionEnvelope {
   missing: string[];
   remaining_pay_periods: number;
   projection: WireTaxProjection | null;
+  quarterly?: {
+    installments: { number: number; due_date: string; amount: string | number; status: string }[];
+    total: string | number | null;
+    periods_past: number;
+    reason: string | null;
+  } | null;
   supported_filing_statuses?: FilingStatus[];
 }
 
@@ -155,6 +177,23 @@ const MONEY_PROJECTION_KEYS: MoneyProjectionKey[] = [
   "refund_or_amount_due", "effective_rate", "schedule_e_allowed_loss",
   "schedule_e_suspended_loss",
 ];
+
+function coerceQuarterly(
+  q: NonNullable<WireProjectionEnvelope["quarterly"]>,
+): QuarterlyPlan {
+  return {
+    ...q,
+    // null total means "unknown", so it must survive the coercion that
+    // turns Decimal strings into numbers -- Number(null) is 0, which is
+    // the other answer entirely.
+    total: maybeNum(q.total),
+    installments: q.installments.map((i) => ({
+      ...i,
+      amount: num(i.amount),
+      status: i.status as QuarterlyInstallment["status"],
+    })),
+  };
+}
 
 function coerceProjection(p: WireTaxProjection): TaxProjection {
   const money = Object.fromEntries(
@@ -224,6 +263,7 @@ export const taxApi = {
         ...r.data,
         projection: r.data.projection ? coerceProjection(r.data.projection) : null,
         supported_filing_statuses: r.data.supported_filing_statuses ?? [],
+        quarterly: r.data.quarterly ? coerceQuarterly(r.data.quarterly) : null,
       })),
 
   impact: (body: { year: number; kind: ImpactKind; amount: number }) =>
