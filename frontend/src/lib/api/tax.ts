@@ -32,6 +32,24 @@ export interface TaxProfile {
   walkthrough_answers: Record<string, unknown> | null;
   walkthrough_completed_at: string | null;
   de_minimis_election: boolean;
+  /** How the rental is reported, which decides whether its profit owes
+   *  self-employment tax. Null means nobody has answered — not a
+   *  default, because the two answers differ by ~15% of the profit. */
+  rental_treatment: RentalTreatment | null;
+}
+
+export type RentalTreatment = "schedule_e" | "schedule_c";
+
+/** The Schedule SE breakdown, and why it came out the way it did. */
+export interface SelfEmployment {
+  net_profit: number;
+  net_earnings: number;
+  social_security: number;
+  medicare: number;
+  additional_medicare: number;
+  total: number;
+  deductible_half: number;
+  reason: string;
 }
 
 export interface Paystub {
@@ -93,6 +111,9 @@ export interface TaxProjection {
   effective_rate: number;
   schedule_e_allowed_loss: number;
   schedule_e_suspended_loss: number;
+  /** Null when nothing owes it — no rental, a loss, or Schedule E.
+   *  Distinct from a computed zero, so the card can stay off the page. */
+  self_employment: SelfEmployment | null;
   safe_harbor: SafeHarbor;
   explain: ExplainStep[];
 }
@@ -107,8 +128,21 @@ type WireSafeHarbor = Omit<SafeHarbor, "required_payment" | "projected_payment" 
   per_period_to_close: string | null;
 };
 type WireExplainStep = Omit<ExplainStep, "amount"> & { amount: string };
-type WireTaxProjection = Omit<TaxProjection, MoneyProjectionKey | "safe_harbor" | "explain"> &
-  Record<MoneyProjectionKey, string> & { safe_harbor: WireSafeHarbor; explain: WireExplainStep[] };
+/** Every money field arrives as a Decimal string; `reason` does not. */
+type WireSelfEmployment = Record<
+  Exclude<keyof SelfEmployment, "reason">,
+  string
+> & { reason: string };
+
+type WireTaxProjection = Omit<
+  TaxProjection,
+  MoneyProjectionKey | "safe_harbor" | "explain" | "self_employment"
+> &
+  Record<MoneyProjectionKey, string> & {
+    safe_harbor: WireSafeHarbor;
+    explain: WireExplainStep[];
+    self_employment: WireSelfEmployment | null;
+  };
 
 export interface ProjectionEnvelope {
   year: number;
@@ -199,8 +233,23 @@ function coerceProjection(p: WireTaxProjection): TaxProjection {
   const money = Object.fromEntries(
     MONEY_PROJECTION_KEYS.map((key) => [key, num(p[key])])
   ) as Record<MoneyProjectionKey, number>;
+  const se = p.self_employment;
   return {
     ...money,
+    // Null must survive: "nothing owes this" and "it came to zero" are
+    // different answers, and only one of them should show a card.
+    self_employment: se
+      ? {
+          net_profit: num(se.net_profit),
+          net_earnings: num(se.net_earnings),
+          social_security: num(se.social_security),
+          medicare: num(se.medicare),
+          additional_medicare: num(se.additional_medicare),
+          total: num(se.total),
+          deductible_half: num(se.deductible_half),
+          reason: se.reason,
+        }
+      : null,
     deduction_kind: p.deduction_kind,
     explain: p.explain.map((s) => ({ ...s, amount: num(s.amount) })),
     safe_harbor: {

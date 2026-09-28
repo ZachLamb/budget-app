@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Literal
 
 from app.services.tax.rates.registry import FilingStatus
+from app.services.tax.self_employment import RentalTreatment, SelfEmploymentTax
 
 ZERO = Decimal("0")
 
@@ -68,6 +69,11 @@ class TaxInputs:
     schedule_e: ScheduleEResult | None
     prior_year_total_tax: Decimal | None
     prior_year_agi: Decimal | None
+    #: How the rental is reported, which decides whether its profit owes
+    #: self-employment tax. `None` means nobody has answered yet -- the
+    #: engine must not pick one, because the two answers differ by about
+    #: 15% of the profit. See services/tax/self_employment.py.
+    rental_treatment: "RentalTreatment | None" = None
 
     @property
     def total_wages(self) -> Decimal:
@@ -123,6 +129,9 @@ class TaxProjection:
     effective_rate: Decimal
     schedule_e_allowed_loss: Decimal
     schedule_e_suspended_loss: Decimal
+    #: None when the activity owes no self-employment tax at all -- a
+    #: Schedule E rental, or no rental. Distinct from a computed zero.
+    self_employment: SelfEmploymentTax | None
     safe_harbor: SafeHarborResult
     explain: list[ExplainStep]
 

@@ -19,6 +19,8 @@ import { QuarterlyCard } from "./quarterly-card";
 import { NextDollarCard } from "./next-dollar-card";
 import { FilingStatusWalkthrough } from "./filing-status-walkthrough";
 import { StatePicker } from "./state-picker";
+import { RentalTreatmentCard } from "./rental-treatment-card";
+import { SelfEmploymentCard } from "./self-employment-card";
 import { PaystubList } from "./paystub-list";
 import { PaystubForm } from "./paystub-form";
 import { PriorYearForm } from "./prior-year-form";
@@ -29,6 +31,16 @@ import type { PaystubKey } from "@/lib/tax-docs/paystub-extract";
 import type { PriorYearKey } from "@/lib/tax-docs/prior-year-extract";
 import { toastApiError } from "@/lib/toast-error";
 import { appToast } from "@/lib/app-toast";
+
+/** Name what was saved. A partial profile update can carry any of
+ *  three unrelated answers, and a fixed message will be wrong for two
+ *  of them. */
+function profileSavedMessage(data: Partial<TaxProfile>): string {
+  if (data.rental_treatment) return "Saved how your rental is run";
+  if (data.state) return "State saved";
+  if (data.filing_status) return "Filing status saved";
+  return "Saved";
+}
 
 export default function TaxesPage() {
   const year = new Date().getFullYear();
@@ -104,14 +116,17 @@ export default function TaxesPage() {
 
   const saveProfile = useMutation({
     // The walkthrough saves a status and its answers; the state picker
-    // saves a state. Both are partial updates to the same profile.
+    // saves a state; the rental question saves a treatment. All are
+    // partial updates to the same profile, so the message has to follow
+    // what was actually sent -- "Filing status saved" after answering a
+    // question about a rental reads as the app having misheard you.
     mutationFn: (data: Partial<TaxProfile>) => taxApi.saveProfile(data),
-    onSuccess: () => {
+    onSuccess: (_res, data) => {
       queryClient.invalidateQueries({ queryKey: ["tax-profile"] });
       invalidateProjection();
-      appToast.success("Filing status saved");
+      appToast.success(profileSavedMessage(data));
     },
-    onError: (e) => toastApiError("Failed to save filing status", e),
+    onError: (e) => toastApiError("Failed to save", e),
   });
 
   const addPaystub = useMutation({
@@ -222,6 +237,16 @@ export default function TaxesPage() {
               />
             )}
 
+            {/* Only when something actually owes it. Null here means
+                "nothing does" -- no rental, a loss, or a Schedule E
+                rental -- which is a different thing from a computed
+                zero and should show no card at all. */}
+            {projectionQuery.data.projection?.self_employment && (
+              <SelfEmploymentCard
+                se={projectionQuery.data.projection.self_employment}
+              />
+            )}
+
             {/* Only when there is something to pay, or a reason worth
                 saying. A card of four zeroes for a pure W-2 filer is
                 noise on a page that is already long. */}
@@ -249,6 +274,19 @@ export default function TaxesPage() {
               profile={profileQuery.data}
               onSave={(data) => saveProfile.mutate(data)}
             />
+
+            {/* Asked only once there is a rental to ask about: either the
+                projection is waiting on the answer, or one has already
+                been given and can be revisited. Nobody with a single W-2
+                should meet this question at all. */}
+            {(projectionQuery.data.missing.includes("rental_treatment") ||
+              profileQuery.data.rental_treatment) && (
+              <RentalTreatmentCard
+                profile={profileQuery.data}
+                onSave={(data) => saveProfile.mutate(data)}
+                blocking={projectionQuery.data.missing.includes("rental_treatment")}
+              />
+            )}
 
             <PaystubList
               paystubs={paystubsQuery.data}

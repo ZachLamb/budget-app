@@ -24,6 +24,17 @@ class TaxProfileUpdate(BaseModel):
     state: Optional[str] = None
     walkthrough_answers: Optional[dict[str, Any]] = None
     de_minimis_election: Optional[bool] = None
+    #: "schedule_e" | "schedule_c". No default: see the column comment.
+    rental_treatment: Optional[str] = None
+
+    @field_validator("rental_treatment")
+    @classmethod
+    def _known_treatment(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in {"schedule_e", "schedule_c"}:
+            raise ValueError(
+                'rental_treatment must be "schedule_e" or "schedule_c"'
+            )
+        return v
 
     @field_validator("filing_status")
     @classmethod
@@ -54,6 +65,8 @@ class TaxProfileResponse(BaseModel):
     walkthrough_answers: Optional[dict[str, Any]] = None
     walkthrough_completed_at: Optional[datetime] = None
     de_minimis_election: bool = False
+    #: None means unanswered, which the projection reports as missing.
+    rental_treatment: Optional[str] = None
 
 
 class PaystubCreate(BaseModel):
@@ -139,6 +152,21 @@ class SafeHarborResponse(BaseModel):
     reason: str
 
 
+class SelfEmploymentResponse(BaseModel):
+    """The Schedule SE breakdown, and why it came out the way it did."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    net_profit: Decimal
+    net_earnings: Decimal
+    social_security: Decimal
+    medicare: Decimal
+    additional_medicare: Decimal
+    total: Decimal
+    deductible_half: Decimal
+    reason: str
+
+
 class TaxProjectionResponse(BaseModel):
     agi: Decimal
     magi_for_pal: Decimal
@@ -158,6 +186,11 @@ class TaxProjectionResponse(BaseModel):
     effective_rate: Decimal
     schedule_e_allowed_loss: Decimal
     schedule_e_suspended_loss: Decimal
+    #: None when nothing owes self-employment tax -- no rental, a loss,
+    #: or a rental reported on Schedule E. Deliberately distinct from a
+    #: computed zero, so the card can stay off the page entirely rather
+    #: than showing four zeroes to a pure W-2 filer.
+    self_employment: Optional["SelfEmploymentResponse"] = None
     safe_harbor: SafeHarborResponse
     explain: list[ExplainStepResponse]
 

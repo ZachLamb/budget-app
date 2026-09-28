@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Household, Paystub, PriorYearReturn, TaxProfile
 from app.services.tax.inputs import TaxInputs, WithholdingBuckets
 from app.services.tax.rates.registry import FilingStatus
+from app.services.tax.self_employment import RentalTreatment
 
 CENTS = Decimal("0.01")
 ZERO = Decimal("0.00")
@@ -150,6 +151,15 @@ async def build_tax_inputs(
 
     n = Decimal(periods)
 
+    # Phase 2 (the rental) is not wired into the assembler yet, so this
+    # is None today. The treatment is read and passed through regardless,
+    # so that when the rental does arrive the self-employment question is
+    # already being asked rather than being remembered later.
+    schedule_e = None
+    rental_treatment = (
+        RentalTreatment(profile.rental_treatment) if profile.rental_treatment else None
+    )
+
     inputs = TaxInputs(
         filing_status=FilingStatus(profile.filing_status),
         wages_ytd=_cents(latest_stub.gross_ytd),
@@ -170,10 +180,23 @@ async def build_tax_inputs(
         # Deductions are wired in by the deductions task; a projection is
         # valid without them.
         itemized_deductions=ZERO,
-        schedule_e=None,
+        schedule_e=schedule_e,
+        rental_treatment=rental_treatment,
         prior_year_total_tax=prior.total_tax if prior else None,
         prior_year_agi=prior.agi if prior else None,
     )
+    # A rental that turns a profit owes self-employment tax if it is a
+    # business and none if it is rental property, and the two differ by
+    # about 15% of that profit. Unanswered is reported, not resolved --
+    # picking the cheaper one would understate the bill by thousands and
+    # nothing on the page would say a choice had been made.
+    if (
+        schedule_e is not None
+        and schedule_e.net > ZERO
+        and rental_treatment is None
+    ):
+        missing.append("rental_treatment")
+
     return AssemblyResult(
         inputs=inputs, remaining_periods=periods, missing=missing, state=state
     )
