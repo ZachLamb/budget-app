@@ -254,8 +254,10 @@ from decimal import Decimal
 from fastapi import Query
 
 from app.schemas.tax import (
-    ImpactRequest, ImpactResponse, ProjectionEnvelope, TaxProjectionResponse,
+    ImpactRequest, ImpactResponse, ProjectionEnvelope, QuarterlyPlanResponse,
+    TaxProjectionResponse,
 )
+from app.services.tax.quarterly import quarterly_plan
 from app.services.tax.rates.registry import (
     UnsupportedStateError,
     supported_statuses,
@@ -336,6 +338,7 @@ async def get_projection(
             supported_filing_statuses=supported,
         )
 
+    plan = quarterly_plan(projection.safe_harbor.shortfall, year, _date.today())
     return ProjectionEnvelope(
         year=year,
         available=True,
@@ -343,6 +346,7 @@ async def get_projection(
         remaining_pay_periods=assembled.remaining_periods,
         projection=TaxProjectionResponse.model_validate(projection, from_attributes=True),
         supported_filing_statuses=supported,
+        quarterly=QuarterlyPlanResponse.model_validate(plan, from_attributes=True),
     )
 
 

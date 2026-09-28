@@ -15,6 +15,7 @@ import { useState } from "react";
 import { ProjectionCard } from "./projection-card";
 import { SetupChecklist, buildSteps } from "./setup-checklist";
 import { WithholdingCard } from "./withholding-card";
+import { QuarterlyCard } from "./quarterly-card";
 import { NextDollarCard } from "./next-dollar-card";
 import { FilingStatusWalkthrough } from "./filing-status-walkthrough";
 import { StatePicker } from "./state-picker";
@@ -220,6 +221,18 @@ export default function TaxesPage() {
                 partialYear={projectionQuery.data.missing.includes("pay_frequency")}
               />
             )}
+
+            {/* Only when there is something to pay, or a reason worth
+                saying. A card of four zeroes for a pure W-2 filer is
+                noise on a page that is already long. */}
+            {projectionQuery.data.quarterly &&
+              (projectionQuery.data.quarterly.total === null ||
+                projectionQuery.data.quarterly.total > 0) && (
+                <QuarterlyCard
+                  plan={projectionQuery.data.quarterly}
+                  year={year}
+                />
+              )}
 
             <NextDollarCard
               wages={impactQuery.data?.wages ?? null}
