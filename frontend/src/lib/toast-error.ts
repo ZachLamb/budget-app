@@ -16,14 +16,21 @@ function axiosDetail(error: unknown): AxiosLikeDetail | undefined {
   return r;
 }
 
+/** Pydantic prefixes a custom validator's message with its own label
+ *  before it ever reaches the wire, so a sentence written for a person
+ *  arrives as "Value error, That pattern repeats a group...". The prefix
+ *  says nothing the user can act on and makes deliberate copy read like
+ *  a stack trace leaked into the UI. */
+const PYDANTIC_PREFIX = /^(Value error|Assertion failed),\s*/;
+
 export function getApiErrorMessage(error: unknown, fallback: string): string {
   const detail = axiosDetail(error);
   if (detail === undefined) return fallback;
-  if (typeof detail === "string") return detail;
+  if (typeof detail === "string") return detail.replace(PYDANTIC_PREFIX, "");
   if (Array.isArray(detail) && detail.length > 0) {
     const first = detail[0];
     const msg = first?.msg ?? first?.loc?.join(" ") ?? JSON.stringify(first);
-    return String(msg);
+    return String(msg).replace(PYDANTIC_PREFIX, "");
   }
   return fallback;
 }

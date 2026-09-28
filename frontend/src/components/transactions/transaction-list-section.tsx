@@ -19,7 +19,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { TransactionSelection } from "@/hooks/use-transaction-selection";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -62,6 +64,8 @@ export interface TransactionListSectionProps {
   setDeleteId: (id: string | null) => void;
   /** Ids of transactions flagged as unusual by the deterministic anomaly facts. */
   anomalyIds?: Set<string>;
+  /** Omitted on read-only surfaces; the checkbox column disappears with it. */
+  selection?: TransactionSelection;
 }
 
 export function TransactionListSection({
@@ -84,7 +88,13 @@ export function TransactionListSection({
   startSplit,
   setDeleteId,
   anomalyIds,
+  selection,
 }: TransactionListSectionProps) {
+  const pageIds = txnData?.transactions.map((t) => t.id) ?? [];
+  const pageAllSelected =
+    pageIds.length > 0 && pageIds.every((id) => selection?.isSelected(id));
+  const pageSomeSelected =
+    !pageAllSelected && pageIds.some((id) => selection?.isSelected(id));
   return (
     <Card>
       <CardContent className="pt-6">
@@ -108,6 +118,22 @@ export function TransactionListSection({
           <Table className="hidden md:table">
             <TableHeader>
               <TableRow>
+                {selection && (
+                  <TableHead className="w-8">
+                    <Checkbox
+                      checked={
+                        pageAllSelected ? true : pageSomeSelected ? "indeterminate" : false
+                      }
+                      onCheckedChange={(v) => selection.setPage(pageIds, v === true)}
+                      aria-label={
+                        pageAllSelected
+                          ? "Deselect all on this page"
+                          : "Select all on this page"
+                      }
+                      disabled={isDemo || pageIds.length === 0}
+                    />
+                  </TableHead>
+                )}
                 <TableHead className="w-8" />
                 <TableHead>Date</TableHead>
                 <TableHead>Payee</TableHead>
@@ -118,8 +144,28 @@ export function TransactionListSection({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {txnData?.transactions.map((txn) => (
-                <TableRow key={txn.id}>
+              {txnData?.transactions.map((txn, rowIndex) => (
+                <TableRow
+                  key={txn.id}
+                  data-state={selection?.isSelected(txn.id) ? "selected" : undefined}
+                  className={cn(selection?.isSelected(txn.id) && "bg-muted/50")}
+                >
+                  {selection && (
+                    <TableCell>
+                      {/* Shift-click extends from the last row clicked, the
+                          way a file list does -- the whole point of the
+                          feature is selecting a run of an import at once,
+                          and ticking forty boxes is the thing being fixed. */}
+                      <Checkbox
+                        checked={selection.isSelected(txn.id)}
+                        onClick={(e) =>
+                          selection.toggle(txn.id, rowIndex, e.shiftKey)
+                        }
+                        aria-label={`Select ${txn.payee_name || "transaction"} on ${formatDate(txn.date)}`}
+                        disabled={isDemo}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell>
                     <button
                       type="button"

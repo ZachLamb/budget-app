@@ -5,7 +5,7 @@ import io
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 from typing import Optional
@@ -427,3 +427,89 @@ async def create_transfer(
     await db.commit()
     await emit_event(household_id, "transaction.created")
     return enriched
+
+
+#: A bulk call is one request; an unbounded id list is one request that
+#: ties up a worker for as long as someone cares to make it.
+_BULK_MAX = 500
+
+
+class BulkUpdateRequest(BaseModel):
+    """Apply one change to many transactions."""
+
+    transaction_ids: list[str] = Field(..., min_length=1, max_length=_BULK_MAX)
+    category_id: Optional[str] = None
+    payee_id: Optional[str] = None
+    cleared: Optional[bool] = None
+    #: Explicit, because `category_id: null` in JSON is indistinguishable
+    #: from "field not sent" once it reaches a model with a default.
+    clear_category: bool = False
+
+    @model_validator(mode="after")
+    def _something_to_do(self):
+        if (
+            self.category_id is None
+            and self.payee_id is None
+            and self.cleared is None
+            and not self.clear_category
+        ):
+            raise ValueError("Give at least one field to change.")
+        if self.category_id is not None and self.clear_category:
+            raise ValueError("Cannot set a category and clear it in one call.")
+        return self
+
+
+@router.patch("/bulk")
+async def bulk_update_transactions(
+    body: BulkUpdateRequest,
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change many transactions at once.
+
+    Categorizing an import one dropdown at a time is the most tedious
+    thing in this app, and the first thing a new household meets.
+
+    Ownership is checked the same way the single-row route checks it. A
+    bulk endpoint is exactly where that gets skipped for speed, so the
+    rows are filtered by household rather than trusted from the request,
+    and ids belonging to someone else simply do not come back.
+    """
+    await validate_category_ownership(db, body.category_id, household_id)
+
+    if body.payee_id is not None:
+        owns_payee = (
+            await db.execute(
+                select(Payee.id).where(
+                    Payee.id == body.payee_id, Payee.household_id == household_id
+                )
+            )
+        ).scalar_one_or_none()
+        if owns_payee is None:
+            raise HTTPException(status_code=404, detail="Payee not found")
+
+    rows = (
+        await db.execute(
+            select(Transaction)
+            .join(Account, Transaction.account_id == Account.id)
+            .where(Account.household_id == household_id)
+            .where(Transaction.id.in_(body.transaction_ids))
+        )
+    ).scalars().all()
+
+    for txn in rows:
+        if body.clear_category:
+            txn.category_id = None
+        elif body.category_id is not None:
+            txn.category_id = body.category_id
+        if body.payee_id is not None:
+            txn.payee_id = body.payee_id
+        if body.cleared is not None:
+            txn.cleared = body.cleared
+
+    return {
+        "updated": len(rows),
+        # Said plainly rather than left to be inferred from a count: ids
+        # that are not yours, or no longer exist, are skipped.
+        "skipped": len(set(body.transaction_ids)) - len(rows),
+    }

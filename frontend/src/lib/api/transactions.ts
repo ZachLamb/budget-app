@@ -64,4 +64,24 @@ export const transactionsApi = {
     data: Partial<Omit<TransactionCreate, "category_id">> & { category_id?: string | null },
   ) => api.put<Transaction>(`/transactions/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/transactions/${id}`),
+  /** Apply one change to many transactions.
+   *
+   *  `clear_category` is a separate flag rather than `category_id: null`,
+   *  because once the payload reaches a model with defaults, "sent as
+   *  null" and "not sent" are the same thing. */
+  bulkUpdate: (data: {
+    transaction_ids: string[];
+    category_id?: string;
+    payee_id?: string;
+    cleared?: boolean;
+    clear_category?: boolean;
+  }) =>
+    api
+      .patch<{ updated: number; skipped: number }>("/transactions/bulk", data)
+      .then((r) => r.data),
 };
+
+/** The most ids one bulk call may carry. Mirrors the server's cap --
+ *  duplicated deliberately, so the UI can stop before it asks rather
+ *  than surfacing a 422 the user cannot act on. */
+export const BULK_MAX = 500;

@@ -40,6 +40,13 @@ import { PageHeader, inlineErrorQueryMeta } from "@/components/page";
 import { CategoryReviewDialog } from "@/components/transactions/category-review-dialog";
 import { TransactionFiltersBar } from "@/components/transactions/transaction-filters-bar";
 import { TransactionListSection } from "@/components/transactions/transaction-list-section";
+import {
+  BulkActionBar,
+  snapshotFor,
+  undoBatches,
+  type BulkChange,
+} from "@/components/transactions/bulk-action-bar";
+import { useTransactionSelection } from "@/hooks/use-transaction-selection";
 import { FsaReviewPanel } from "@/components/transactions/fsa-review-panel";
 import { useTransactionFilters } from "@/components/transactions/use-transaction-filters";
 import { clampPage } from "@/lib/transaction-filters-url";
@@ -231,6 +238,62 @@ function TransactionsContent() {
     queryFn: () => transactionsApi.list(filters),
     enabled: isClient,
     meta: inlineErrorQueryMeta,
+  });
+
+  const selection = useTransactionSelection(
+    txnData?.transactions.map((t) => t.id) ?? [],
+  );
+
+  const bulkMutation = useMutation({
+    mutationFn: (vars: { ids: string[]; change: BulkChange }) =>
+      transactionsApi.bulkUpdate({ transaction_ids: vars.ids, ...vars.change }),
+    onSuccess: (data, vars) => {
+      invalidateTransactionDerived(queryClient);
+      // A rule preview counts uncategorized rows, so categorizing in bulk
+      // changes what those previews would say.
+      queryClient.invalidateQueries({ queryKey: ["rule-preview"] });
+      queryClient.invalidateQueries({ queryKey: ["rule-preview-all"] });
+
+      const undo = snapshotFor(txnData?.transactions ?? [], new Set(vars.ids));
+      // Said, not silently skipped: ids that no longer exist, or were
+      // never yours, are not counted in `updated`.
+      const skipped =
+        data.skipped > 0 ? ` (${data.skipped} skipped)` : "";
+      appToast.success(
+        `Updated ${data.updated} transaction${data.updated === 1 ? "" : "s"}${skipped}`,
+        undo
+          ? {
+              action: {
+                label: "Undo",
+                onClick: () => undoMutation.mutate(undo),
+              },
+              // The default 3.5s is long enough to read a confirmation and
+              // too short to notice a bulk change was wrong and reach for
+              // the only control that reverses it.
+              duration: 12_000,
+            }
+          : undefined,
+      );
+      selection.clear();
+    },
+    onError: (e) => toastApiError("Bulk update failed", e),
+  });
+
+  const undoMutation = useMutation({
+    // Each row goes back to its own previous value, so a bulk categorize
+    // over rows that were not alike before is still reversible. Batched by
+    // that value, which after an import is usually a single call.
+    mutationFn: async (before: NonNullable<ReturnType<typeof snapshotFor>>) => {
+      for (const batch of undoBatches(before)) {
+        const { ids, ...change } = batch;
+        await transactionsApi.bulkUpdate({ transaction_ids: ids, ...change });
+      }
+    },
+    onSuccess: () => {
+      invalidateTransactionDerived(queryClient);
+      appToast.success("Change undone");
+    },
+    onError: (e) => toastApiError("Could not undo", e),
   });
 
   const createMutation = useMutation({
@@ -904,6 +967,31 @@ function TransactionsContent() {
         onFiltersChange={updateFilters}
         payeeName={filteredPayeeName}
       />
+      <BulkActionBar
+        count={selection.count}
+        matchingTotal={txnData?.total ?? 0}
+        allCategories={allCategories}
+        isPending={bulkMutation.isPending || undoMutation.isPending}
+        loadingAll={selection.loadingAll}
+        disabled={isDemo}
+        onApply={(change) =>
+          bulkMutation.mutate({ ids: [...selection.selected], change })
+        }
+        onSelectAllMatching={async () => {
+          const { selected, capped } = await selection.selectAllMatching(
+            filters,
+            txnData?.total ?? 0,
+          );
+          if (capped) {
+            // Said plainly rather than letting the number quietly differ
+            // from the one on the button.
+            appToast.info(
+              `Selected ${selected} — the most that can be changed in one go.`,
+            );
+          }
+        }}
+        onClear={() => selection.clear()}
+      />
       <TransactionListSection
         filters={filters}
         txnData={txnData}
@@ -920,6 +1008,7 @@ function TransactionsContent() {
         totalPages={totalPages}
         updateFilters={updateFilters}
         clampPage={clampPage}
+        selection={selection}
         setDetailTxn={setDetailTxn}
         startEdit={startEdit}
         startSplit={startSplit}
