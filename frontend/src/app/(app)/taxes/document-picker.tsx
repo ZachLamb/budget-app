@@ -6,7 +6,7 @@ import type { ExtractStage } from "@/hooks/use-tax-doc-extract";
 
 const STAGE_LABELS: Record<Exclude<ExtractStage, null>, string> = {
   preparing: "Getting the on-device model ready — the first time can take a few minutes…",
-  reading: "Reading the file…",
+  reading: "Reading the file… a photo takes longer than a PDF",
   thinking: "Finding the figures…",
 };
 
@@ -42,7 +42,7 @@ export function DocumentPicker({
         <input
           ref={inputRef}
           type="file"
-          accept="application/pdf,.pdf"
+          accept="application/pdf,.pdf,image/*"
           className="hidden"
           aria-label={ariaLabel}
           onChange={(e) => {

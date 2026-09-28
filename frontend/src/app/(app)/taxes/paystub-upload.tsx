@@ -26,7 +26,7 @@ export function PaystubUpload({
 }: {
   onUse: (values: Partial<Record<PaystubKey, number>>, payDate: string | null) => void;
 }) {
-  const { extract, cancel, stage, error, clearError, usesLocalServer } = usePaystubExtract();
+  const { extract, cancel, stage, error, clearError, usesLocalServer, lastSource } = usePaystubExtract();
   const [result, setResult] = useState<PaystubExtraction | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
 
@@ -68,6 +68,14 @@ export function PaystubUpload({
 
         {result && (
           <div className="space-y-3">
+            {lastSource === "image" && (
+              <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2">
+                <strong>Read from a photo.</strong> Optical recognition turns a
+                3 into an 8 now and then, and a misread digit looks exactly
+                like a real figure. Check every one against the paper before
+                saving.
+              </p>
+            )}
             {foundCount === 0 ? (
               <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2">
                 <strong>Nothing could be read from that file.</strong> Fill the

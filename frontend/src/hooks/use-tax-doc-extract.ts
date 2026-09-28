@@ -10,7 +10,11 @@ import { useLlm } from "@/lib/llm/useLlm";
 import { useDemoGuard, useIsClient } from "@/lib/hooks";
 import { useQuery } from "@tanstack/react-query";
 import { settingsApi, type AiSettings } from "@/lib/api/settings";
-import { extractPdfText, PdfTextError } from "@/lib/tax-docs/pdf-text";
+import {
+  DocumentTextError,
+  extractDocumentText,
+  type DocumentSource,
+} from "@/lib/tax-docs/document-text";
 
 export type ExtractStage = "preparing" | "reading" | "thinking" | null;
 
@@ -49,6 +53,9 @@ export function useTaxDocExtract<T>(config: TaxDocExtractConfig<T>) {
   const settings = aiSettings as AiSettings | undefined;
   const preferLocal = Boolean(settings?.prefer_local_server);
   const [stage, setStage] = useState<ExtractStage>(null);
+  // Which kind of document the last result came from. OCR misreads a
+  // digit in a way a text PDF cannot, so the card says so.
+  const [lastSource, setLastSource] = useState<DocumentSource | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -63,6 +70,7 @@ export function useTaxDocExtract<T>(config: TaxDocExtractConfig<T>) {
   const extract = useCallback(
     async (file: File): Promise<T | null> => {
       setError(null);
+      setLastSource(null);
 
       if (isDemo) {
         setError(
@@ -101,7 +109,8 @@ export function useTaxDocExtract<T>(config: TaxDocExtractConfig<T>) {
         }
 
         setStage("reading");
-        const { text } = await extractPdfText(file);
+        const { text, source } = await extractDocumentText(file);
+        setLastSource(source);
         if (ac.signal.aborted) return null;
 
         setStage("thinking");
@@ -117,7 +126,7 @@ export function useTaxDocExtract<T>(config: TaxDocExtractConfig<T>) {
       } catch (e) {
         if (ac.signal.aborted) return null;
         // A PDF problem is the user's to fix and already says how.
-        setError(e instanceof PdfTextError ? e.message : userMessageFor(e));
+        setError(e instanceof DocumentTextError ? e.message : userMessageFor(e));
         return null;
       } finally {
         if (abortRef.current === ac) {
@@ -135,6 +144,7 @@ export function useTaxDocExtract<T>(config: TaxDocExtractConfig<T>) {
     stage,
     error,
     clearError: () => setError(null),
+    lastSource,
     /** True when the text will be proxied to the user's own model server. */
     usesLocalServer: preferLocal,
   };
