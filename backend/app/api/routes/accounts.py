@@ -9,8 +9,15 @@ from sqlalchemy import select, func, and_
 
 from app.database import get_db
 from app.api.deps import get_household_id
-from app.models import Account, AccountSnapshot, Transaction
+from app.models import Account, AccountSnapshot, Payee, Reconciliation, Transaction
 from app.schemas.account import AccountCreate, AccountUpdate, AccountResponse
+from app.schemas.reconciliation import (
+    ReconcileRequest,
+    ReconciliationResponse,
+    ReconciliationViewResponse,
+)
+from app.services.reconciliation import build_view
+from app.utils import validate_category_ownership
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -194,3 +201,170 @@ async def delete_account(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
     await db.delete(account)
+
+
+# ── reconciliation ────────────────────────────────────────────────────
+
+
+async def _account_or_404(db: AsyncSession, account_id: str, household_id: str) -> Account:
+    """Scope before anything else. Every route below reads or writes
+    transactions belonging to the account, so an id from another
+    household must stop here rather than at a later filter."""
+    account = (
+        await db.execute(
+            select(Account).where(
+                Account.id == account_id, Account.household_id == household_id
+            )
+        )
+    ).scalar_one_or_none()
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
+
+
+@router.get("/{account_id}/reconciliation", response_model=ReconciliationViewResponse)
+async def get_reconciliation(
+    account_id: str,
+    statement_date: date,
+    statement_balance: Decimal,
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Compare this account against a statement. Writes nothing.
+
+    Reconciling by hand is a search: the balance is off and you have to
+    find which transaction explains it. The search is deterministic, so
+    the answer comes back with the comparison rather than being left to
+    the person.
+    """
+    account = await _account_or_404(db, account_id, household_id)
+    view = await build_view(
+        db,
+        account,
+        statement_date=statement_date,
+        statement_balance=statement_balance,
+    )
+    return ReconciliationViewResponse.model_validate(view, from_attributes=True)
+
+
+@router.get("/{account_id}/reconciliations", response_model=list[ReconciliationResponse])
+async def list_reconciliations(
+    account_id: str,
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """When this account last agreed with the bank, and against what."""
+    await _account_or_404(db, account_id, household_id)
+    rows = (
+        await db.execute(
+            select(Reconciliation)
+            .where(Reconciliation.account_id == account_id)
+            .order_by(Reconciliation.statement_date.desc())
+            .limit(24)
+        )
+    ).scalars().all()
+    return [ReconciliationResponse.model_validate(r) for r in rows]
+
+
+@router.post("/{account_id}/reconcile", response_model=ReconciliationResponse, status_code=201)
+async def reconcile_account(
+    account_id: str,
+    body: ReconcileRequest,
+    household_id: str = Depends(get_household_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sign off a statement, locking the cleared transactions behind it.
+
+    Refuses by default when the account does not balance: a
+    reconciliation that tolerated a silent gap would record that the
+    account agreed with the bank when it did not, which is worse than
+    having no record at all. The two ways past it -- accept the gap, or
+    close it with a balancing entry -- are both explicit, and both leave
+    a trace in the record.
+    """
+    account = await _account_or_404(db, account_id, household_id)
+    view = await build_view(
+        db,
+        account,
+        statement_date=body.statement_date,
+        statement_balance=body.statement_balance,
+    )
+
+    adjustment_id: str | None = None
+    difference = view.difference
+
+    if difference != 0:
+        if body.create_adjustment:
+            await validate_category_ownership(
+                db, body.adjustment_category_id, household_id
+            )
+            payee = await _reconciliation_payee(db, household_id)
+            adjustment = Transaction(
+                account_id=account.id,
+                date=body.statement_date,
+                amount=difference,
+                payee_id=payee.id,
+                category_id=body.adjustment_category_id,
+                notes=(
+                    f"Balancing entry to match the statement of "
+                    f"{body.statement_date.isoformat()}"
+                ),
+                cleared=True,
+                reconciled=True,
+            )
+            db.add(adjustment)
+            await db.flush()
+            adjustment_id = adjustment.id
+            # The entry closes the gap by construction, and the record
+            # should say the account balanced -- with the adjustment id
+            # alongside it saying how.
+            difference = Decimal("0.00")
+        elif not body.allow_difference:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"This account is out by {difference}. Find the missing "
+                    "transaction, or choose to add a balancing entry."
+                ),
+            )
+
+    locked = (
+        await db.execute(
+            select(Transaction)
+            .where(Transaction.account_id == account.id)
+            .where(Transaction.parent_transaction_id.is_(None))
+            .where(Transaction.date <= body.statement_date)
+            .where(Transaction.cleared.is_(True))
+        )
+    ).scalars().all()
+    for txn in locked:
+        txn.reconciled = True
+
+    record = Reconciliation(
+        account_id=account.id,
+        statement_date=body.statement_date,
+        statement_balance=body.statement_balance,
+        cleared_balance=view.cleared_balance,
+        difference=difference,
+        transaction_count=len(locked),
+        adjustment_transaction_id=adjustment_id,
+    )
+    db.add(record)
+    await db.flush()
+    return ReconciliationResponse.model_validate(record)
+
+
+async def _reconciliation_payee(db: AsyncSession, household_id: str) -> Payee:
+    """A named payee for balancing entries, so they are visible as a
+    group rather than scattered as blank rows nobody can account for."""
+    name = "Balance adjustment"
+    payee = (
+        await db.execute(
+            select(Payee).where(Payee.household_id == household_id, Payee.name == name)
+        )
+    ).scalar_one_or_none()
+    if payee is None:
+        payee = Payee(household_id=household_id, name=name)
+        db.add(payee)
+        await db.flush()
+    return payee

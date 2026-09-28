@@ -11,7 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Pencil, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Pencil, RefreshCw, Scale } from "lucide-react";
+import { ReconcileDialog } from "@/components/accounts/reconcile-dialog";
 import { appToast } from "@/lib/app-toast";
 import { toastApiError } from "@/lib/toast-error";
 import { formatCurrency, formatCurrencyNegative } from "@/lib/format";
@@ -93,6 +94,7 @@ function AccountsContent() {
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editAccount, setEditAccount] = useState<Account | null>(null);
+  const [reconciling, setReconciling] = useState<Account | null>(null);
 
   const [createForm, setCreateForm] = useState({
     name: "",
@@ -395,6 +397,22 @@ function AccountsContent() {
                     <p className={cn("font-mono text-lg font-semibold", balanceColor(acct))}>
                       {displayBalance(acct)}
                     </p>
+                    {/* Only for accounts whose balance is built from
+                        transactions. A tracking account's balance is a
+                        snapshot you typed in, so there is nothing to
+                        check it against. */}
+                    {acct.is_budget_account && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setReconciling(acct)}
+                        className="h-8 w-8 text-muted-foreground"
+                        aria-label={`Reconcile ${acct.name}`}
+                        title="Check against a bank statement"
+                      >
+                        <Scale className="h-4 w-4" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="icon" onClick={() => openEdit(acct)} className="h-8 w-8 text-muted-foreground" aria-label={`Edit ${acct.name}`}>
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -408,6 +426,12 @@ function AccountsContent() {
           </Card>
         ))}
       </QueryState>
+
+      <ReconcileDialog
+        account={reconciling}
+        open={!!reconciling}
+        onOpenChange={(o) => { if (!o) setReconciling(null); }}
+      />
 
       {/* Edit Account Dialog */}
       <Dialog open={!!editAccount} onOpenChange={(o) => { if (!o) setEditAccount(null); }}>
