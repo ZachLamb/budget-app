@@ -17,12 +17,11 @@ export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 /** Beyond this, the file is not a tax return and will not fit a prompt. */
 export const MAX_PAGES = 20;
 
-export class PdfTextError extends Error {}
+import { DocumentTextError, type DocumentText } from "./document-text";
 
-export interface PdfText {
-  text: string;
-  pages: number;
-}
+export { DocumentTextError };
+
+
 
 /**
  * A PDF made by scanning paper has no text layer -- pdf.js returns almost
@@ -31,9 +30,9 @@ export interface PdfText {
  */
 const MIN_USEFUL_CHARS = 40;
 
-export async function extractPdfText(file: File): Promise<PdfText> {
+export async function extractPdfText(file: File): Promise<DocumentText> {
   if (file.size > MAX_PDF_BYTES) {
-    throw new PdfTextError(
+    throw new DocumentTextError(
       `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB. Tax returns are usually well under ${MAX_PDF_BYTES / 1024 / 1024} MB — check you picked the right file.`,
     );
   }
@@ -65,7 +64,7 @@ export async function extractPdfText(file: File): Promise<PdfText> {
     doc = await task.promise;
   } catch (e) {
     await task.destroy();
-    throw new PdfTextError(
+    throw new DocumentTextError(
       e instanceof Error && /password/i.test(e.message)
         ? "That PDF is password-protected. Open it, save an unlocked copy, and try again."
         : "That file could not be read as a PDF.",
@@ -87,11 +86,11 @@ export async function extractPdfText(file: File): Promise<PdfText> {
 
     const text = pages.join("\n").replace(/[ \t]+/g, " ").trim();
     if (text.length < MIN_USEFUL_CHARS) {
-      throw new PdfTextError(
+      throw new DocumentTextError(
         "There is no text in that PDF — it looks like a scan or a photo. Reading those needs a different tool; for now, type the four figures in below.",
       );
     }
-    return { text, pages: doc.numPages };
+    return { text, source: "pdf", pages: doc.numPages };
   } finally {
     await task.destroy();
   }
