@@ -44,6 +44,7 @@ from app.models import (
     LlmAudit,
     LlmConsent,
     Payee,
+    Reconciliation,
     Paystub,
     PriorYearReturn,
     RecurringSuggestionDismissal,
@@ -251,6 +252,18 @@ async def export_my_data(
             select(Account.id).where(Account.household_id == household_id)
         )
         account_ids = [row[0] for row in account_id_res.all()]
+
+        # Reconciliations are the record of when each account last agreed
+        # with the bank. A copy of everything that left them out would be
+        # missing the evidence behind every balance in it.
+        if account_ids:
+            async for chunk in emit_small(
+                "reconciliations",
+                select(Reconciliation)
+                .where(Reconciliation.account_id.in_(account_ids))
+                .order_by(Reconciliation.statement_date),
+            ):
+                yield chunk
 
         async for chunk in emit_small(
             "category_groups",
@@ -540,6 +553,13 @@ async def _delete_household_cascade(db: AsyncSession, household_id: str) -> bool
     if account_ids:
         await db.execute(
             delete(AccountSnapshot).where(AccountSnapshot.account_id.in_(account_ids))
+        )
+        # reconciliations: FK the account AND, for a balancing entry, the
+        # transaction. Must go before both, or the deletes below fail on
+        # Postgres -- which is how this cascade broke the last time a
+        # table was added and not listed here.
+        await db.execute(
+            delete(Reconciliation).where(Reconciliation.account_id.in_(account_ids))
         )
         # transactions: parent_transaction_id is a self-FK. Doing a single
         # bulk DELETE is fine because constraint checking happens at

@@ -17,6 +17,7 @@ from app.models.goal import FinancialGoal
 from app.models.fsa_review import FsaReviewItem
 from app.models.llm import LlmConsent, LlmAudit
 from app.models.magic_link import MagicLink
+from app.models.reconciliation import Reconciliation
 
 __all__ = [
     "Household",
@@ -24,6 +25,7 @@ __all__ = [
     "WebAuthnCredential",
     "Account",
     "AccountSnapshot",
+    "Reconciliation",
     "Payee",
     "CategoryGroup",
     "Category",
