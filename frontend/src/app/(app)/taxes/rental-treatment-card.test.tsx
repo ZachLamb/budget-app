@@ -11,6 +11,7 @@ const profile = (over: Partial<TaxProfile> = {}): TaxProfile => ({
   walkthrough_completed_at: null,
   de_minimis_election: false,
   rental_treatment: null,
+  rental_active_participation: null,
   ...over,
 });
 

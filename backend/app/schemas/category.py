@@ -77,6 +77,11 @@ class CategoryCreate(BaseModel):
     deduction_pct: Decimal = Decimal("100.00")
     tax_line: Optional[str] = Field(default=None, max_length=255)
     deduction_kind: str = "personal_itemized"
+    #: Marks an INCOME category as rental income on Schedule E. The
+    #: expense side is deduction_kind == "business_expense"; this is the
+    #: other half, and without it the tax engine cannot tell rent from
+    #: salary.
+    rental_income: bool = False
 
     @field_validator("name")
     @classmethod
@@ -110,6 +115,9 @@ class CategoryUpdate(BaseModel):
     deduction_pct: Optional[Decimal] = None
     tax_line: Optional[str] = Field(default=None, max_length=255)
     deduction_kind: Optional[str] = None
+    #: The column is NOT NULL, so leaving this unset keeps the current
+    #: value -- the same treatment `deduction_kind` gets below.
+    rental_income: Optional[bool] = None
 
     @field_validator("name")
     @classmethod
@@ -148,6 +156,7 @@ class CategoryResponse(BaseModel):
     deduction_pct: Decimal
     tax_line: Optional[str]
     deduction_kind: str
+    rental_income: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

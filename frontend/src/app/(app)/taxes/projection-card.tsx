@@ -107,6 +107,12 @@ export function ProjectionCard({
   // Blank withheld boxes are not a claim that nothing was withheld, so the
   // refund-or-owed comparison has nothing real to stand on.
   const noWithholding = envelope.missing.includes("withholding");
+  // The engine can only compute one of the two readings of a rental, and
+  // until someone says which, it has taken the one that owes no
+  // self-employment tax. That is a real answer for a Schedule E rental
+  // and roughly 15% of the profit short for a Schedule C one, so the
+  // total below must not read as settled while the question is open.
+  const rentalTreatmentUnanswered = envelope.missing.includes("rental_treatment");
 
   return (
     <Card>
@@ -114,6 +120,14 @@ export function ProjectionCard({
         <CardTitle>Your {envelope.year} taxes</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
+        {rentalTreatmentUnanswered && (
+          <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm">
+            <strong>This may be missing self-employment tax.</strong> Your
+            rental turned a profit, and whether that profit owes it depends on
+            how the rental is run — a question further down this page. Until
+            you answer, the figures below assume it does not.
+          </p>
+        )}
         {noWithholding ? (
           <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm">
             <strong>No tax withheld entered yet.</strong> The tax below is

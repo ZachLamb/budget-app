@@ -36,6 +36,10 @@ export interface TaxProfile {
    *  self-employment tax. Null means nobody has answered — not a
    *  default, because the two answers differ by ~15% of the profit. */
   rental_treatment: RentalTreatment | null;
+  /** Whether you actively participate in the rental. Only decides
+   *  whether a rental LOSS can be used against wages this year, so it is
+   *  only ever asked when there is a loss. Null means unanswered. */
+  rental_active_participation: boolean | null;
 }
 
 export type RentalTreatment = "schedule_e" | "schedule_c";
@@ -144,6 +148,20 @@ type WireTaxProjection = Omit<
     self_employment: WireSelfEmployment | null;
   };
 
+/** Rental activity recorded so far this year — deliberately not
+ *  annualised. A rental's income is lumpy, so scaling a part-year figure
+ *  to twelve months would invent a number and state it confidently. */
+export interface RentalActuals {
+  gross_rental_income: number;
+  allowable_expenses: number;
+  net: number;
+  /** null when categories are marked but nothing is recorded yet. */
+  through: string | null;
+  /** false when expenses are marked but no income category is — a
+   *  half-finished setup, not a rental that earned nothing. */
+  has_income_category: boolean;
+}
+
 export interface ProjectionEnvelope {
   year: number;
   available: boolean;
@@ -153,6 +171,8 @@ export interface ProjectionEnvelope {
   /** Filing statuses this year's rate tables populate. */
   supported_filing_statuses: FilingStatus[];
   quarterly?: QuarterlyPlan | null;
+  /** Present only when rental categories are marked. */
+  rental?: RentalActuals | null;
 }
 
 interface WireProjectionEnvelope {
@@ -168,6 +188,13 @@ interface WireProjectionEnvelope {
     reason: string | null;
   } | null;
   supported_filing_statuses?: FilingStatus[];
+  rental?: {
+    gross_rental_income: string | number;
+    allowable_expenses: string | number;
+    net: string | number;
+    through: string | null;
+    has_income_category?: boolean;
+  } | null;
 }
 
 export interface PriorYearReturn {
@@ -313,6 +340,18 @@ export const taxApi = {
         projection: r.data.projection ? coerceProjection(r.data.projection) : null,
         supported_filing_statuses: r.data.supported_filing_statuses ?? [],
         quarterly: r.data.quarterly ? coerceQuarterly(r.data.quarterly) : null,
+        rental: r.data.rental
+          ? {
+              gross_rental_income: num(r.data.rental.gross_rental_income),
+              allowable_expenses: num(r.data.rental.allowable_expenses),
+              net: num(r.data.rental.net),
+              // Stays null: "marked but nothing recorded yet" is a real
+              // state, and a date coerced out of null would be a lie
+              // about how far the figures reach.
+              through: r.data.rental.through,
+              has_income_category: r.data.rental.has_income_category ?? true,
+            }
+          : null,
       })),
 
   impact: (body: { year: number; kind: ImpactKind; amount: number }) =>

@@ -101,7 +101,15 @@ export function CategoryItem({
     deduction_pct: category.deduction_pct,
     tax_line: category.tax_line,
     deduction_kind: category.deduction_kind,
+    rental_income: category.rental_income,
   });
+
+  // Rent is income, so the question only makes sense inside an income
+  // group. Offering it on a spending category would invite marking an
+  // expense as rental income, which silently inflates the rental profit
+  // the tax estimate is built on.
+  const isIncomeCategory =
+    groups.find((g) => g.id === category.group_id)?.is_income ?? false;
 
   useEffect(() => {
     if (!renaming) return;
@@ -121,6 +129,7 @@ export function CategoryItem({
         deduction_pct: number;
         tax_line: string | null;
         deduction_kind: DeductionKind;
+        rental_income: boolean;
       }>,
     ) => categoriesApi.update(category.id, data),
     onSuccess: () => {
@@ -138,6 +147,7 @@ export function CategoryItem({
       deduction_pct: category.deduction_pct,
       tax_line: category.tax_line,
       deduction_kind: category.deduction_kind,
+      rental_income: category.rental_income,
     });
     setEditing(true);
   };
@@ -149,6 +159,7 @@ export function CategoryItem({
       deduction_pct: Math.min(100, Math.max(0, formState.deduction_pct)),
       tax_line: formState.tax_line,
       deduction_kind: formState.deduction_kind,
+      rental_income: formState.rental_income,
     });
   };
 
@@ -228,6 +239,30 @@ export function CategoryItem({
           <DialogHeader>
             <DialogTitle>Edit {category.name}</DialogTitle>
           </DialogHeader>
+          {isIncomeCategory && (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <Switch.Root
+                  id={`rental_income-${category.id}`}
+                  aria-label="Rental income"
+                  checked={formState.rental_income}
+                  onCheckedChange={(checked) =>
+                    setFormState((s) => ({ ...s, rental_income: checked }))
+                  }
+                  className="relative h-5 w-9 rounded-full bg-input data-[state=checked]:bg-primary"
+                >
+                  <Switch.Thumb className="block h-4 w-4 translate-x-0.5 rounded-full bg-background transition-transform data-[state=checked]:translate-x-4" />
+                </Switch.Root>
+                <Label htmlFor={`rental_income-${category.id}`}>Rental income</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Money from renting a property, reported on Schedule E. Marking
+                it lets the Taxes page separate rent from wages — without it,
+                rental income is taxed as if it were salary and the rental
+                expenses you have marked have nothing to offset.
+              </p>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <Switch.Root
               id="deductible"

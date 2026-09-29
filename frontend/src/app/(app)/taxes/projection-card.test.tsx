@@ -153,3 +153,25 @@ describe("ProjectionCard", () => {
     expect(screen.getByText(/year-to-date plus projected/i)).toBeInTheDocument();
   });
 });
+
+describe("an unanswered rental treatment", () => {
+  const renderCard = (over: Partial<ProjectionEnvelope>) =>
+    render(<ProjectionCard envelope={{ ...available, ...over }} />);
+
+  it("warns that the total may be missing self-employment tax", () => {
+    // The engine can only compute one of the two readings, and it has
+    // taken the cheaper one. The total must not read as settled.
+    renderCard({ missing: ["rental_treatment"] });
+    expect(
+      screen.getByText(/This may be missing self-employment tax/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/the figures below assume it does not/)).toBeInTheDocument();
+  });
+
+  it("says nothing once the question is answered", () => {
+    renderCard({ missing: [] });
+    expect(
+      screen.queryByText(/This may be missing self-employment tax/),
+    ).not.toBeInTheDocument();
+  });
+});

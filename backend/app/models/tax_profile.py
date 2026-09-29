@@ -50,6 +50,13 @@ class TaxProfile(Base):
     rental_treatment: Mapped[Optional[str]] = mapped_column(
         String(20), nullable=True, default=None
     )
+    # Whether the owner actively participates in the rental. Decides
+    # whether a LOSS can be used against wages this year (Pub 925), and
+    # is irrelevant to a profit -- so it is only ever asked when there
+    # is a loss to limit. Nullable: unanswered, not assumed.
+    rental_active_participation: Mapped[Optional[bool]] = mapped_column(
+        Boolean, nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
