@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
-from sqlalchemy import select
+from sqlalchemy import extract, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_household_id
@@ -114,9 +114,14 @@ async def _check_paystub_is_sane(
             ),
         )
 
+    # Compared within the year only. Year-to-date totals reset on 1
+    # January, so measuring January's stub against last December's made
+    # every first stub of a new year look like it went backwards -- and
+    # refused it. The one entry everybody makes, every year.
     previous = select(Paystub).where(
         Paystub.household_id == household_id,
         Paystub.pay_date < data.pay_date,
+        extract("year", Paystub.pay_date) == data.pay_date.year,
     )
     if excluding_id is not None:
         previous = previous.where(Paystub.id != excluding_id)
@@ -124,14 +129,25 @@ async def _check_paystub_is_sane(
         await db.execute(previous.order_by(Paystub.pay_date.desc()).limit(1))
     ).scalar_one_or_none()
     if prior is not None and data.gross_ytd < prior.gross_ytd:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Year-to-date gross ({data.gross_ytd}) is lower than the "
-                f"previous paystub's ({prior.gross_ytd}). Year-to-date totals "
-                "only go up -- check the date and the year-to-date column."
-            ),
+        detail = (
+            f"Year-to-date gross ({data.gross_ytd}) is lower than the "
+            f"previous paystub's ({prior.gross_ytd}). Year-to-date totals "
+            "only go up -- check the date and the year-to-date column."
         )
+        # A 31 December entry is usually one read off a W-2, and a W-2
+        # does not print gross pay: it is worked out from the boxes, and
+        # comes out low by whatever was paid for health cover before tax.
+        # Without saying so this is a dead end -- the figure cannot be
+        # corrected from the form, and nothing else on the page explains
+        # why the W-2 disagrees with the paystubs.
+        if (data.pay_date.month, data.pay_date.day) == (12, 31):
+            detail += (
+                " If these came from a W-2: gross pay is not printed on one, "
+                "so it is worked out from the boxes and reads low by whatever "
+                "you pay for health cover before tax. Add that back to the "
+                "gross to match your paystubs."
+            )
+        raise HTTPException(status_code=422, detail=detail)
 
 
 @router.post("/paystubs", response_model=PaystubResponse, status_code=status.HTTP_201_CREATED)
@@ -258,6 +274,7 @@ from app.schemas.tax import (
     RentalActualsResponse, TaxProjectionResponse,
 )
 from app.services.tax.quarterly import quarterly_plan
+from app.services.tax.rates.registry import supported_years
 from app.services.tax.rates.registry import (
     UnsupportedStateError,
     supported_statuses,
@@ -292,6 +309,17 @@ def _supported_statuses_or_422(year: int) -> list[str]:
         return sorted(str(s) for s in supported_statuses(year))
     except UnknownTaxYearError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/years")
+async def list_supported_years():
+    """The years this app has rate tables for.
+
+    Rate tables are added one year at a time, by hand, from the published
+    figures. Anything the UI offers outside this list ends in a 422 after
+    the user has already done the work of entering a year's figures.
+    """
+    return {"supported": sorted(supported_years())}
 
 
 @router.get("/projection", response_model=ProjectionEnvelope)
