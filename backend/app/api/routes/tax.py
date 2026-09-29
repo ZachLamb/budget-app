@@ -255,7 +255,7 @@ from fastapi import Query
 
 from app.schemas.tax import (
     ImpactRequest, ImpactResponse, ProjectionEnvelope, QuarterlyPlanResponse,
-    TaxProjectionResponse,
+    RentalActualsResponse, TaxProjectionResponse,
 )
 from app.services.tax.quarterly import quarterly_plan
 from app.services.tax.rates.registry import (
@@ -302,12 +302,27 @@ async def get_projection(
 ):
     supported = _supported_statuses_or_422(year)
     assembled = await build_tax_inputs(db, household_id, year)
+    # Recorded rental activity is a fact about the user's own data, so it
+    # is worth showing even when no projection can be produced -- the
+    # figures are real whether or not the rest of the inputs are there.
+    rental = (
+        RentalActualsResponse(
+            gross_rental_income=assembled.rental.gross_rental_income,
+            allowable_expenses=assembled.rental.allowable_expenses,
+            net=assembled.rental.result.net,
+            through=assembled.rental.through,
+            has_income_category=assembled.rental.has_income_category,
+        )
+        if assembled.rental
+        else None
+    )
     if assembled.inputs is None:
         return ProjectionEnvelope(
             year=year,
             available=False,
             missing=assembled.missing,
             supported_filing_statuses=supported,
+            rental=rental,
         )
 
     try:
@@ -321,6 +336,7 @@ async def get_projection(
             available=False,
             missing=[*assembled.missing, "unsupported_state"],
             supported_filing_statuses=supported,
+            rental=rental,
         )
 
     try:
@@ -336,6 +352,7 @@ async def get_projection(
             available=False,
             missing=[*assembled.missing, "unsupported_filing_status"],
             supported_filing_statuses=supported,
+            rental=rental,
         )
 
     plan = quarterly_plan(projection.safe_harbor.shortfall, year, _date.today())
@@ -347,6 +364,7 @@ async def get_projection(
         projection=TaxProjectionResponse.model_validate(projection, from_attributes=True),
         supported_filing_statuses=supported,
         quarterly=QuarterlyPlanResponse.model_validate(plan, from_attributes=True),
+        rental=rental,
     )
 
 

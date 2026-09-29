@@ -29,6 +29,7 @@ function makeCategory(overrides: Partial<Category> = {}): Category {
     created_at: "2026-01-01T00:00:00Z",
     deductible: false, deduction_pct: 100, tax_line: null,
     deduction_kind: "personal_itemized",
+    rental_income: false,
     ...overrides,
   };
 }
@@ -38,6 +39,7 @@ const category: Category = makeCategory();
 const groups: CategoryGroup[] = [
   { id: "g1", household_id: "h1", name: "Everyday", sort_order: 0, is_income: false, created_at: "2026-01-01T00:00:00Z", categories: [category] },
   { id: "g2", household_id: "h1", name: "Bills", sort_order: 1, is_income: false, created_at: "2026-01-01T00:00:00Z", categories: [] },
+  { id: "gi", household_id: "h1", name: "Income", sort_order: 2, is_income: true, created_at: "2026-01-01T00:00:00Z", categories: [] },
 ];
 
 function renderItem(onRequestDelete = vi.fn(), categoryOverride: Category = category) {
@@ -211,5 +213,50 @@ describe("CategoryItem", () => {
 
     await user.click(utils.getByRole("button", { name: /edit/i }));
     expect(utils.queryByText(/business expense, but/i)).not.toBeInTheDocument();
+  });
+});
+
+
+describe("rental income marker", () => {
+  const openEdit = async () => {
+    fireEvent.click(screen.getByRole("button", { name: /Edit/i }));
+    await waitFor(() => screen.getByRole("dialog"));
+  };
+
+  it("is offered on an income category", async () => {
+    renderCategoryItem(makeCategory({ group_id: "gi", name: "Rent received" }));
+    await openEdit();
+    expect(screen.getByLabelText("Rental income")).toBeInTheDocument();
+  });
+
+  it("is not offered on a spending category", async () => {
+    // Marking an expense as rental income would silently inflate the
+    // rental profit the tax estimate is built on.
+    renderCategoryItem(makeCategory({ group_id: "g1" }));
+    await openEdit();
+    expect(screen.queryByLabelText("Rental income")).not.toBeInTheDocument();
+  });
+
+  it("explains what marking it does", async () => {
+    renderCategoryItem(makeCategory({ group_id: "gi" }));
+    await openEdit();
+    expect(
+      screen.getByText(/separate rent from wages/),
+    ).toBeInTheDocument();
+  });
+
+  it("saves the marker", async () => {
+    const update = vi.mocked(categoriesApi.update);
+    update.mockResolvedValue(makeCategory({ rental_income: true }));
+    renderCategoryItem(makeCategory({ group_id: "gi" }));
+    await openEdit();
+    fireEvent.click(screen.getByLabelText("Rental income"));
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({ rental_income: true }),
+      ),
+    );
   });
 });

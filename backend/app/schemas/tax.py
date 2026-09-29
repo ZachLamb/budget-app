@@ -26,6 +26,9 @@ class TaxProfileUpdate(BaseModel):
     de_minimis_election: Optional[bool] = None
     #: "schedule_e" | "schedule_c". No default: see the column comment.
     rental_treatment: Optional[str] = None
+    #: Whether the owner actively participates. Only decides whether a
+    #: rental LOSS is usable against wages this year (Pub 925).
+    rental_active_participation: Optional[bool] = None
 
     @field_validator("rental_treatment")
     @classmethod
@@ -67,6 +70,7 @@ class TaxProfileResponse(BaseModel):
     de_minimis_election: bool = False
     #: None means unanswered, which the projection reports as missing.
     rental_treatment: Optional[str] = None
+    rental_active_participation: Optional[bool] = None
 
 
 class PaystubCreate(BaseModel):
@@ -216,6 +220,27 @@ class QuarterlyPlanResponse(BaseModel):
     reason: Optional[str] = None
 
 
+class RentalActualsResponse(BaseModel):
+    """Rental activity recorded so far this year.
+
+    Deliberately not annualised. A rental's income is lumpy -- a summer
+    cabin earns most of its year in ten weeks -- so scaling a part-year
+    figure to twelve months would invent a number and state it
+    confidently. `through` is what lets the page say how far these
+    figures reach, and why the estimate will rise.
+    """
+
+    gross_rental_income: Decimal
+    allowable_expenses: Decimal
+    net: Decimal
+    #: None when rental categories are marked but nothing is recorded in
+    #: them yet -- a real state, not zero activity in disguise.
+    through: Optional[date] = None
+    #: False when expenses are marked but no income category is, which is
+    #: a half-finished setup rather than a rental that earned nothing.
+    has_income_category: bool = True
+
+
 class ProjectionEnvelope(BaseModel):
     """Never returns a fabricated projection. When inputs are incomplete,
     `available` is false and `missing` says what to enter."""
@@ -230,6 +255,8 @@ class ProjectionEnvelope(BaseModel):
     # Derived from the safe-harbor shortfall and today's date, which the
     # engine deliberately has no access to.
     quarterly: Optional[QuarterlyPlanResponse] = None
+    #: Present only when the household has marked rental categories.
+    rental: Optional[RentalActualsResponse] = None
 
 
 IMPACT_KINDS = {

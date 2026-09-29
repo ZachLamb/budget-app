@@ -85,6 +85,32 @@ def migrated():
     return _run_chain()
 
 
+#: Postgres stores the applied revision in `alembic_version.version_num`,
+#: which alembic creates as varchar(32). A longer id runs the DDL and
+#: then fails at the moment of stamping, leaving the migration half
+#: applied. SQLite ignores varchar length, so the replay above is blind
+#: to it.
+_MAX_REVISION_ID = 32
+
+
+def test_no_revision_id_is_too_long_to_stamp():
+    versions = BACKEND_ROOT / "alembic" / "versions"
+    too_long: list[str] = []
+    for path in sorted(versions.glob("*.py")):
+        for line in path.read_text().splitlines():
+            stripped = line.strip()
+            if stripped.startswith("revision =") and "down_revision" not in stripped:
+                rev = stripped.split("=", 1)[1].strip().strip("\"'")
+                if len(rev) > _MAX_REVISION_ID:
+                    too_long.append(f"{path.name}: {rev!r} is {len(rev)} chars")
+                break
+    assert not too_long, (
+        "These revision ids do not fit alembic_version.version_num "
+        f"(varchar({_MAX_REVISION_ID})) on Postgres:\n  "
+        + "\n  ".join(too_long)
+    )
+
+
 def test_the_chain_replays_from_an_empty_database(migrated):
     """`alembic upgrade head` on nothing must simply work.
 

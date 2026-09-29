@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Household, Paystub, PriorYearReturn, TaxProfile
 from app.services.tax.inputs import TaxInputs, WithholdingBuckets
 from app.services.tax.rates.registry import FilingStatus
+from app.services.tax.schedule_e_actuals import ScheduleEActuals, build_schedule_e
 from app.services.tax.self_employment import RentalTreatment
 
 CENTS = Decimal("0.01")
@@ -45,6 +46,12 @@ class AssemblyResult:
     missing: list[str]
     """Two-letter state code from the profile, or None when it is unset."""
     state: str | None = None
+    #: Rental activity actually recorded, and how far through the year it
+    #: reaches. None when the household has marked no rental categories.
+    #: Carried separately from the projection because it is a fact about
+    #: the user's data, not something the engine computed -- and because
+    #: the page has to say the figures are activity TO DATE.
+    rental: "ScheduleEActuals | None" = None
 
 
 def remaining_pay_periods(
@@ -106,14 +113,8 @@ async def build_tax_inputs(
     frequency = household.pay_frequency if household else None
     projectable_frequency = bool(PERIODS_PER_YEAR.get(frequency or ""))
 
-    # Only check for prior_year_return if we have the critical blocking items.
-    if profile is None or not profile.filing_status or latest_stub is None or not state:
-        if not projectable_frequency:
-            missing.append("pay_frequency")
-        return AssemblyResult(
-            inputs=None, remaining_periods=0, missing=missing, state=state
-        )
-
+    # Read before the rental block, which needs last year's suspended
+    # loss as its carry-in.
     prior = (
         await db.execute(
             select(PriorYearReturn)
@@ -123,6 +124,57 @@ async def build_tax_inputs(
             )
         )
     ).scalar_one_or_none()
+    carryin = (
+        prior.passive_loss_carryforward
+        if prior and prior.passive_loss_carryforward
+        else ZERO
+    )
+
+    rental_treatment = (
+        RentalTreatment(profile.rental_treatment)
+        if profile is not None and profile.rental_treatment
+        else None
+    )
+    # Participation only decides whether a LOSS is usable this year, so
+    # an unanswered flag makes no difference to a profit.
+    #
+    # Unanswered reads as True, matching what `ExtraBusinessExpense`
+    # has synthesized since the engine was written -- the two must
+    # agree, or the Deductions page values an expense differently from
+    # the projection that page is quoting. Reading it as False instead
+    # suspends every loss and reports business expenses as worth exactly
+    # $0, which is not caution, it is a fabricated zero. The question is
+    # still asked, below, whenever there is a loss for it to bite on.
+    actuals = await build_schedule_e(
+        db,
+        household_id,
+        year,
+        active_participation=(
+            profile is None or profile.rental_active_participation is not False
+        ),
+        suspended_loss_carryin=(
+            carryin
+        ),
+    )
+    schedule_e = actuals.result if actuals else None
+
+    # Recorded rental activity is a fact about the household's own
+    # transactions, so it is computed and returned even when the rest of
+    # the inputs are missing and no projection can be produced. Leaving
+    # it behind the early return below meant a user who had not yet set
+    # their state saw no rental figures at all, though every one of them
+    # was already sitting in their ledger.
+    if profile is None or not profile.filing_status or latest_stub is None or not state:
+        if not projectable_frequency:
+            missing.append("pay_frequency")
+        return AssemblyResult(
+            inputs=None,
+            remaining_periods=0,
+            missing=missing,
+            state=state,
+            rental=actuals,
+        )
+
     if prior is None or prior.total_tax is None:
         missing.append("prior_year_return")
 
@@ -151,14 +203,6 @@ async def build_tax_inputs(
 
     n = Decimal(periods)
 
-    # Phase 2 (the rental) is not wired into the assembler yet, so this
-    # is None today. The treatment is read and passed through regardless,
-    # so that when the rental does arrive the self-employment question is
-    # already being asked rather than being remembered later.
-    schedule_e = None
-    rental_treatment = (
-        RentalTreatment(profile.rental_treatment) if profile.rental_treatment else None
-    )
 
     inputs = TaxInputs(
         filing_status=FilingStatus(profile.filing_status),
@@ -197,6 +241,20 @@ async def build_tax_inputs(
     ):
         missing.append("rental_treatment")
 
+    # Asked only when it changes the answer. On a profit, participation
+    # is irrelevant; on a loss it decides whether the loss can be used
+    # against wages at all, which is worth thousands.
+    if (
+        schedule_e is not None
+        and schedule_e.net < ZERO
+        and profile.rental_active_participation is None
+    ):
+        missing.append("rental_active_participation")
+
     return AssemblyResult(
-        inputs=inputs, remaining_periods=periods, missing=missing, state=state
+        inputs=inputs,
+        remaining_periods=periods,
+        missing=missing,
+        state=state,
+        rental=actuals,
     )

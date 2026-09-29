@@ -76,6 +76,18 @@ export function buildSteps({
           },
         ]
       : []),
+    ...(missing.includes("rental_active_participation")
+      ? [
+          {
+            key: "rental_active_participation",
+            title: "Your part in the rental",
+            why:
+              "Your rental made a loss. Whether it can come off your wages " +
+              "now, or has to wait for a future year, depends on this.",
+            done: false,
+          },
+        ]
+      : []),
     {
       key: "prior_year_return",
       title: "Last year's return",

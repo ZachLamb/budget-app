@@ -18,6 +18,11 @@ export interface Category {
   // itemized deductions only count above the standard deduction. The tax
   // engine values them differently, so the two must not be summed.
   deduction_kind: DeductionKind;
+  // Marks an INCOME category as rental income on Schedule E. The expense
+  // side is identified by deduction_kind === "business_expense"; this is
+  // the other half, and without it the tax engine cannot tell rent from
+  // salary.
+  rental_income: boolean;
 }
 
 export interface CategoryGroup {
@@ -69,6 +74,7 @@ export const categoriesApi = {
       deduction_pct: number;
       tax_line: string | null;
       deduction_kind: DeductionKind;
+      rental_income: boolean;
     }>,
   ) =>
     api.put<Category>(`/categories/${id}`, data).then((r) => coerceCategory(r.data)),

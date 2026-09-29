@@ -21,6 +21,8 @@ import { FilingStatusWalkthrough } from "./filing-status-walkthrough";
 import { StatePicker } from "./state-picker";
 import { RentalTreatmentCard } from "./rental-treatment-card";
 import { SelfEmploymentCard } from "./self-employment-card";
+import { RentalActualsCard } from "./rental-actuals-card";
+import { RentalParticipationCard } from "./rental-participation-card";
 import { PaystubList } from "./paystub-list";
 import { PaystubForm } from "./paystub-form";
 import { PriorYearForm } from "./prior-year-form";
@@ -37,6 +39,8 @@ import { appToast } from "@/lib/app-toast";
  *  of them. */
 function profileSavedMessage(data: Partial<TaxProfile>): string {
   if (data.rental_treatment) return "Saved how your rental is run";
+  if (data.rental_active_participation !== undefined)
+    return "Saved your part in the rental";
   if (data.state) return "State saved";
   if (data.filing_status) return "Filing status saved";
   return "Saved";
@@ -237,6 +241,14 @@ export default function TaxesPage() {
               />
             )}
 
+            {/* Shown whenever rental categories are marked, including
+                when no projection could be produced: these are the
+                user's own recorded figures, and they are real whether
+                or not the rest of the tax inputs are there. */}
+            {projectionQuery.data.rental && (
+              <RentalActualsCard rental={projectionQuery.data.rental} />
+            )}
+
             {/* Only when something actually owes it. Null here means
                 "nothing does" -- no rental, a loss, or a Schedule E
                 rental -- which is a different thing from a computed
@@ -274,6 +286,17 @@ export default function TaxesPage() {
               profile={profileQuery.data}
               onSave={(data) => saveProfile.mutate(data)}
             />
+
+            {/* Only when there is a loss for the answer to bite on, or
+                one has already been given. Participation makes no
+                difference to a profitable rental. */}
+            {(projectionQuery.data.missing.includes("rental_active_participation") ||
+              profileQuery.data.rental_active_participation !== null) && (
+              <RentalParticipationCard
+                profile={profileQuery.data}
+                onSave={(data) => saveProfile.mutate(data)}
+              />
+            )}
 
             {/* Asked only once there is a rental to ask about: either the
                 projection is waiting on the answer, or one has already

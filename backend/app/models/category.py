@@ -47,6 +47,14 @@ class Category(Base):
     deduction_kind: Mapped[str] = mapped_column(
         String(30), default="personal_itemized", server_default="personal_itemized"
     )
+    # Marks an INCOME category as rental income reported on Schedule E.
+    # The expense side of a rental is already identified by
+    # deduction_kind == "business_expense"; this is the other half, and
+    # without it the tax engine cannot tell rent from salary and the
+    # whole Schedule E path stays dark.
+    rental_income: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     group: Mapped["CategoryGroup"] = relationship(back_populates="categories")
