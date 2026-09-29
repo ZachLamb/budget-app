@@ -17,6 +17,11 @@ vi.mock("./paystub-upload", () => ({
 vi.mock("./backtest-panel", () => ({
   BacktestPanel: () => null,
 }));
+// Same reason as the three above: it pulls in the document-extraction
+// stack, which has no place in a test about what this page renders.
+vi.mock("./w2-year-end-upload", () => ({
+  W2YearEndUpload: () => null,
+}));
 
 vi.mock("@/lib/api/tax", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/tax")>();
@@ -35,9 +40,12 @@ vi.mock("@/lib/api/tax", async (importOriginal) => {
 
 const emptyProfile: TaxProfile = {
   filing_status: null,
+  state: null,
   walkthrough_answers: null,
   walkthrough_completed_at: null,
   de_minimis_election: false,
+  rental_treatment: null,
+  rental_active_participation: null,
 };
 
 const unavailable: ProjectionEnvelope = {

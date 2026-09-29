@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/format";
@@ -11,7 +11,6 @@ import {
   W2_LABELS,
   w2Doubts,
   type W2Extraction,
-  type W2Key,
 } from "@/lib/tax-docs/w2-extract";
 import { DocumentPicker, WhereItRuns } from "./document-picker";
 
@@ -25,8 +24,22 @@ import { DocumentPicker, WhereItRuns } from "./document-picker";
  */
 export function W2Upload({
   onUse,
+  title = "Read it off your W-2",
+  intro,
+  actionLabel = "Use these figures",
+  renderExtras,
 }: {
-  onUse: (values: Partial<Record<W2Key, number>>) => void;
+  /** Handed the whole verified extraction, not just the numbers: a
+   *  caller that needs a derived figure must work it out from the same
+   *  verified fields everything else is checked against, not from a
+   *  second copy of the arithmetic. */
+  onUse: (extraction: W2Extraction) => void;
+  title?: string;
+  intro?: ReactNode;
+  actionLabel?: string;
+  /** Rendered between the boxes and the button — where a caller puts
+   *  anything it needs answered before the figures are used. */
+  renderExtras?: (extraction: W2Extraction) => ReactNode;
 }) {
   const { extract, cancel, stage, error, clearError, usesLocalServer, lastSource } = useW2Extract();
   const [result, setResult] = useState<W2Extraction | null>(null);
@@ -46,13 +59,17 @@ export function W2Upload({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Read it off your W-2</CardTitle>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
-        <p className="text-muted-foreground">
-          Pick the W-2 your employer sent. Its numbered boxes are what the tax
-          estimate is checked against.
-        </p>
+        <div className="text-muted-foreground">
+          {intro ?? (
+            <p>
+              Pick the W-2 your employer sent. Its numbered boxes are what the
+              tax estimate is checked against.
+            </p>
+          )}
+        </div>
 
         <WhereItRuns usesLocalServer={usesLocalServer} />
 
@@ -135,16 +152,11 @@ export function W2Upload({
               </div>
             )}
 
+            {renderExtras?.(result)}
+
             {found.length > 0 && (
-              <Button
-                type="button"
-                onClick={() => {
-                  const values: Partial<Record<W2Key, number>> = {};
-                  for (const key of found) values[key] = result.fields[key]!.value;
-                  onUse(values);
-                }}
-              >
-                Use these figures
+              <Button type="button" onClick={() => onUse(result)}>
+                {actionLabel}
               </Button>
             )}
           </div>

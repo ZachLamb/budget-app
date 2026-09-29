@@ -485,3 +485,34 @@ async def test_a_marked_income_category_clears_the_flag(fx):
     await fx.txn(clean.id, "-100.00")
     a = await build(fx)
     assert a.has_income_category is True
+
+
+@pytest.mark.asyncio
+async def test_the_app_says_which_years_it_can_work_out(api):
+    """Rate tables are added one year at a time, by hand. The UI has to
+    be able to stop offering a year before someone enters a whole W-2
+    against it and finds there is no estimate at the end."""
+    headers, _, _ = api
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/tax/years", headers=headers)
+    assert resp.status_code == 200
+    years = resp.json()["supported"]
+    assert years == sorted(years), "should come back in order"
+    assert 2026 in years
+
+
+@pytest.mark.asyncio
+async def test_every_year_it_offers_can_actually_be_projected(api):
+    """The list and the engine must not drift: a year named here that
+    `get_rates` refuses is worse than not naming it."""
+    from app.services.tax.rates.registry import get_rates, supported_statuses
+
+    headers, _, _ = api
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/tax/years", headers=headers)
+
+    for year in resp.json()["supported"]:
+        assert supported_statuses(year), f"{year} has no filing statuses"
+        assert get_rates(year, "CO").year == year

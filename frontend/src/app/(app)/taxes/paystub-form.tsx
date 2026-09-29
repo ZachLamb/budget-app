@@ -129,6 +129,12 @@ export function PaystubForm({
       PRETAX_FIELDS.some((f) => (prefill?.[f] ?? 0) > 0)
   );
 
+  // "This check" is the figure the rest of the year is projected from.
+  // On 31 December there is no rest of the year, so there is nothing for
+  // it to do -- which is what lets a W-2, which has no per-check figure
+  // anywhere on it, fill this form at all.
+  const yearEnd = payDate.endsWith("-12-31");
+
   const set = (key: MoneyField) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((f) => ({ ...f, [key]: e.target.value }));
     setFromDocument((prev) => {
@@ -141,7 +147,8 @@ export function PaystubForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!payDate || form.gross === "" || form.gross_ytd === "") return;
+    if (!payDate || form.gross_ytd === "") return;
+    if (!yearEnd && form.gross === "") return;
     setSaving(true);
     try {
       const money = Object.fromEntries(
@@ -173,6 +180,14 @@ export function PaystubForm({
             stand now; this check is what the rest of the year is projected
             from. Only the fields marked * are needed.
           </p>
+
+          {yearEnd && (
+            <p className="rounded border bg-muted/50 p-2 text-sm">
+              Dated 31 December, so the year is complete and there is nothing
+              left to project. You can leave the &ldquo;this check&rdquo;
+              column empty — only the year-to-date totals matter here.
+            </p>
+          )}
 
           <div className="max-w-xs">
             <Label htmlFor="pay_date">
@@ -206,7 +221,10 @@ export function PaystubForm({
                   value={form[now]}
                   onChange={set(now)}
                   fromDocument={fromDocument.has(now)}
-                  required={required}
+                  // Nothing is projected forward from a year-end entry,
+                  // so the per-check column has no job and must not
+                  // block the form -- a W-2 has no such figure on it.
+                  required={required && !yearEnd}
                 />
                 <MoneyInput
                   id={ytd}

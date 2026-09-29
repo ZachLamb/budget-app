@@ -96,3 +96,51 @@ describe("PaystubForm", () => {
     expect(onCancelEdit).toHaveBeenCalled();
   });
 });
+
+describe("a year-end entry", () => {
+  const YEAR_END = {
+    gross_ytd: 96000,
+    federal_withheld_ytd: 12000,
+    pretax_401k_ytd: 8000,
+    pretax_hsa_ytd: 3000,
+  };
+
+  it("does not require a per-check figure on 31 December", async () => {
+    // "This check" is what the rest of the year is projected from, and
+    // on 31 December there is no rest of the year. It is also the reason
+    // a W-2 -- which prints no per-check figure anywhere -- can fill
+    // this form at all.
+    const onAdd = vi.fn();
+    render(
+      <PaystubForm onAdd={onAdd} prefill={YEAR_END} prefillDate="2025-12-31" />,
+    );
+    expect(screen.getByLabelText(/gross pay this check/i)).not.toBeRequired();
+
+    await userEvent.click(screen.getByRole("button", { name: /add paystub/i }));
+    expect(onAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ pay_date: "2025-12-31", gross_ytd: 96000, gross: 0 }),
+    );
+  });
+
+  it("says why the column can be left empty", async () => {
+    render(<PaystubForm onAdd={vi.fn()} prefill={YEAR_END} prefillDate="2025-12-31" />);
+    expect(screen.getByText(/the year is complete/i)).toBeInTheDocument();
+  });
+
+  it("still requires it on any other date", async () => {
+    const onAdd = vi.fn();
+    render(
+      <PaystubForm onAdd={onAdd} prefill={YEAR_END} prefillDate="2026-06-15" />,
+    );
+    expect(screen.getByLabelText(/gross pay this check/i)).toBeRequired();
+    expect(screen.queryByText(/the year is complete/i)).not.toBeInTheDocument();
+  });
+
+  it("still requires the year-to-date total", async () => {
+    // Without it there is nothing to project from at all.
+    const onAdd = vi.fn();
+    render(<PaystubForm onAdd={onAdd} prefillDate="2025-12-31" />);
+    await userEvent.click(screen.getByRole("button", { name: /add paystub/i }));
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+});
