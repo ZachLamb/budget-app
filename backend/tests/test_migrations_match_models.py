@@ -1,26 +1,25 @@
 """The migration chain must replay from nothing, and land on the models.
 
-Two facts about this project make a whole class of schema bug invisible:
+The rest of the suite builds SQLite straight from `Base.metadata`, so
+every column the models declare exists under test whether or not any
+migration creates it. A column added to a model and forgotten in its
+migration is therefore invisible here and fails only against a database
+that was actually migrated -- which is to say, in front of a user. That
+is exactly how `prior_year_returns.state` came to break every load of
+the Taxes page: found by opening the app, not by the 733 tests that were
+passing at the time.
 
-1. The rest of the suite builds SQLite straight from `Base.metadata`, so
-   every column the models declare exists under test whether or not any
-   migration creates it.
-2. `0001_baseline` calls `create_all()` against the CURRENT models, so a
-   fresh database gets today's columns, while a database stamped when
-   the models were older gets only what the later deltas added. The two
-   are not the same schema.
+This module runs the real chain against a throwaway database and
+compares the result to the models, which is the only place that mistake
+shows up before someone hits it.
 
-Together they let a column be added to a model, missed in its migration,
-and never noticed: fresh installs have it (from the baseline), the tests
-have it (from the metadata), and only a database that was migrated over
-time is missing it. That is exactly how `prior_year_returns.state` came
-to break every load of the Taxes page -- found by opening the app, not
-by the 733 tests that were passing at the time.
-
-This module runs the real chain against a throwaway database. It catches
-the other half of the same problem: a delta that assumes its column is
-absent will crash on a fresh install, where the baseline already made
-it.
+It earned its keep a second time during the squash. The baseline used to
+call `create_all()` against the current models rather than spelling the
+schema out, so a delta that assumed its column was absent crashed on a
+fresh install where the baseline had already made it -- three
+migrations were written that way before anything noticed. The baseline
+is explicit now and that particular trap is gone, but the check is what
+proves it stays gone.
 """
 from __future__ import annotations
 
