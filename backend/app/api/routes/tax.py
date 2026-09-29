@@ -132,7 +132,7 @@ async def _check_paystub_is_sane(
         detail = (
             f"Year-to-date gross ({data.gross_ytd}) is lower than the "
             f"previous paystub's ({prior.gross_ytd}). Year-to-date totals "
-            "only go up -- check the date and the year-to-date column."
+            "only go up — check the date and the year-to-date column."
         )
         # A 31 December entry is usually one read off a W-2, and a W-2
         # does not print gross pay: it is worked out from the boxes, and

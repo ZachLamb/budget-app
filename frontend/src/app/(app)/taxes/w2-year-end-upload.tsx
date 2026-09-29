@@ -80,6 +80,13 @@ export function W2YearEndUpload({
             </p>
           );
         }
+        // The year printed on the form is read, but never used to file
+        // by -- a misread year would silently put a whole year of
+        // figures in the wrong place. It is used to CHECK the year that
+        // was chosen, which is the job it can be trusted with.
+        const onForm = extraction.taxYear;
+        const cannotCompute = onForm !== null && !years.includes(onForm);
+        const mismatched = onForm !== null && year !== null && onForm !== year;
         const derived = deriveYearEndFigures(extraction, year);
         const keys = Object.keys(derived.values) as PaystubKey[];
 
@@ -116,7 +123,17 @@ export function W2YearEndUpload({
               )}
             </div>
 
-            {derived.blocked ? (
+            {cannotCompute ? (
+              // The honest end of the road: there is nothing useful to
+              // do with a year the app cannot work out, and filing it as
+              // a different year would be worse than doing nothing.
+              <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2">
+                This looks like a {onForm} W-2, and tax rates for {onForm} are
+                not in the app — they are added a year at a time. Filing these
+                figures under a different year would put a whole year in the
+                wrong place, so there is nothing to do with it here yet.
+              </p>
+            ) : derived.blocked ? (
               <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2">
                 {derived.blocked}
               </p>
@@ -139,6 +156,12 @@ export function W2YearEndUpload({
                     </tbody>
                   </table>
                 </div>
+                {mismatched && (
+                  <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2">
+                    This looks like a {onForm} W-2, but it is set to be filed
+                    under {year}. Check the year above before using it.
+                  </p>
+                )}
                 {derived.notes.length > 0 && (
                   <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
                     {derived.notes.map((n, i) => (
@@ -151,8 +174,21 @@ export function W2YearEndUpload({
           </div>
         );
       }}
+      actionBlocked={(extraction) => {
+        if (years.length === 0) return "Still checking which years can be worked out";
+        const onForm = extraction.taxYear;
+        if (onForm !== null && !years.includes(onForm)) {
+          return `Tax rates for ${onForm} are not in this app yet`;
+        }
+        if (year === null) return "Pick a year first";
+        return deriveYearEndFigures(extraction, year).blocked;
+      }}
       onUse={(extraction) => {
         if (year === null) return;
+        // Refused rather than warned about: a year the app has no rates
+        // for produces no estimate, so filing it achieves nothing and
+        // leaves a year's figures under the wrong heading.
+        if (extraction.taxYear !== null && !years.includes(extraction.taxYear)) return;
         const derived = deriveYearEndFigures(extraction, year);
         if (derived.blocked) return;
         onUse(derived.values, derived.payDate);

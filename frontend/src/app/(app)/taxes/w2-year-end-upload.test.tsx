@@ -44,6 +44,7 @@ const BOXES: Partial<Record<W2Key, number>> = {
 
 function extraction(
   boxes: Partial<Record<W2Key, number>> = BOXES,
+  taxYear: number | null = null,
 ): W2Extraction {
   const fields = Object.fromEntries(
     Object.entries(boxes).map(([k, v]) => [
@@ -51,7 +52,12 @@ function extraction(
       { value: v, source_text: `${k} ${v}` },
     ]),
   );
-  return { fields, dropped: [], rejections: [] } as unknown as W2Extraction;
+  return {
+    fields,
+    dropped: [],
+    rejections: [],
+    taxYear,
+  } as unknown as W2Extraction;
 }
 
 async function upload() {
@@ -176,12 +182,87 @@ describe("<W2YearEndUpload />", () => {
     expect(screen.queryByText("$96,000.00")).not.toBeInTheDocument();
   });
 
-  it("does not hand over figures it has refused", async () => {
+  it("does not offer the button when the boxes contradict each other", async () => {
     extract.mockResolvedValue(extraction({ ...BOXES, wages: 70000 }));
+    const onUse = show();
+    await upload();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Use these figures" })).toBeDisabled(),
+    );
+    expect(onUse).not.toHaveBeenCalled();
+  });
+});
+
+describe("the year printed on the form", () => {
+  it("warns when it disagrees with the year chosen", async () => {
+    // Read to check the choice, never to file by: a misread year would
+    // silently put a whole year of figures in the wrong place.
+    // 2024 is computable, so this is a mismatch and not a dead end --
+    // the picker defaults to 2025 and the form says 2024.
+    supportedYears.mockResolvedValue([2024, 2025, 2026]);
+    extract.mockResolvedValue(extraction(BOXES, 2024));
+    show();
+    await upload();
+    await waitFor(() =>
+      expect(screen.getByText(/looks like a 2024 W-2, but it is set/)).toBeInTheDocument(),
+    );
+  });
+
+  it("says nothing when they agree", async () => {
+    supportedYears.mockResolvedValue([2025, 2026]);
+    extract.mockResolvedValue(extraction(BOXES, 2025));
+    show();
+    await upload();
+    await waitFor(() => screen.getByText(/What this fills in/));
+    expect(screen.queryByText(/but it is set to be filed/)).not.toBeInTheDocument();
+  });
+
+  it("refuses a year the app has no rates for", async () => {
+    // The honest end of the road: filing a 2025 W-2 as 2026 because
+    // 2026 is the only year offered is worse than doing nothing.
+    supportedYears.mockResolvedValue([2026]);
+    extract.mockResolvedValue(extraction(BOXES, 2025));
+    show();
+    await upload();
+    await waitFor(() =>
+      expect(screen.getByText(/tax rates for 2025 are not in the app/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/What this fills in/)).not.toBeInTheDocument();
+  });
+
+  it("does not offer a button that would refuse", async () => {
+    // A control that is offered and then silently does nothing is worse
+    // than one that is plainly unavailable.
+    supportedYears.mockResolvedValue([2026]);
+    extract.mockResolvedValue(extraction(BOXES, 2025));
+    const onUse = show();
+    await upload();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Use these figures" })).toBeDisabled(),
+    );
+    expect(onUse).not.toHaveBeenCalled();
+  });
+
+  it("says why the button is unavailable", async () => {
+    supportedYears.mockResolvedValue([2026]);
+    extract.mockResolvedValue(extraction(BOXES, 2025));
+    show();
+    await upload();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Use these figures" })).toHaveAttribute(
+        "title",
+        "Tax rates for 2025 are not in this app yet",
+      ),
+    );
+  });
+
+  it("still works when the year could not be read at all", async () => {
+    supportedYears.mockResolvedValue([2025, 2026]);
+    extract.mockResolvedValue(extraction(BOXES, null));
     const onUse = show();
     await upload();
     await waitFor(() => screen.getByRole("button", { name: "Use these figures" }));
     await userEvent.click(screen.getByRole("button", { name: "Use these figures" }));
-    expect(onUse).not.toHaveBeenCalled();
+    expect(onUse).toHaveBeenCalledWith(expect.anything(), "2025-12-31");
   });
 });

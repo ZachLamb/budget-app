@@ -13,6 +13,7 @@ numbered boxes and copy what is printed in them.
 
 Return this shape exactly:
 {
+  "tax_year": <the four-digit year the form is for> or null,
   "wages": {"value": <number>, "source_text": "<the line you read it from>"} or null,
   "federal_withheld": {...} or null,
   "ss_wages": {...} or null,
@@ -26,6 +27,9 @@ Return this shape exactly:
 }
 
 Which box each figure comes from:
+- tax_year — the four-digit year printed at the top of the form, beside \
+"Wage and Tax Statement". Return the number alone, not a quote. If it is \
+not legible, return null.
 - wages — box 1, "Wages, tips, other compensation"
 - federal_withheld — box 2, "Federal income tax withheld"
 - ss_wages — box 3, "Social Security wages"

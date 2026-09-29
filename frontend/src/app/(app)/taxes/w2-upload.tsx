@@ -28,6 +28,7 @@ export function W2Upload({
   intro,
   actionLabel = "Use these figures",
   renderExtras,
+  actionBlocked,
 }: {
   /** Handed the whole verified extraction, not just the numbers: a
    *  caller that needs a derived figure must work it out from the same
@@ -40,6 +41,10 @@ export function W2Upload({
   /** Rendered between the boxes and the button — where a caller puts
    *  anything it needs answered before the figures are used. */
   renderExtras?: (extraction: W2Extraction) => ReactNode;
+  /** Why the figures cannot be used, or null. A button that is offered
+   *  and then silently does nothing is worse than one that is plainly
+   *  unavailable. */
+  actionBlocked?: (extraction: W2Extraction) => string | null;
 }) {
   const { extract, cancel, stage, error, clearError, usesLocalServer, lastSource } = useW2Extract();
   const [result, setResult] = useState<W2Extraction | null>(null);
@@ -154,11 +159,20 @@ export function W2Upload({
 
             {renderExtras?.(result)}
 
-            {found.length > 0 && (
-              <Button type="button" onClick={() => onUse(result)}>
-                {actionLabel}
-              </Button>
-            )}
+            {found.length > 0 &&
+              (() => {
+                const blocked = actionBlocked?.(result) ?? null;
+                return (
+                  <Button
+                    type="button"
+                    onClick={() => onUse(result)}
+                    disabled={blocked !== null}
+                    title={blocked ?? undefined}
+                  >
+                    {actionLabel}
+                  </Button>
+                );
+              })()}
           </div>
         )}
       </CardContent>

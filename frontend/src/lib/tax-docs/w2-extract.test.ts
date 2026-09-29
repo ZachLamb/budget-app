@@ -217,3 +217,51 @@ describe("a real model's real output", () => {
     expect(gross).toBeCloseTo(167312, 2);
   });
 });
+
+describe("the year on the form", () => {
+  const doc = "1 Wages, tips, other compensation 85000.00";
+
+  it("is read when it is a plausible W-2 year", () => {
+    const out = verifyW2({ tax_year: 2025 }, doc, new Date("2026-03-01"));
+    expect(out.taxYear).toBe(2025);
+  });
+
+  it("is null when it was not read", () => {
+    expect(verifyW2({}, doc, new Date("2026-03-01")).taxYear).toBeNull();
+  });
+
+  it("refuses a year that has not happened", () => {
+    // A W-2 exists for a year that has started. Anything later is a
+    // misread, and acting on it would file figures into the future.
+    expect(verifyW2({ tax_year: 2030 }, doc, new Date("2026-03-01")).taxYear).toBeNull();
+  });
+
+  it("refuses an implausibly old year", () => {
+    expect(verifyW2({ tax_year: 1995 }, doc, new Date("2026-03-01")).taxYear).toBeNull();
+  });
+
+  it("refuses something that is not a whole number", () => {
+    expect(verifyW2({ tax_year: "twenty-25" }, doc, new Date("2026-03-01")).taxYear).toBeNull();
+    expect(verifyW2({ tax_year: 2025.5 }, doc, new Date("2026-03-01")).taxYear).toBeNull();
+  });
+
+  it("survives the cross-checks that drop boxes", () => {
+    // `dropField` rebuilds the verified fields, so the year has to be
+    // carried across deliberately or it vanishes whenever a box is
+    // dropped.
+    const out = applyW2CrossChecks(
+      verifyW2(
+        {
+          tax_year: 2025,
+          // Withholding above its wage box: gets dropped.
+          federal_withheld: { value: 99999, source_text: "2 Federal income tax withheld 99999" },
+          wages: { value: 100, source_text: "1 Wages, tips, other compensation 100" },
+        },
+        "2 Federal income tax withheld 99999\n1 Wages, tips, other compensation 100",
+        new Date("2026-03-01"),
+      ),
+    );
+    expect(out.taxYear).toBe(2025);
+    expect(out.fields.federal_withheld).toBeUndefined();
+  });
+});
