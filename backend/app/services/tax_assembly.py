@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import extract, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Household, Paystub, PriorYearReturn, TaxProfile
@@ -94,10 +94,20 @@ async def build_tax_inputs(
     if not state:
         missing.append("state")
 
+    # Scoped to the year being projected. Taking the most recent stub in
+    # the household regardless of year meant that in January -- before
+    # the first stub of the new year -- last December's stub was read as
+    # this year's progress: a full year of YTD wages, plus a full year of
+    # periods projected on top of them. A $78,000 earner's estimate came
+    # out at $156,000 of wages, with nothing on the page to say so. It
+    # happened to everyone, every January.
     latest_stub = (
         await db.execute(
             select(Paystub)
-            .where(Paystub.household_id == household_id)
+            .where(
+                Paystub.household_id == household_id,
+                extract("year", Paystub.pay_date) == year,
+            )
             .order_by(Paystub.pay_date.desc())
             .limit(1)
         )

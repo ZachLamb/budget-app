@@ -28,6 +28,7 @@ import { PaystubForm } from "./paystub-form";
 import { PriorYearForm } from "./prior-year-form";
 import { PriorYearUpload } from "./prior-year-upload";
 import { PaystubUpload } from "./paystub-upload";
+import { W2YearEndUpload } from "./w2-year-end-upload";
 import { BacktestPanel } from "./backtest-panel";
 import type { PaystubKey } from "@/lib/tax-docs/paystub-extract";
 import type { PriorYearKey } from "@/lib/tax-docs/prior-year-extract";
@@ -320,6 +321,20 @@ export default function TaxesPage() {
                 figures already saved, not a fresh document. */}
             {!correcting && (
               <PaystubUpload
+                onUse={(values, payDate) =>
+                  setStubExtracted((prev) => ({
+                    values,
+                    payDate,
+                    nonce: (prev?.nonce ?? 0) + 1,
+                  }))
+                }
+              />
+            )}
+            {/* The same form, filled from a whole year instead of one
+                check. A W-2 is a year-to-date snapshot taken on 31
+                December, which is exactly what a paystub row holds. */}
+            {!correcting && (
+              <W2YearEndUpload
                 onUse={(values, payDate) =>
                   setStubExtracted((prev) => ({
                     values,

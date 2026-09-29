@@ -354,6 +354,13 @@ export const taxApi = {
           : null,
       })),
 
+  /** Years this app has rate tables for. They are added one year at a
+   *  time, by hand, so this is a list and not a range. */
+  supportedYears: () =>
+    api
+      .get<{ supported: number[] }>("/tax/years")
+      .then((r) => r.data.supported),
+
   impact: (body: { year: number; kind: ImpactKind; amount: number }) =>
     api
       .post<WireImpactResult>("/tax/impact", { ...body, amount: String(body.amount) })

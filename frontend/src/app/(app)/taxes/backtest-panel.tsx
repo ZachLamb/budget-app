@@ -9,9 +9,10 @@ import { appToast } from "@/lib/app-toast";
 import { toastApiError } from "@/lib/toast-error";
 import { backtestApi, type BacktestReturn } from "@/lib/api/tax";
 import type { PriorYearKey } from "@/lib/tax-docs/prior-year-extract";
-import type { W2Key } from "@/lib/tax-docs/w2-extract";
+import { W2_KEYS, type W2Key } from "@/lib/tax-docs/w2-extract";
 import { PriorYearUpload } from "./prior-year-upload";
 import { W2Upload } from "./w2-upload";
+import { deriveYearEndFigures } from "@/lib/tax-docs/w2-to-paystub";
 
 /**
  * Fill the back-test's fixture from a real filed return.
@@ -56,17 +57,19 @@ export function BacktestPanel() {
   const [prior, setPrior] = useState<Partial<Record<PriorYearKey, number>> | null>(null);
   const [priorYear, setPriorYear] = useState<number | null>(null);
   const [w2, setW2] = useState<Partial<Record<W2Key, number>> | null>(null);
+  const [grossYtd, setGrossYtd] = useState<number | null>(null);
   const [stateTax, setStateTax] = useState("");
   const [filingStatus, setFilingStatus] = useState<string>("single");
   const [saving, setSaving] = useState(false);
 
-  // Gross wages are box 1 plus the deferrals, because box 1 is already net
-  // of them. Box 1 alone understates every figure downstream -- the
-  // back-test README calls this out as the usual cause of a false failure.
-  const grossWages =
-    w2?.wages === undefined
-      ? undefined
-      : w2.wages + (w2.pretax_401k ?? 0) + (w2.pretax_hsa ?? 0);
+  // Gross wages are not printed on a W-2 and have to be worked out --
+  // box 1 alone is already net of the deferrals and understates every
+  // figure downstream, which the back-test README calls out as the usual
+  // cause of a false failure. Worked out by `deriveYearEndFigures` when
+  // the file is read, not here: a second copy of that arithmetic is a
+  // second thing to get wrong, and it would make the back-test check the
+  // engine against a gross the rest of the app disagrees with.
+  const grossWages = grossYtd ?? undefined;
 
   const record: BacktestReturn | null =
     priorYear === null
@@ -130,7 +133,21 @@ export function BacktestPanel() {
             setPriorYear(year);
           }}
         />
-        <W2Upload onUse={setW2} />
+        <W2Upload
+          onUse={(extraction) => {
+            const values: Partial<Record<W2Key, number>> = {};
+            for (const key of W2_KEYS) {
+              const f = extraction.fields[key];
+              if (f) values[key] = f.value;
+            }
+            setW2(values);
+            // Gross is not printed on a W-2 and has to be worked out.
+            // Taken from the shared derivation rather than repeated
+            // here, so the back-test cannot end up checking the engine
+            // against a gross the rest of the app would not agree with.
+            setGrossYtd(deriveYearEndFigures(extraction, null).values.gross_ytd ?? null);
+          }}
+        />
 
         <div>
           <Label htmlFor="backtest-filing-status">Filing status on that return</Label>

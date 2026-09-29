@@ -81,6 +81,21 @@ class RateSet:
     supported_statuses: frozenset[FilingStatus]
 
 
+#: The years with a sourced rate table. One module per year, added
+#: deliberately -- so this is a list, not a range, and it is the honest
+#: answer to "which years can this app actually work out".
+#:
+#: Exposed because the UI has to stop offering a year before someone
+#: files a whole W-2 against it and finds there is no estimate at the
+#: end. Keep in step with `get_rates` and `supported_statuses`.
+_YEARS_WITH_RATES = frozenset({2026})
+
+
+def supported_years() -> frozenset[int]:
+    """Years this app has rate tables for."""
+    return _YEARS_WITH_RATES
+
+
 def supported_statuses(year: int) -> frozenset[FilingStatus]:
     """Filing statuses with sourced brackets for this year.
 
