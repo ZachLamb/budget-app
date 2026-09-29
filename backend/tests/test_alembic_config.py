@@ -41,16 +41,29 @@ def test_script_directory_has_head() -> None:
     assert len(heads) == 1, f"expected exactly one head, got {heads!r}"
 
 
+#: The id of the squashed baseline. It is not arbitrary and it is not
+#: free to change: it is the revision every database that existed at the
+#: time of the squash is stamped with. Reusing it is what lets
+#: `alembic upgrade head` -- which the deploy runs on every boot -- find
+#: its own revision on those databases and do nothing, instead of
+#: failing to locate it and refusing to start.
+_BASELINE = "0018_rental_income"
+
+
 def test_baseline_revision_present() -> None:
-    """The 0001_baseline revision must be the root of the history."""
+    """One root, and it is the revision deployed databases are stamped with."""
     script = ScriptDirectory.from_config(_config())
     revisions = list(script.walk_revisions())
     assert revisions, "no revisions found"
-    root = revisions[-1]  # walk_revisions goes head -> base
-    assert root.revision == "0001_baseline", (
-        f"expected baseline revision id '0001_baseline', got {root.revision!r}"
+    roots = [r for r in revisions if r.down_revision is None]
+    assert len(roots) == 1, f"expected exactly one root, got {roots!r}"
+    root = roots[0]
+    assert root.revision == _BASELINE, (
+        f"expected the baseline to stay {_BASELINE!r}, got {root.revision!r}. "
+        "Changing it strands every database stamped with the old id: the "
+        "deploy runs `alembic upgrade head` on boot and would fail to "
+        "locate their revision."
     )
-    assert root.down_revision is None
 
 
 def test_env_module_imports() -> None:
