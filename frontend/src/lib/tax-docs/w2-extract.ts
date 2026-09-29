@@ -64,10 +64,34 @@ export const W2_LABELS: Record<W2Key, string> = {
   state_withheld: "State income tax withheld",
 };
 
-export type W2Extraction = VerifiedFields<W2Key>;
+export interface W2Extraction extends VerifiedFields<W2Key> {
+  /** The year printed on the form, or null if it could not be read.
+   *
+   *  Never used to decide which year the figures are filed against --
+   *  that is asked, because a misread year would silently put a whole
+   *  year of figures in the wrong place. It is used only to CHECK the
+   *  year that was chosen, which is the job it can be trusted with. */
+  taxYear: number | null;
+}
 
-export function verifyW2(raw: unknown, documentText: string): W2Extraction {
-  return verifyQuotedFields(raw, W2_KEYS, W2_LABELS, documentText);
+export function verifyW2(
+  raw: unknown,
+  documentText: string,
+  today: Date = new Date(),
+): W2Extraction {
+  const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    ...verifyQuotedFields(raw, W2_KEYS, W2_LABELS, documentText),
+    taxYear: readTaxYear(obj.tax_year, today),
+  };
+}
+
+function readTaxYear(raw: unknown, today: Date): number | null {
+  const year = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isInteger(year)) return null;
+  // A W-2 exists for a year that has started; anything else is a misread.
+  if (year < 2000 || year > today.getFullYear()) return null;
+  return year;
 }
 
 /** Rounding on a W-2 is to the cent; allow for it and nothing more. */
@@ -84,7 +108,10 @@ const CENT = 0.005;
  * does: keeping the wrong one is worse than typing two numbers.
  */
 export function applyW2CrossChecks(extraction: W2Extraction): W2Extraction {
-  let out: W2Extraction = extraction;
+  // `dropField` works on the verified fields alone, so the year is
+  // carried across at the end -- the same shape `applyCrossChecks` uses
+  // for the 1040.
+  let out: VerifiedFields<W2Key> = extraction;
   const drop = (key: W2Key, why: string) => {
     out = dropField(out, key, W2_LABELS[key], why);
   };
@@ -121,7 +148,7 @@ export function applyW2CrossChecks(extraction: W2Extraction): W2Extraction {
     drop("medicare_wages", "Medicare wages came out below Social Security wages, which cannot happen — boxes 3 and 5 may have been read the wrong way round");
   }
 
-  return out;
+  return { ...out, taxYear: extraction.taxYear };
 }
 
 /**
